@@ -1,0 +1,8 @@
+{
+"type": "FeatureCollection",
+"name": "SP_1-LIB-PSE",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:OGC:1.3:CRS84" } },
+"features": [
+{ "type": "Feature", "properties": { "full_id": "r2144052", "osm_id": "2144052", "osm_type": "relation", "route": "subway", "wheelchair": "limited", "operator:wikidata": null, "opening_hours": null, "fee": null, "wikipedia": "pt:Linha 1 do Metrô de São Paulo", "wikidata": "Q3362568", "type": "route", "to": "Tucuruvi", "ref": "1", "public_transport:version": "2", "operator": "Companhia do Metropolitano de São Paulo", "network": "Metrô", "name": "Linha 1 - Azul: Jabaquara ⇒ Tucuruvi", "from": "Jabaquara", "colour": "#1266af" }, "geometry": { "type": "MultiLineString", "coordinates": [ [ [ -46.635717781888232, -23.554956006252652 ], [ -46.6357176, -23.5549556 ], [ -46.6355076, -23.5545344 ], [ -46.6351155, -23.5537759 ], [ -46.6349822, -23.5535311 ], [ -46.6348298, -23.5532688 ], [ -46.6346206, -23.5529676 ], [ -46.6344055, -23.5527158 ], [ -46.634131, -23.552442 ], [ -46.6336367, -23.5519535 ], [ -46.6334581, -23.5517673 ], [ -46.6333199, -23.5515963 ], [ -46.6332641, -23.5515153 ], [ -46.6331857, -23.5514014 ], [ -46.6331434, -23.5513399 ], [ -46.6330172, -23.5511061 ], [ -46.6328982, -23.5508722 ], [ -46.6328047, -23.5506435 ], [ -46.632804584412405, -23.550643148204369 ] ] ] } }
+]
+}

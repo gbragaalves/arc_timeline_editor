@@ -51,6 +51,12 @@ server <- function(input, output, session) {
   original_samples <- shiny::reactiveVal(list())  # Samples originais antes da edição
   original_timeline_item_id <- shiny::reactiveVal(NULL)  # timelineItemId original dos samples
 
+  # Estado para edicao de rota
+  route_edit_nodes <- shiny::reactiveVal(list())     # Waypoints editaveis da rota
+  route_original_item <- shiny::reactiveVal(NULL)    # TimelineItem original
+  route_original_samples <- shiny::reactiveVal(list())  # Samples originais da rota
+  route_avg_speed <- shiny::reactiveVal(NULL)        # Velocidade media (m/s)
+
   # ---- Location History de outras pessoas ----
   # PESSOAS_CONFIG é carregada no app.R (variável global)
   pessoas_config <- tryCatch(
@@ -221,6 +227,40 @@ server <- function(input, output, session) {
             )
         }
       }
+
+      # Verifica se algum ponto ja esta visivel na tela atual
+      all_lats <- c(visitas$lat, atividades$lat, atividades$lat_end)
+      all_lons <- c(visitas$lon, atividades$lon, atividades$lon_end)
+
+      if (length(all_lats) > 0 && length(all_lons) > 0) {
+        # Obtem bounds atuais do mapa
+        bounds <- input$map_bounds
+
+        # So faz fitBounds se nenhum ponto estiver visivel
+        algum_visivel <- FALSE
+        if (!is.null(bounds)) {
+          for (i in seq_along(all_lats)) {
+            lat_i <- all_lats[i]
+            lon_i <- all_lons[i]
+            if (!is.na(lat_i) && !is.na(lon_i) &&
+                lat_i >= bounds$south && lat_i <= bounds$north &&
+                lon_i >= bounds$west && lon_i <= bounds$east) {
+              algum_visivel <- TRUE
+              break
+            }
+          }
+        }
+
+        if (!algum_visivel) {
+          proxy <- proxy %>%
+            leaflet::fitBounds(
+              lng1 = min(all_lons, na.rm = TRUE) - 0.01,
+              lat1 = min(all_lats, na.rm = TRUE) - 0.01,
+              lng2 = max(all_lons, na.rm = TRUE) + 0.01,
+              lat2 = max(all_lats, na.rm = TRUE) + 0.01
+            )
+        }
+      }
     }
   })
 
@@ -332,12 +372,28 @@ server <- function(input, output, session) {
 
   # ---- Mapa base ----
   output$map <- leaflet::renderLeaflet({
-    leaflet::leaflet() |>
-      leaflet::addTiles(group = "OSM") |>
-      leaflet::addProviderTiles("CartoDB.Positron", group = "CartoDB") |>
-      leaflet::addProviderTiles("Esri.WorldImagery", group = "Satélite") |>
+    leaflet::leaflet(options = leaflet::leafletOptions(maxZoom = 19)) |>
+      leaflet::addTiles(
+        group = "OSM",
+        options = leaflet::tileOptions(maxZoom = 19)
+      ) |>
+      leaflet::addProviderTiles(
+        "CartoDB.Positron",
+        group = "CartoDB",
+        options = leaflet::providerTileOptions(maxZoom = 19)
+      ) |>
+      leaflet::addProviderTiles(
+        "Esri.WorldImagery",
+        group = "Satelite",
+        options = leaflet::providerTileOptions(maxZoom = 19)
+      ) |>
+      leaflet::addTiles(
+        urlTemplate = "https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=727e6d7e3a167a9a54a2ffb6c1857107",
+        group = "Topo",
+        options = leaflet::tileOptions(maxZoom = 19)
+      ) |>
       leaflet::addLayersControl(
-        baseGroups = c("CartoDB", "OSM", "Satélite"),
+        baseGroups = c("OSM", "CartoDB", "Satelite", "Topo"),
         options = leaflet::layersControlOptions(collapsed = TRUE)
       ) |>
       leaflet::setView(lng = -43.2, lat = -22.9, zoom = 11)
@@ -680,6 +736,7 @@ server <- function(input, output, session) {
     # Guarda rota em atributo da sessão
     session$userData$ultima_rota_osrm <- rota
     session$userData$ultima_rota_pts <- pts
+    session$userData$ultima_rota_perfil <- perfil
   })
 
   shiny::observeEvent(input$recalcular_osrm_fim, {
@@ -855,12 +912,23 @@ server <- function(input, output, session) {
         )
         sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
 
+        # Mapeia perfil OSRM para activityType
+        perfil <- session$userData$ultima_rota_perfil %||% "car"
+        activity_map <- c(
+          car  = "car",
+          foot = "walking",
+          bike = "cycling",
+          bus  = "bus"
+        )
+        activity_type <- activity_map[[perfil]] %||% "transport"
+
         item <- criar_timeline_item_path(
           timestamps_utc = ts_seq,
           coords         = coords_new,
           sample_ids     = sample_ids,
           tipo           = "rota_osrm",
-          descricao      = "Rota OSRM"
+          descricao      = sprintf("Rota OSRM (%s)", perfil),
+          activity_type  = activity_type
         )
 
         tl <- timeline()
@@ -872,6 +940,7 @@ server <- function(input, output, session) {
 
         leaflet::leafletProxy("map") %>%
           leaflet::clearGroup("rota_atual") %>%
+          leaflet::clearGroup("waypoints") %>%
           leaflet::addPolylines(
             lng   = coords_new[, 1],
             lat   = coords_new[, 2],
@@ -885,6 +954,9 @@ server <- function(input, output, session) {
             lng2 = max(coords_new[, 1]),
             lat2 = max(coords_new[, 2])
           )
+
+        # Limpa pontos temporarios apos adicionar rota
+        pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
 
         shiny::showNotification("Rota OSRM adicionada.", type = "message")
       },
@@ -2502,4 +2574,485 @@ server <- function(input, output, session) {
       cat(gpx_footer, file = file, append = TRUE)
     }
   )
+
+  # ---- Edicao de Rota ----
+
+  # Atualiza seletor de rotas quando entra no modo "Editar Rota"
+  shiny::observe({
+    if (input$modo != "Editar Rota") return()
+
+    tl <- timeline()
+    if (length(tl) == 0) {
+      shiny::updateSelectInput(session, "rota_editar_selecionada",
+                               choices = c("Nenhuma rota" = ""),
+                               selected = "")
+      return()
+    }
+
+    # Filtra apenas rotas (nao visitas)
+    rotas <- Filter(function(x) !isTRUE(x$.isVisit), tl)
+    if (length(rotas) == 0) {
+      shiny::updateSelectInput(session, "rota_editar_selecionada",
+                               choices = c("Nenhuma rota" = ""),
+                               selected = "")
+      return()
+    }
+
+    # Cria opcoes com nome, modo e horario local
+    opcoes <- vapply(rotas, function(x) {
+      nome <- x$descricao %||% "Rota"
+      modo <- x$activityType %||% "transport"
+      hora <- tryCatch({
+        # Parse UTC timestamp
+        ts_utc <- lubridate::ymd_hms(x$startDate$date, tz = "UTC")
+        # Converte para timezone local do sistema
+        ts_local <- lubridate::with_tz(ts_utc, Sys.timezone())
+        format(ts_local, "%H:%M")
+      }, error = function(e) "")
+      paste0(hora, " [", modo, "] - ", nome)
+    }, character(1))
+    names(opcoes) <- vapply(rotas, `[[`, "", ".internalId")
+
+    # Inverte para ter ID como valor
+    choices <- stats::setNames(names(opcoes), opcoes)
+
+    shiny::updateSelectInput(session, "rota_editar_selecionada",
+                             choices = choices,
+                             selected = choices[1])
+  })
+
+  # Funcao auxiliar para renderizar rota editavel
+  renderizar_rota_editavel <- function() {
+    nodes <- route_edit_nodes()
+    proxy <- leaflet::leafletProxy("map")
+
+    proxy <- proxy %>%
+      leaflet::clearGroup("edit_route") %>%
+      leaflet::clearGroup("edit_route_nodes")
+
+    if (length(nodes) == 0) return()
+
+    # Extrai coordenadas para desenhar a polyline
+    all_lngs <- vapply(nodes, `[[`, numeric(1), "lng")
+    all_lats <- vapply(nodes, `[[`, numeric(1), "lat")
+
+    # Desenha a polyline conectando todos os nos
+    proxy <- proxy %>%
+      leaflet::addPolylines(
+        lng = all_lngs,
+        lat = all_lats,
+        color = "#28a745",
+        weight = 4,
+        opacity = 0.8,
+        group = "edit_route"
+      )
+
+    # Desenha nos como Markers com divIcon (circulos CSS que suportam drag)
+    for (i in seq_along(nodes)) {
+      node <- nodes[[i]]
+
+      # Cor baseada no tipo de no
+      fill_color <- if (i == 1) "#28a745"           # verde - inicio
+                    else if (i == length(nodes)) "#dc3545"  # vermelho - fim
+                    else if (isTRUE(node$is_inserted)) "#fd7e14"  # laranja - inserido
+                    else if (isTRUE(node$is_modified)) "#007bff"  # azul - modificado
+                    else "#6c757d"  # cinza - original
+
+      # makeIcon com SVG inline para circulos draggable
+      icon <- leaflet::makeIcon(
+        iconUrl = sprintf(
+          "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><circle cx='8' cy='8' r='6' fill='%s' stroke='white' stroke-width='2'/></svg>",
+          gsub("#", "%%23", fill_color)  # URL-encode the #
+        ),
+        iconWidth = 16, iconHeight = 16,
+        iconAnchorX = 8, iconAnchorY = 8
+      )
+
+      proxy <- proxy %>%
+        leaflet::addMarkers(
+          lng = node$lng,
+          lat = node$lat,
+          icon = icon,
+          layerId = node$id,
+          group = "edit_route_nodes",
+          options = leaflet::markerOptions(
+            draggable = TRUE
+          ),
+          label = sprintf("No %d", i)
+        )
+    }
+
+    # Ajusta bounds
+    proxy %>%
+      leaflet::fitBounds(
+        lng1 = min(all_lngs) - 0.005, lat1 = min(all_lats) - 0.005,
+        lng2 = max(all_lngs) + 0.005, lat2 = max(all_lats) + 0.005
+      )
+
+    # Configura handlers de eventos nos nos
+    session$sendCustomMessage("setup_route_nodes", list())
+  }
+
+  # Handler: Carregar rota para edicao
+  shiny::observeEvent(input$carregar_rota_edit, {
+    item_id <- input$rota_editar_selecionada
+    if (is.null(item_id) || item_id == "") {
+      shiny::showNotification("Selecione uma rota.", type = "warning")
+      return()
+    }
+
+    tl <- timeline()
+    idx <- which(vapply(tl, `[[`, "", ".internalId") == item_id)
+    if (length(idx) == 0) {
+      shiny::showNotification("Rota nao encontrada.", type = "error")
+      return()
+    }
+
+    item <- tl[[idx]]
+    route_original_item(item)
+
+    # Busca samples associados
+    s <- all_samples()
+    sample_ids <- item$samples %||% character(0)
+    route_samples <- Filter(function(x) x$sampleId %in% sample_ids, s)
+
+    if (length(route_samples) < 2) {
+      shiny::showNotification("Rota deve ter pelo menos 2 samples.", type = "error")
+      return()
+    }
+
+    # Ordena samples por timestamp
+    route_samples <- route_samples[order(vapply(route_samples, function(x) x$date, ""))]
+    route_original_samples(route_samples)
+
+    # Calcula metricas originais
+    coords <- extract_coords_from_samples(route_samples)
+    total_dist <- trajeto_distancia_km(coords) * 1000  # metros
+
+    ts_start <- as.POSIXct(gsub("Z$", "", item$startDate$date), tz = "UTC")
+    ts_end <- as.POSIXct(gsub("Z$", "", item$endDate$date), tz = "UTC")
+    total_duration <- as.numeric(difftime(ts_end, ts_start, units = "secs"))
+
+    # Se duracao invalida, estima baseado em velocidade padrao (30 km/h)
+    if (total_duration <= 0 || is.na(total_duration)) {
+      # 30 km/h = 8.33 m/s
+      total_duration <- total_dist / 8.33
+      if (total_duration < 60) total_duration <- 60  # minimo 1 minuto
+    }
+
+    avg_speed <- total_dist / total_duration  # m/s
+
+    # Limita velocidade maxima a 200 km/h (55.5 m/s)
+    if (avg_speed > 55.5) avg_speed <- 55.5
+
+    route_avg_speed(avg_speed)
+
+    # Cria nos a partir de TODOS os samples
+    n_samples <- length(route_samples)
+    nodes <- lapply(seq_len(n_samples), function(i) {
+      smp <- route_samples[[i]]
+      list(
+        id = paste0("node_", i),
+        lat = as.numeric(smp$location$latitude),
+        lng = as.numeric(smp$location$longitude),
+        sample_id = smp$sampleId,
+        is_original = TRUE,
+        is_modified = FALSE,
+        is_inserted = FALSE
+      )
+    })
+    route_edit_nodes(nodes)
+
+    renderizar_rota_editavel()
+
+    shiny::showNotification(
+      sprintf("Rota carregada: %d nos, %.1f km, vel. media %.1f km/h",
+              n_samples, total_dist / 1000, avg_speed * 3.6),
+      type = "message"
+    )
+  })
+
+  # Handler: Arrastar no (dragend)
+  shiny::observeEvent(input$route_node_dragend, {
+    event <- input$route_node_dragend
+    if (is.null(event)) return()
+
+    node_id <- event$id
+    new_lat <- event$lat
+    new_lng <- event$lng
+
+    nodes <- route_edit_nodes()
+    node_idx <- which(vapply(nodes, `[[`, "", "id") == node_id)
+
+    if (length(node_idx) == 0) return()
+
+    # Atualiza posicao do no
+    nodes[[node_idx]]$lat <- new_lat
+    nodes[[node_idx]]$lng <- new_lng
+    nodes[[node_idx]]$is_modified <- TRUE
+    route_edit_nodes(nodes)
+
+    # Re-renderiza a rota (linha reta entre nos)
+    renderizar_rota_editavel()
+  })
+
+  # Handler: Deletar no (context menu)
+  shiny::observeEvent(input$ctx_delete_node, {
+    event <- input$ctx_delete_node
+    if (is.null(event)) return()
+
+    node_id <- event$id
+    nodes <- route_edit_nodes()
+    node_idx <- which(vapply(nodes, `[[`, "", "id") == node_id)
+
+    if (length(node_idx) == 0) return()
+
+    # Nao pode deletar primeiro ou ultimo no
+    if (node_idx == 1 || node_idx == length(nodes)) {
+      shiny::showNotification("Nao e possivel deletar o primeiro ou ultimo no.", type = "warning")
+      return()
+    }
+
+    # Remove o no
+    nodes <- nodes[-node_idx]
+    route_edit_nodes(nodes)
+
+    renderizar_rota_editavel()
+    shiny::showNotification("No deletado.", type = "message")
+  })
+
+  # Handler: Inserir waypoint (click no mapa)
+  shiny::observeEvent(input$insert_waypoint_click, {
+    if (!isTRUE(input$modo_inserir_waypoint)) return()
+
+    event <- input$insert_waypoint_click
+    if (is.null(event)) return()
+
+    click_lat <- event$lat
+    click_lng <- event$lng
+
+    nodes <- route_edit_nodes()
+
+    if (length(nodes) == 0) {
+      shiny::showNotification("Carregue uma rota primeiro.", type = "warning")
+      return()
+    }
+
+    # Encontra segmento mais proximo (linha reta entre nos consecutivos)
+    min_dist <- Inf
+    insert_after <- 1
+
+    for (i in seq_len(length(nodes) - 1)) {
+      dist <- point_to_segment_distance(
+        click_lng, click_lat,
+        nodes[[i]]$lng, nodes[[i]]$lat,
+        nodes[[i + 1]]$lng, nodes[[i + 1]]$lat
+      )
+      if (dist < min_dist) {
+        min_dist <- dist
+        insert_after <- i
+      }
+    }
+
+    # Cria novo no
+    new_node_id <- paste0("node_ins_", format(Sys.time(), "%H%M%S%OS3"))
+    new_node <- list(
+      id = new_node_id,
+      lat = click_lat,
+      lng = click_lng,
+      sample_id = NULL,
+      is_original = FALSE,
+      is_inserted = TRUE,
+      is_modified = FALSE
+    )
+
+    # Insere no na posicao correta
+    nodes <- append(nodes, list(new_node), after = insert_after)
+    route_edit_nodes(nodes)
+
+    renderizar_rota_editavel()
+    shiny::showNotification("Waypoint inserido.", type = "message")
+  })
+
+  # Handler: Aplicar edicoes
+  shiny::observeEvent(input$aplicar_edicoes_rota, {
+    nodes <- route_edit_nodes()
+    original_item <- route_original_item()
+    avg_speed <- route_avg_speed()
+
+    if (length(nodes) < 2 || is.null(original_item)) {
+      shiny::showNotification("Nenhuma rota para aplicar.", type = "error")
+      return()
+    }
+
+    # Extrai coordenadas dos nos
+    all_lngs <- vapply(nodes, `[[`, numeric(1), "lng")
+    all_lats <- vapply(nodes, `[[`, numeric(1), "lat")
+    all_coords <- cbind(all_lngs, all_lats)
+    colnames(all_coords) <- c("lon", "lat")
+
+    n_route <- nrow(all_coords)
+
+    # Tempo de inicio original
+    start_utc <- as.POSIXct(gsub("Z$", "", original_item$startDate$date), tz = "UTC")
+
+    # Recalcula tempos mantendo velocidade media
+    time_result <- recalcular_tempos_rota(all_coords, start_utc, avg_speed)
+
+    # Usa os nos diretamente como samples (ja temos todos os pontos)
+    n_target <- n_route
+    ts_seq <- time_result$timestamps_utc
+
+    lon_new <- all_lngs
+    lat_new <- all_lats
+    coords_new <- all_coords
+
+    # Cria novos samples
+    samples_novos <- criar_locomotion_samples(
+      coords = coords_new,
+      timestamps_utc = ts_seq,
+      accuracy = 0.01,
+      force_single_tz = TRUE,
+      moving_state = "moving"
+    )
+    sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
+
+    # Atualiza timeline
+    tl <- timeline()
+    idx <- which(vapply(tl, `[[`, "", ".internalId") == original_item$.internalId)
+
+    if (length(idx) > 0) {
+      item <- tl[[idx]]
+
+      # Remove samples antigos
+      s <- all_samples()
+      old_sample_ids <- item$samples %||% character(0)
+      s <- Filter(function(x) !x$sampleId %in% old_sample_ids, s)
+
+      # Atualiza item
+      item$samples <- sample_ids
+      item$endDate$date <- format(time_result$end_time_utc, "%Y-%m-%dT%H:%M:%SZ")
+
+      # Recalcula secondsFromGMT para fim (usa mesmo offset do inicio para consistencia)
+      start_offset <- original_item$startDate$secondsFromGMT %||% -10800
+      item$endDate$secondsFromGMT <- start_offset
+
+      # Atualiza descricao
+      new_dist_km <- time_result$total_distance_m / 1000
+      item$descricao <- sprintf("Rota editada (%.1f km)", new_dist_km)
+
+      tl[[idx]] <- item
+      timeline(tl)
+
+      # Adiciona novos samples
+      all_samples(c(s, samples_novos))
+
+      # Desenha rota atualizada
+      leaflet::leafletProxy("map") %>%
+        leaflet::clearGroup("edit_route") %>%
+        leaflet::clearGroup("edit_route_nodes") %>%
+        leaflet::clearGroup("rota_atual") %>%
+        leaflet::addPolylines(
+          lng = lon_new,
+          lat = lat_new,
+          color = "blue",
+          weight = 4,
+          group = "rota_atual"
+        )
+
+      # Limpa estado de edicao
+      route_edit_nodes(list())
+      route_original_item(NULL)
+      route_original_samples(list())
+      route_avg_speed(NULL)
+
+      # Desativa modo inserir waypoint
+      shiny::updateCheckboxInput(session, "modo_inserir_waypoint", value = FALSE)
+      session$sendCustomMessage("clear_route_edit", list())
+
+      # Calcula velocidade media real da rota editada
+      recalc_speed_kmh <- if (time_result$total_duration_s > 0) {
+        (time_result$total_distance_m / time_result$total_duration_s) * 3.6
+      } else {
+        avg_speed * 3.6
+      }
+
+      shiny::showNotification(
+        sprintf("Rota atualizada! %.1f km, duracao %.0f min, vel. media %.1f km/h",
+                new_dist_km,
+                time_result$total_duration_s / 60,
+                recalc_speed_kmh),
+        type = "message"
+      )
+    }
+  })
+
+  # Handler: Cancelar edicoes
+  shiny::observeEvent(input$cancelar_edicoes_rota, {
+    # Limpa estado de edicao
+    route_edit_nodes(list())
+    route_original_item(NULL)
+    route_original_samples(list())
+    route_avg_speed(NULL)
+
+    # Limpa mapa
+    leaflet::leafletProxy("map") %>%
+      leaflet::clearGroup("edit_route") %>%
+      leaflet::clearGroup("edit_route_nodes")
+
+    # Desativa modo inserir waypoint
+    shiny::updateCheckboxInput(session, "modo_inserir_waypoint", value = FALSE)
+    session$sendCustomMessage("clear_route_edit", list())
+
+    shiny::showNotification("Edicao cancelada.", type = "message")
+  })
+
+  # Handler: Deletar nos selecionados (via laco)
+  shiny::observeEvent(input$deletar_nodes_selecionados, {
+    selected <- input$selected_route_nodes
+    if (is.null(selected) || length(selected) == 0) {
+      shiny::showNotification("Nenhum no selecionado.", type = "warning")
+      return()
+    }
+
+    nodes <- route_edit_nodes()
+    if (length(nodes) < 3) {
+      shiny::showNotification("Rota deve ter pelo menos 2 nos.", type = "warning")
+      return()
+    }
+
+    # Obtem IDs do primeiro e ultimo no
+    node_ids <- vapply(nodes, `[[`, "", "id")
+    first_id <- node_ids[1]
+    last_id <- node_ids[length(node_ids)]
+
+    # Remove primeiro e ultimo da lista de selecionados
+    to_delete <- setdiff(selected, c(first_id, last_id))
+
+    if (length(to_delete) == 0) {
+      shiny::showNotification("Nao pode deletar primeiro/ultimo no.", type = "warning")
+      return()
+    }
+
+    # Verifica se sobrara pelo menos 2 nos
+    remaining <- length(nodes) - length(to_delete)
+    if (remaining < 2) {
+      shiny::showNotification("Rota deve ter pelo menos 2 nos.", type = "warning")
+      return()
+    }
+
+    # Remove os nos selecionados
+    nodes <- Filter(function(n) !n$id %in% to_delete, nodes)
+    route_edit_nodes(nodes)
+
+    renderizar_rota_editavel()
+    session$sendCustomMessage("clear_node_selection", list())
+    shiny::showNotification(sprintf("%d no(s) deletado(s).", length(to_delete)), type = "message")
+  })
+
+  # Handler: Limpar selecao de nos
+  shiny::observeEvent(input$limpar_selecao_nodes, {
+    session$sendCustomMessage("clear_node_selection", list())
+    shiny::showNotification("Selecao limpa.", type = "message")
+  })
 }

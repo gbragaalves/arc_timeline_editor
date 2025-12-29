@@ -107,7 +107,7 @@ ui <- shiny::fluidPage(
       shiny::radioButtons(
         "modo",
         "Modo de edição",
-        choices = c("OSRM", "Visita", "Rota Manual", "Importar Arquivo", "Editar Samples"),
+        choices = c("OSRM", "Visita", "Rota Manual", "Importar Arquivo", "Editar Samples", "Editar Rota"),
         selected = "OSRM"
       ),
       shiny::hr(),
@@ -231,6 +231,36 @@ ui <- shiny::fluidPage(
         shiny::br(),
         shiny::downloadButton("download_edit_arc", "Exportar (zip)", class = "btn-success btn-sm btn-block")
       ),
+      # Editar Rota
+      shiny::conditionalPanel(
+        "input.modo == 'Editar Rota'",
+        shiny::tags$small("Selecione uma rota da timeline:"),
+        shiny::selectInput(
+          "rota_editar_selecionada", "Rota:",
+          choices = NULL, width = "100%"
+        ),
+        shiny::actionButton("carregar_rota_edit", "Carregar rota", class = "btn-primary btn-sm btn-block"),
+        shiny::hr(),
+        shiny::tags$small("Arrastar: mover nos", style = "color: #666;"),
+        shiny::br(),
+        shiny::tags$small("Clique direito: deletar no", style = "color: #666;"),
+        shiny::br(),
+        shiny::checkboxInput("modo_inserir_waypoint", "Modo inserir waypoint", FALSE),
+        shiny::tags$small("Clique no mapa para inserir", style = "color: #888;"),
+        shiny::hr(),
+        shiny::checkboxInput("modo_selecao_nodes", "Modo selecao (laco)", FALSE),
+        shiny::splitLayout(
+          cellWidths = c("50%", "50%"),
+          shiny::actionButton("deletar_nodes_selecionados", "Deletar sel.", class = "btn-xs btn-danger"),
+          shiny::actionButton("limpar_selecao_nodes", "Limpar sel.", class = "btn-xs")
+        ),
+        shiny::hr(),
+        shiny::splitLayout(
+          cellWidths = c("50%", "50%"),
+          shiny::actionButton("aplicar_edicoes_rota", "Aplicar", class = "btn-success btn-sm"),
+          shiny::actionButton("cancelar_edicoes_rota", "Cancelar", class = "btn-danger btn-sm")
+        )
+      ),
       shiny::hr(),
       shiny::actionButton("limpar_tudo", "Limpar tudo", class = "btn-danger")
     ),
@@ -263,6 +293,15 @@ ui <- shiny::fluidPage(
     shiny::div(id = "ctx-inserir", class = "sample-context-menu-item", "Inserir sample apos"),
     shiny::div(class = "sample-context-menu-separator"),
     shiny::div(id = "ctx-descartar", class = "sample-context-menu-item danger", "Descartar")
+  ),
+
+  # Menu de contexto para nos de rota
+  shiny::div(
+    id = "route-node-context-menu",
+    class = "sample-context-menu",
+    shiny::div(id = "ctx-node-props", class = "sample-context-menu-item", "Propriedades do no"),
+    shiny::div(class = "sample-context-menu-separator"),
+    shiny::div(id = "ctx-delete-node", class = "sample-context-menu-item danger", "Deletar no")
   ),
 
   # JavaScript para menu de contexto
@@ -521,6 +560,264 @@ ui <- shiny::fluidPage(
         selectedSampleIds = [];
         Shiny.setInputValue('selected_samples', []);
         updateSelectionVisual();
+      });
+
+      // ---- Edicao de rota ----
+      var currentNodeId = null;
+      var $nodeMenu = $('#route-node-context-menu');
+      var routeEditMode = false;
+      var insertWaypointMode = false;
+
+      // Esconde menu de no ao clicar fora
+      $(document).on('click', function() {
+        $nodeMenu.removeClass('show');
+      });
+
+      $nodeMenu.on('click', function(e) {
+        e.stopPropagation();
+      });
+
+      // Handler para deletar no
+      $('#ctx-delete-node').on('click', function() {
+        if (currentNodeId) {
+          Shiny.setInputValue('ctx_delete_node', {id: currentNodeId, ts: Date.now()});
+        }
+        $nodeMenu.removeClass('show');
+      });
+
+      // Handler para propriedades do no
+      $('#ctx-node-props').on('click', function() {
+        if (currentNodeId) {
+          Shiny.setInputValue('ctx_node_props', {id: currentNodeId, ts: Date.now()});
+        }
+        $nodeMenu.removeClass('show');
+      });
+
+      // Funcao global para mostrar menu de contexto de no
+      window.showRouteNodeContextMenu = function(nodeId, x, y) {
+        currentNodeId = nodeId;
+        $nodeMenu.css({left: x + 'px', top: y + 'px'}).addClass('show');
+      };
+
+      // Handler para configurar nos de rota (chamado do Shiny)
+      Shiny.addCustomMessageHandler('setup_route_nodes', function(msg) {
+        setTimeout(function() {
+          var widget = HTMLWidgets.find('#map');
+          if (!widget) return;
+          var map = widget.getMap();
+          if (!map) return;
+
+          map.eachLayer(function(layer) {
+            // Verifica se e um marker draggable do grupo edit_route_nodes
+            if (layer.options && layer.options.layerId && layer.options.draggable) {
+              var group = layer.options.group;
+              if (group === 'edit_route_nodes') {
+                var nodeId = layer.options.layerId;
+
+                // Remove handlers antigos
+                layer.off('contextmenu');
+                layer.off('dragend');
+
+                // Menu de contexto
+                layer.on('contextmenu', function(e) {
+                  L.DomEvent.stopPropagation(e);
+                  L.DomEvent.preventDefault(e);
+                  showRouteNodeContextMenu(nodeId, e.originalEvent.pageX, e.originalEvent.pageY);
+                });
+
+                // Drag end
+                layer.on('dragend', function(e) {
+                  var newLatLng = layer.getLatLng();
+                  Shiny.setInputValue('route_node_dragend', {
+                    id: nodeId,
+                    lat: newLatLng.lat,
+                    lng: newLatLng.lng,
+                    ts: Date.now()
+                  });
+                });
+              }
+            }
+          });
+        }, 500);  // Aumentado para garantir que markers estejam renderizados
+      });
+
+      // Escuta mudanca no checkbox de modo inserir waypoint
+      $(document).on('shiny:inputchanged', function(e) {
+        if (e.name === 'modo_inserir_waypoint') {
+          insertWaypointMode = e.value;
+
+          var widget = HTMLWidgets.find('#map');
+          if (!widget) return;
+          var map = widget.getMap();
+          if (!map) return;
+
+          if (insertWaypointMode) {
+            map.on('click', insertWaypointHandler);
+            $('#map').css('cursor', 'crosshair');
+          } else {
+            map.off('click', insertWaypointHandler);
+            $('#map').css('cursor', '');
+          }
+        }
+      });
+
+      function insertWaypointHandler(e) {
+        Shiny.setInputValue('insert_waypoint_click', {
+          lat: e.latlng.lat,
+          lng: e.latlng.lng,
+          ts: Date.now()
+        });
+      }
+
+      // Handler para limpar estado de edicao de rota
+      Shiny.addCustomMessageHandler('clear_route_edit', function(msg) {
+        routeEditMode = false;
+        insertWaypointMode = false;
+
+        var widget = HTMLWidgets.find('#map');
+        if (widget) {
+          var map = widget.getMap();
+          if (map) {
+            map.off('click', insertWaypointHandler);
+          }
+        }
+        $('#map').css('cursor', '');
+      });
+
+      // ---- Selecao por laco para nos de rota ----
+      var nodeSelectionMode = false;
+      var nodeLassoSvg = null;
+      var nodeLassoPoints = [];
+      var selectedNodeIds = [];
+      var nodeMapInstance = null;
+
+      // Escuta mudanca no checkbox de modo selecao de nos
+      $(document).on('shiny:inputchanged', function(e) {
+        if (e.name === 'modo_selecao_nodes') {
+          nodeSelectionMode = e.value;
+
+          var widget = HTMLWidgets.find('#map');
+          if (widget) nodeMapInstance = widget.getMap();
+
+          if (nodeMapInstance) {
+            if (nodeSelectionMode) {
+              nodeMapInstance.dragging.disable();
+              $('#map').css('cursor', 'crosshair');
+            } else {
+              nodeMapInstance.dragging.enable();
+              $('#map').css('cursor', '');
+              selectedNodeIds = [];
+              Shiny.setInputValue('selected_route_nodes', []);
+              updateNodeSelectionVisual();
+            }
+          }
+        }
+      });
+
+      // Cria SVG do laco para nos
+      function createNodeLassoSvg() {
+        if (nodeLassoSvg) nodeLassoSvg.remove();
+        var mapEl = $('#map');
+        var offset = mapEl.offset();
+        nodeLassoSvg = $('<svg class=\"selection-lasso\"><polyline points=\"\"></polyline></svg>');
+        nodeLassoSvg.css({
+          position: 'fixed',
+          left: offset.left + 'px',
+          top: offset.top + 'px',
+          width: mapEl.width() + 'px',
+          height: mapEl.height() + 'px'
+        });
+        $('body').append(nodeLassoSvg);
+        return nodeLassoSvg;
+      }
+
+      // Mouse down no mapa para selecao de nos
+      $('#map').on('mousedown.nodeselect', function(e) {
+        if (!nodeSelectionMode) return;
+        if (e.button !== 0) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var mapOffset = $('#map').offset();
+        nodeLassoPoints = [];
+        createNodeLassoSvg();
+
+        $(document).on('mousemove.nodelasso', function(e) {
+          var x = e.pageX - mapOffset.left;
+          var y = e.pageY - mapOffset.top;
+          nodeLassoPoints.push({x: x, y: y});
+
+          var pointsStr = nodeLassoPoints.map(function(p) { return p.x + ',' + p.y; }).join(' ');
+          nodeLassoSvg.find('polyline').attr('points', pointsStr);
+        });
+
+        $(document).on('mouseup.nodelasso', function(e) {
+          $(document).off('mousemove.nodelasso mouseup.nodelasso');
+
+          if (nodeLassoPoints.length < 3) {
+            if (nodeLassoSvg) nodeLassoSvg.remove();
+            nodeLassoSvg = null;
+            return;
+          }
+
+          nodeLassoPoints.push(nodeLassoPoints[0]);
+
+          if (!nodeMapInstance) return;
+
+          nodeMapInstance.eachLayer(function(layer) {
+            if (layer.options && layer.options.layerId && layer.options.draggable) {
+              var group = layer.options.group;
+              if (group === 'edit_route_nodes') {
+                var point = nodeMapInstance.latLngToContainerPoint(layer.getLatLng());
+
+                if (pointInPolygon(point.x, point.y, nodeLassoPoints)) {
+                  var id = layer.options.layerId;
+                  if (selectedNodeIds.indexOf(id) === -1) {
+                    selectedNodeIds.push(id);
+                  }
+                }
+              }
+            }
+          });
+
+          if (nodeLassoSvg) nodeLassoSvg.remove();
+          nodeLassoSvg = null;
+
+          Shiny.setInputValue('selected_route_nodes', selectedNodeIds);
+          updateNodeSelectionVisual();
+        });
+      });
+
+      // Atualiza visual dos nos selecionados
+      function updateNodeSelectionVisual() {
+        if (!nodeMapInstance) {
+          var widget = HTMLWidgets.find('#map');
+          if (widget) nodeMapInstance = widget.getMap();
+        }
+        if (!nodeMapInstance) return;
+
+        nodeMapInstance.eachLayer(function(layer) {
+          if (layer.options && layer.options.layerId && layer._icon) {
+            var group = layer.options.group;
+            if (group === 'edit_route_nodes') {
+              var id = layer.options.layerId;
+              var isSelected = selectedNodeIds.indexOf(id) !== -1;
+              if (isSelected) {
+                $(layer._icon).css('filter', 'brightness(1.5) drop-shadow(0 0 4px yellow)');
+              } else {
+                $(layer._icon).css('filter', '');
+              }
+            }
+          }
+        });
+      }
+
+      // Handler para limpar selecao de nos
+      Shiny.addCustomMessageHandler('clear_node_selection', function(msg) {
+        selectedNodeIds = [];
+        Shiny.setInputValue('selected_route_nodes', []);
+        updateNodeSelectionVisual();
       });
     });
   "))

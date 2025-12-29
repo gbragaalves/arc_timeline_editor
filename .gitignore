@@ -9,6 +9,7 @@ location_history/cache/
 # Local configuration (private data)
 config_local.R
 R/config_pessoas.R
+ver_historico_google.R
 
 # RStudio files
 .Rproj.user/
