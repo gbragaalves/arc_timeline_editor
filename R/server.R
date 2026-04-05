@@ -233,8 +233,8 @@ server <- function(input, output, session) {
       all_lons <- c(visitas$lon, atividades$lon, atividades$lon_end)
 
       if (length(all_lats) > 0 && length(all_lons) > 0) {
-        # Get current map bounds
-        bounds <- input$map_bounds
+        # Get current map bounds (isolate to avoid reactive loop with fitBounds)
+        bounds <- shiny::isolate(input$map_bounds)
 
         # Only fitBounds if no point is visible
         algum_visivel <- FALSE
@@ -549,7 +549,7 @@ server <- function(input, output, session) {
     # description
     hora_ini_local <- format(val$inicio, "%H:%M")
     hora_fim_local <- format(val$fim, "%H:%M")
-    nome_visita <- item$place$name
+    nome_visita <- item$.place$name %||% item$visit$customTitle %||% "Visit"
     item$tipo <- "visita"
     item$descricao <- sprintf("📍 %s (%s - %s)", nome_visita, hora_ini_local, hora_fim_local)
 
@@ -2464,9 +2464,13 @@ server <- function(input, output, session) {
       tmpdir <- tempfile("arc_edit_")
       dir.create(tmpdir)
 
-      # Create LocoKit2 structure
+      # Create LocoKit2 structure (places/, items/, samples/ required by ImportManager)
       sample_dir <- file.path(tmpdir, "samples")
+      items_dir  <- file.path(tmpdir, "items")
+      places_dir <- file.path(tmpdir, "places")
       dir.create(sample_dir, recursive = TRUE)
+      dir.create(items_dir,  recursive = TRUE)
+      dir.create(places_dir, recursive = TRUE)
 
       current_timestamp <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
@@ -2553,6 +2557,10 @@ server <- function(input, output, session) {
         }
       }
 
+      # Empty files for dirs without content (iCloud drops empty dirs)
+      jsonlite::write_json(list(), file.path(items_dir, "0.json"), auto_unbox = TRUE)
+      jsonlite::write_json(list(), file.path(places_dir, "0.json"), auto_unbox = TRUE)
+
       # Metadata
       metadata <- list(
         exportId = toupper(uuid::UUIDgenerate(use.time = TRUE)),
@@ -2560,7 +2568,7 @@ server <- function(input, output, session) {
         sessionStartDate = current_timestamp,
         sessionFinishDate = current_timestamp,
         exportMode = "bucketed",
-        exportType = "partial",
+        exportType = "full",
         schemaVersion = "2.2.0",
         stats = list(itemCount = 0L, sampleCount = length(samples_novos), placeCount = 0L),
         itemsCompleted = TRUE,
@@ -2572,7 +2580,9 @@ server <- function(input, output, session) {
       owd <- setwd(tmpdir)
       on.exit(setwd(owd), add = TRUE)
 
-      files_to_zip <- list.files(".", recursive = TRUE, all.files = FALSE)
+      # Zip directories and metadata to preserve folder structure
+      files_to_zip <- c("metadata.json", "items", "samples", "places")
+      files_to_zip <- files_to_zip[file.exists(files_to_zip)]
       zip::zipr(zipfile = file, files = files_to_zip)
 
       n_novos <- length(samples_novos)
@@ -2632,8 +2642,9 @@ server <- function(input, output, session) {
       owd <- setwd(tmpdir)
       on.exit(setwd(owd), add = TRUE)
 
-      # Zip everything: items/, samples/, metadata.json
-      files_to_zip <- list.files(".", recursive = TRUE, all.files = FALSE)
+      # Zip directories and metadata to preserve folder structure
+      files_to_zip <- c("metadata.json", "items", "samples", "places")
+      files_to_zip <- files_to_zip[file.exists(files_to_zip)]
       zip::zipr(zipfile = file, files = files_to_zip)
     }
   )

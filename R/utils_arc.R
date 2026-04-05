@@ -198,8 +198,28 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
 
   sample_ids <- vapply(samples, `[[`, "", "id")
 
-  item_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
-  now_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+  item_id  <- toupper(uuid::UUIDgenerate(use.time = TRUE))
+  place_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
+  now_utc  <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
+
+  place_name <- nome %||% "Visit"
+
+  # Place object (LocoKit2 format)
+  place <- list(
+    id             = place_id,
+    source         = "LocoKit2",
+    name           = place_name,
+    latitude       = lat,
+    longitude      = lon,
+    radiusMean     = 25,
+    radiusSD       = 0,
+    secondsFromGMT = sec_ini,
+    isStale        = FALSE,
+    visitCount     = 1L,
+    visitDays      = 1L,
+    lastSaved      = now_utc,
+    lastVisitDate  = end_date_str
+  )
 
   item <- list(
     .internalId = item_id,
@@ -220,6 +240,7 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
     ),
     visit = list(
       itemId          = item_id,
+      placeId         = place_id,
       latitude        = lat,
       longitude       = lon,
       radiusMean      = 25,
@@ -231,19 +252,14 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
     # Internal fields used by the Shiny app
     .isVisit = TRUE,
     samples = sample_ids,
-    place = list(
-      center = list(latitude = lat, longitude = lon),
-      radius = 25,
-      secondsFromGMT = sec_ini,
-      name = nome %||% "Visit"
-    )
+    .place = place
   )
 
   if (!is.null(nome) && nzchar(nome)) {
     item$visit$customTitle <- nome
   }
 
-  list(item = item, samples = samples)
+  list(item = item, samples = samples, place = place)
 }
 
 # ---- Create trip TimelineItem (LocoKit2 format: base + trip) ----

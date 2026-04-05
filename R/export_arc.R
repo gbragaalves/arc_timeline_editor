@@ -8,9 +8,11 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
 
   items_dir  <- file.path(output_dir, "items")
   sample_dir <- file.path(output_dir, "samples")
+  places_dir <- file.path(output_dir, "places")
 
   dir.create(items_dir,  recursive = TRUE, showWarnings = FALSE)
   dir.create(sample_dir, recursive = TRUE, showWarnings = FALSE)
+  dir.create(places_dir, recursive = TRUE, showWarnings = FALSE)
 
   if (length(timeline_items) == 0 || length(samples) == 0) {
     return(invisible(NULL))
@@ -71,8 +73,8 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
       visit <- it$visit
       if (is.null(visit)) {
         # Fallback: build visit from old-format fields
-        lat <- it$place$center$latitude %||% 0
-        lon <- it$place$center$longitude %||% 0
+        lat <- it$.place$latitude %||% it$place$center$latitude %||% 0
+        lon <- it$.place$longitude %||% it$place$center$longitude %||% 0
         visit <- list(
           itemId         = internal_id,
           latitude       = lat,
@@ -182,9 +184,32 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     message("samples_apagar.json.gz criado com ", length(apagar), " samples para deletar")
   }
 
+  # ---- Places: collect from visit items and write to places/{N}.json ----
+  all_places <- list()
+  for (it in timeline_items) {
+    if (!is.null(it$.place) && !is.null(it$.place$id)) {
+      all_places[[length(all_places) + 1L]] <- it$.place
+    }
+  }
+
+  if (length(all_places) > 0) {
+    places_path <- file.path(places_dir, "0.json")
+    jsonlite::write_json(
+      all_places,
+      places_path,
+      auto_unbox = TRUE,
+      pretty     = TRUE,
+      digits     = NA
+    )
+  } else {
+    # ImportManager needs at least one file (iCloud drops empty dirs)
+    jsonlite::write_json(list(), file.path(places_dir, "0.json"), auto_unbox = TRUE)
+  }
+
   # ---- Metadata ----
   n_items <- length(timeline_items)
   n_samples <- length(samples)
+  n_places <- length(all_places)
 
   metadata <- list(
     exportId         = toupper(uuid::UUIDgenerate(use.time = TRUE)),
@@ -192,12 +217,12 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     sessionStartDate = now_utc,
     sessionFinishDate = now_utc,
     exportMode       = "bucketed",
-    exportType       = "partial",
+    exportType       = "full",
     schemaVersion    = "2.2.0",
     stats = list(
       itemCount   = n_items,
       sampleCount = n_samples,
-      placeCount  = 0L
+      placeCount  = n_places
     ),
     itemsCompleted   = TRUE,
     samplesCompleted = TRUE,
