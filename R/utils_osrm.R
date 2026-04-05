@@ -300,15 +300,15 @@ point_to_segment_distance <- function(px, py, x1, y1, x2, y2) {
   geosphere::distHaversine(c(px, py), c(proj_x, proj_y))
 }
 
-# Extrai coordenadas de uma lista de samples
+# Extrai coordenadas de uma lista de samples (compatível LocoKit2)
 extract_coords_from_samples <- function(samples) {
   n <- length(samples)
   coords <- matrix(0, nrow = n, ncol = 2)
   colnames(coords) <- c("lon", "lat")
 
   for (i in seq_len(n)) {
-    coords[i, 1] <- as.numeric(samples[[i]]$location$longitude)
-    coords[i, 2] <- as.numeric(samples[[i]]$location$latitude)
+    coords[i, 1] <- sample_lon(samples[[i]])
+    coords[i, 2] <- sample_lat(samples[[i]])
   }
 
   coords

@@ -1,27 +1,123 @@
-# ---- Helpers Arc: samples & timeline items ----
+# ---- Helpers Arc: samples & timeline items (LocoKit2 format) ----
 
 # Operador auxiliar para null coalescing
 `%||%` <- function(x, y) if (!is.null(x)) x else y
 
-# Cria LocomotionSamples a partir de coords e timestamps UTC
-# coords: matriz n x 2 (lon, lat); timestamps_utc: POSIXct UTC
+# ---- Activity Type mapping (LocoKit2 integer codes) ----
+ACTIVITY_TYPES <- list(
+  stationary    = 1L,
+  walking       = 2L,
+  cycling       = 4L,
+  car           = 5L,
+  airplane      = 6L,
+  train         = 20L,
+  bus           = 21L,
+  tram          = 24L,
+  tuk_tuk       = 26L,
+  metro         = 29L,
+  cable_car     = 30L,
+  funicular     = 31L,
+  taxi          = 34L,
+  skateboarding = 50L
+)
+
+# Mapeamento inverso: código -> nome
+ACTIVITY_TYPE_NAMES <- stats::setNames(
+  names(ACTIVITY_TYPES),
+  vapply(ACTIVITY_TYPES, as.character, "")
+)
+
+# Converte nome de atividade (string) para código inteiro LocoKit2
+activity_type_code <- function(name) {
+  code <- ACTIVITY_TYPES[[name]]
+  if (is.null(code)) {
+    warning("Activity type desconhecido: ", name, ". Usando 'car' (5).")
+    return(5L)
+  }
+  code
+}
+
+# ---- Moving/Recording state (inteiros no LocoKit2) ----
+# movingState:  -1 = unknown, 0 = stationary, 1 = moving
+# recordingState: 1 = off/sleeping, 2 = recording
+
+moving_state_code <- function(state_str) {
+  switch(state_str,
+    "moving"     = 1L,
+    "stationary" = 0L,
+    -1L
+  )
+}
+
+# ---- Helpers para acessar campos de sample (compatível LocoKit2) ----
+sample_id <- function(s)  s$id %||% s$sampleId %||% ""
+sample_lat <- function(s) as.numeric(s$latitude %||% s$location$latitude)[1]
+sample_lon <- function(s) as.numeric(s$longitude %||% s$location$longitude)[1]
+
+sample_has_coords <- function(s) {
+  lat <- s$latitude %||% s$location$latitude
+  lon <- s$longitude %||% s$location$longitude
+  !is.null(lat) && !is.null(lon) && length(lat) > 0 && length(lon) > 0
+}
+
+# ---- Helpers para acessar campos de TimelineItem (compatível LocoKit2) ----
+item_start_date <- function(it) it$base$startDate %||% it$startDate$date %||% it$startDate
+item_end_date   <- function(it) it$base$endDate   %||% it$endDate$date   %||% it$endDate
+
+# secondsFromGMT: no LocoKit2 não existe no item, calcula a partir das coordenadas
+item_start_offset <- function(it) {
+  # Tenta pegar do formato antigo primeiro
+  off <- it$startDate$secondsFromGMT
+  if (!is.null(off)) return(off)
+  # LocoKit2: usa timezone do sistema
+  ts_utc <- parse_timestamp_utc(item_start_date(it))
+  if (is.null(ts_utc) || is.na(ts_utc[1])) return(0L)
+  seconds_from_gmt(ts_utc[1], Sys.timezone())
+}
+
+item_end_offset <- function(it) {
+  off <- it$endDate$secondsFromGMT
+  if (!is.null(off)) return(off)
+  item_start_offset(it)
+}
+
+# Seta start/end date no item (compatível com formato LocoKit2)
+set_item_start_date <- function(it, date_str) {
+  if (!is.null(it$base)) {
+    it$base$startDate <- date_str
+  } else {
+    it$startDate$date <- date_str
+  }
+  it
+}
+
+set_item_end_date <- function(it, date_str) {
+  if (!is.null(it$base)) {
+    it$base$endDate <- date_str
+  } else {
+    it$endDate$date <- date_str
+  }
+  it
+}
+
+# ---- Cria LocomotionSamples (formato LocoKit2 flat) ----
 criar_locomotion_samples <- function(coords,
                                      timestamps_utc,
                                      altitude = NULL,
                                      speed = NULL,
                                      heading = NULL,
-                                     accuracy = 0.01,  # Reduzido para respeitar snap-to-road
+                                     accuracy = 10,
                                      force_single_tz = FALSE,
-                                     moving_state = "moving") {
+                                     moving_state = "moving",
+                                     activity_type = "car") {
 
   n <- nrow(coords)
   if (length(timestamps_utc) != n) stop("coords e timestamps_utc com comprimentos diferentes.")
 
-  if (is.null(altitude)) altitude <- rep(NA_real_, n)
-  if (is.null(speed))    speed    <- rep(NA_real_, n)
+  if (is.null(altitude)) altitude <- rep(0, n)
+  if (is.null(speed))    speed    <- rep(0, n)
   if (is.null(heading))  heading  <- calcular_bearings(coords)
 
-  # Timezone por ponto (ou único para todos)
   if (force_single_tz) {
     tz_all <- rep(tz_from_coords(coords[1, 2], coords[1, 1]), n)
   } else {
@@ -32,6 +128,9 @@ criar_locomotion_samples <- function(coords,
     )
   }
 
+  ms_code <- moving_state_code(moving_state)
+  at_code <- activity_type_code(activity_type)
+
   samples <- vector("list", n)
 
   for (i in seq_len(n)) {
@@ -40,40 +139,35 @@ criar_locomotion_samples <- function(coords,
     if (is.na(tz_i)) tz_i <- "UTC"
 
     sec_gmt <- seconds_from_gmt(ts_utc, tz_i)
-
-    # Formato UTC em string para Arc
     date_str <- format(ts_utc, "%Y-%m-%dT%H:%M:%SZ")
 
     samples[[i]] <- list(
-      sampleId       = uuid::UUIDgenerate(use.time = TRUE),
-      date           = date_str,
-      secondsFromGMT = sec_gmt,
-      lastSaved      = date_str,
-      movingState    = moving_state,
-      recordingState = "recording",
-      stepHz         = 0,
-      courseVariance = 1,
-      xyAcceleration = 0.0,
-      zAcceleration  = 0.0,
-      location = list(
-        timestamp          = date_str,
-        latitude           = coords[i, 2],
-        longitude          = coords[i, 1],
-        altitude           = ifelse(is.na(altitude[i]), 0, unname(altitude[i])),
-        horizontalAccuracy = accuracy,
-        verticalAccuracy   = 10,
-        speed              = ifelse(is.na(speed[i]), 0, unname(speed[i])),
-        course             = ifelse(is.na(heading[i]), 0, unname(heading[i]))
-      )
-      # timelineItemId será preenchido depois em exportar_arc_json()
+      id                     = toupper(uuid::UUIDgenerate(use.time = TRUE)),
+      source                 = "LocoKit2",
+      sourceVersion          = "9.0.0",
+      date                   = date_str,
+      secondsFromGMT         = sec_gmt,
+      latitude               = coords[i, 2],
+      longitude              = coords[i, 1],
+      altitude               = ifelse(is.na(altitude[i]), 0, unname(altitude[i])),
+      horizontalAccuracy     = accuracy,
+      verticalAccuracy       = 10,
+      speed                  = ifelse(is.na(speed[i]), 0, unname(speed[i])),
+      course                 = ifelse(is.na(heading[i]), 0, unname(heading[i])),
+      movingState            = ms_code,
+      recordingState         = 2L,
+      classifiedActivityType = at_code,
+      confirmedActivityType  = at_code,
+      stepHz                 = 0,
+      disabled               = FALSE,
+      lastSaved              = date_str
     )
-
   }
 
   samples
 }
 
-# Cria TimelineItem de visita (Trabalha com horário LOCAL do lugar)
+# ---- Cria TimelineItem de visita (formato LocoKit2: base + visit) ----
 criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = NULL) {
   tz <- tz_from_coords(lat, lon)
   if (is.na(tz)) tz <- "UTC"
@@ -82,12 +176,10 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
   fim_utc    <- lubridate::with_tz(fim_local,    tzone = "UTC")
 
   sec_ini <- seconds_from_gmt(inicio_utc, tz)
-  sec_fim <- seconds_from_gmt(fim_utc,    tz)
 
   start_date_str <- format(inicio_utc, "%Y-%m-%dT%H:%M:%SZ")
   end_date_str   <- format(fim_utc,    "%Y-%m-%dT%H:%M:%SZ")
 
-  # Samples estacionários espalhados no intervalo
   n_samp <- max(3L, min(20L, as.integer(as.numeric(difftime(fim_utc, inicio_utc, units = "mins")) / 5)))
   if (is.na(n_samp) || n_samp < 1) n_samp <- 3L
 
@@ -97,84 +189,129 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
   samples <- criar_locomotion_samples(
     coords         = coords,
     timestamps_utc = ts_seq,
-    altitude       = rep(NA_real_, n_samp),
+    altitude       = rep(0, n_samp),
     moving_state   = "stationary",
-    accuracy       = 0.05,  # Visitas: um pouco mais de tolerância
-    force_single_tz = TRUE
+    accuracy       = 10,
+    force_single_tz = TRUE,
+    activity_type  = "stationary"
   )
 
-  sample_ids <- vapply(samples, `[[`, "", "sampleId")
+  sample_ids <- vapply(samples, `[[`, "", "id")
 
-  item_id <- uuid::UUIDgenerate(use.time = TRUE)
+  item_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
+  now_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
 
   item <- list(
     .internalId = item_id,
+    base = list(
+      id              = item_id,
+      source          = "LocoKit2",
+      sourceVersion   = "9.0.0",
+      isVisit         = TRUE,
+      startDate       = start_date_str,
+      endDate         = end_date_str,
+      lastSaved       = now_utc,
+      deleted         = FALSE,
+      disabled        = FALSE,
+      locked          = FALSE,
+      samplesChanged  = FALSE,
+      stepCount       = 0L,
+      activeEnergyBurned = 0
+    ),
+    visit = list(
+      itemId          = item_id,
+      latitude        = lat,
+      longitude       = lon,
+      radiusMean      = 25,
+      radiusSD        = 0,
+      confirmedPlace  = FALSE,
+      uncertainPlace  = TRUE,
+      lastSaved       = now_utc
+    ),
+    # Campos internos usados pelo app Shiny
     .isVisit = TRUE,
-    activityType = "stay",
-    startDate = list(
-      date = start_date_str,
-      secondsFromGMT = sec_ini
-    ),
-    endDate = list(
-      date = end_date_str,
-      secondsFromGMT = sec_fim
-    ),
+    samples = sample_ids,
     place = list(
-      center = list(
-        latitude = lat,
-        longitude = lon
-      ),
+      center = list(latitude = lat, longitude = lon),
       radius = 25,
       secondsFromGMT = sec_ini,
       name = nome %||% "Visita"
-    ),
-    samples = sample_ids
+    )
   )
+
+  if (!is.null(nome) && nzchar(nome)) {
+    item$visit$customTitle <- nome
+  }
 
   list(item = item, samples = samples)
 }
 
-# Cria TimelineItem de trajeto (path) a partir de timestamps UTC + coords
+# ---- Cria TimelineItem de trajeto (formato LocoKit2: base + trip) ----
 criar_timeline_item_path <- function(timestamps_utc,
                                      coords,
                                      sample_ids,
                                      tipo = "rota",
                                      descricao = NULL,
-                                     activity_type = "transport") {
+                                     activity_type = "car") {
 
   n <- length(timestamps_utc)
   if (n == 0) stop("Sem timestamps para criar path.")
   if (nrow(coords) != n) stop("timestamps e coords com comprimentos diferentes.")
 
-  # Timezones da origem e destino
-  tz_ini <- tz_from_coords(coords[1, 2], coords[1, 1])
-  tz_fim <- tz_from_coords(coords[n, 2], coords[n, 1])
-  if (is.na(tz_ini)) tz_ini <- "UTC"
-  if (is.na(tz_fim)) tz_fim <- tz_ini
-
   ini_utc <- timestamps_utc[1]
   fim_utc <- timestamps_utc[n]
 
-  sec_ini <- seconds_from_gmt(ini_utc, tz_ini)
-  sec_fim <- seconds_from_gmt(fim_utc, tz_fim)
+  item_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
+  now_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
 
-  item_id <- uuid::UUIDgenerate(use.time = TRUE)
+  at_code <- activity_type_code(activity_type)
+
+  # Calcula distância total (m)
+  total_dist <- 0
+  if (n >= 2) {
+    for (i in 2:n) {
+      total_dist <- total_dist + geosphere::distHaversine(
+        c(coords[i - 1, 1], coords[i - 1, 2]),
+        c(coords[i, 1], coords[i, 2])
+      )
+    }
+  }
+
+  duration_s <- as.numeric(difftime(fim_utc, ini_utc, units = "secs"))
+  avg_speed <- if (duration_s > 0) total_dist / duration_s else 0
 
   item <- list(
     .internalId = item_id,
+    base = list(
+      id              = item_id,
+      source          = "LocoKit2",
+      sourceVersion   = "9.0.0",
+      isVisit         = FALSE,
+      startDate       = format(ini_utc, "%Y-%m-%dT%H:%M:%SZ"),
+      endDate         = format(fim_utc, "%Y-%m-%dT%H:%M:%SZ"),
+      lastSaved       = now_utc,
+      deleted         = FALSE,
+      disabled        = FALSE,
+      locked          = FALSE,
+      samplesChanged  = FALSE,
+      stepCount       = 0L,
+      activeEnergyBurned = 0
+    ),
+    trip = list(
+      itemId                 = item_id,
+      classifiedActivityType = at_code,
+      confirmedActivityType  = at_code,
+      uncertainActivityType  = FALSE,
+      distance               = total_dist,
+      speed                  = avg_speed,
+      lastSaved              = now_utc
+    ),
+    # Campos internos usados pelo app Shiny
     .isVisit = FALSE,
-    activityType = activity_type,
-    startDate = list(
-      date = format(ini_utc, "%Y-%m-%dT%H:%M:%SZ"),
-      secondsFromGMT = sec_ini
-    ),
-    endDate = list(
-      date = format(fim_utc, "%Y-%m-%dT%H:%M:%SZ"),
-      secondsFromGMT = sec_fim
-    ),
     samples = sample_ids,
     tipo = tipo,
-    descricao = descricao %||% "Trajeto"
+    descricao = descricao %||% "Trajeto",
+    activityType = activity_type
   )
 
   item

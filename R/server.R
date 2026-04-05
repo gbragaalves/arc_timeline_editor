@@ -302,7 +302,7 @@ server <- function(input, output, session) {
 
     # pega os endDate como POSIXct (UTC), ignorando itens quebrados
     ends_num <- vapply(tl, function(it) {
-      date_str <- it$endDate$date %||% NA_character_
+      date_str <- item_end_date(it) %||% NA_character_
       ts <- parse_timestamp_utc(date_str)
       if (is.null(ts) || is.na(ts[1])) {
         NA_real_
@@ -388,7 +388,7 @@ server <- function(input, output, session) {
         options = leaflet::providerTileOptions(maxZoom = 19)
       ) |>
       leaflet::addTiles(
-        urlTemplate = "https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=727e6d7e3a167a9a54a2ffb6c1857107",
+        urlTemplate = paste0("https://tile.tracestrack.com/_/{z}/{x}/{y}.webp?key=", Sys.getenv("TRACESTRACK_KEY")),
         group = "Topo",
         options = leaflet::tileOptions(maxZoom = 19)
       ) |>
@@ -629,14 +629,17 @@ server <- function(input, output, session) {
 
     coords_new <- cbind(lon_new, lat_new)
 
+    manual_at <- input$manual_activity_type %||% "car"
+
     samples_novos <- criar_locomotion_samples(
       coords         = coords_new,
       timestamps_utc = ts_seq,
-      accuracy       = 0.01,
+      accuracy       = 10,
       force_single_tz = TRUE,
-      moving_state   = "moving"
+      moving_state   = "moving",
+      activity_type  = manual_at
     )
-    sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
+    sample_ids <- vapply(samples_novos, `[[`, "", "id")
 
     item <- criar_timeline_item_path(
       timestamps_utc = ts_seq,
@@ -646,7 +649,8 @@ server <- function(input, output, session) {
       descricao = sprintf("Rota manual (%.1f km)",
                           geosphere::distVincentyEllipsoid(
                             coords_new[1, 2:1], coords_new[n_target, 2:1]
-                          ) / 1000)
+                          ) / 1000),
+      activity_type = manual_at
     )
 
     tl <- timeline()
@@ -901,17 +905,6 @@ server <- function(input, output, session) {
           return()
         }
 
-        coords_new <- cbind(lon_new, lat_new)
-
-        samples_novos <- criar_locomotion_samples(
-          coords         = coords_new,
-          timestamps_utc = ts_seq,
-          accuracy       = 0.01,
-          force_single_tz = TRUE,
-          moving_state   = "moving"
-        )
-        sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
-
         # Mapeia perfil OSRM para activityType
         perfil <- session$userData$ultima_rota_perfil %||% "car"
         activity_map <- c(
@@ -920,7 +913,19 @@ server <- function(input, output, session) {
           bike = "cycling",
           bus  = "bus"
         )
-        activity_type <- activity_map[[perfil]] %||% "transport"
+        activity_type <- activity_map[[perfil]] %||% "car"
+
+        coords_new <- cbind(lon_new, lat_new)
+
+        samples_novos <- criar_locomotion_samples(
+          coords         = coords_new,
+          timestamps_utc = ts_seq,
+          accuracy       = 10,
+          force_single_tz = TRUE,
+          moving_state   = "moving",
+          activity_type  = activity_type
+        )
+        sample_ids <- vapply(samples_novos, `[[`, "", "id")
 
         item <- criar_timeline_item_path(
           timestamps_utc = ts_seq,
@@ -1271,7 +1276,7 @@ server <- function(input, output, session) {
         moving_state    = "moving"
       )
 
-      sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
+      sample_ids <- vapply(samples_novos, `[[`, "", "id")
 
       item <- criar_timeline_item_path(
         timestamps_utc = ts_utc,
@@ -1367,21 +1372,25 @@ server <- function(input, output, session) {
 
     coords_new <- cbind(lon_new, lat_new)
 
+    import_at <- input$import_activity_type %||% "car"
+
     samples_novos <- criar_locomotion_samples(
       coords         = coords_new,
       timestamps_utc = ts_seq,
-      accuracy       = 0.01,
+      accuracy       = 10,
       force_single_tz = FALSE,
-      moving_state   = "moving"
+      moving_state   = "moving",
+      activity_type  = import_at
     )
-    sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
+    sample_ids <- vapply(samples_novos, `[[`, "", "id")
 
     item <- criar_timeline_item_path(
       timestamps_utc = ts_seq,
       coords = coords_new,
       sample_ids = sample_ids,
       tipo = "rota_importada",
-      descricao = "Rota importada de arquivo"
+      descricao = "Rota importada de arquivo",
+      activity_type = import_at
     )
 
     tl <- timeline()
@@ -1416,7 +1425,7 @@ server <- function(input, output, session) {
       return(shiny::tags$p("Nenhum item na timeline ainda."))
     }
 
-    ord <- order(vapply(tl, function(it) it$startDate$date, character(1)))
+    ord <- order(vapply(tl, function(it) item_start_date(it), character(1)))
     tl_ord <- tl[ord]
 
     shiny::tagList(
@@ -1425,12 +1434,12 @@ server <- function(input, output, session) {
         tipo <- it$tipo %||% if (isTRUE(it$.isVisit)) "visita" else "rota"
         desc <- it$descricao %||% tipo
 
-        ts_ini_utc <- parse_timestamp_utc(it$startDate$date)
-        sec_ini    <- it$startDate$secondsFromGMT %||% 0
+        ts_ini_utc <- parse_timestamp_utc(item_start_date(it))
+        sec_ini    <- item_start_offset(it) %||% 0
         ts_ini_loc <- ts_ini_utc + sec_ini
 
-        ts_fim_utc <- parse_timestamp_utc(it$endDate$date)
-        sec_fim    <- it$endDate$secondsFromGMT %||% sec_ini
+        ts_fim_utc <- parse_timestamp_utc(item_end_date(it))
+        sec_fim    <- item_end_offset(it) %||% sec_ini
         ts_fim_loc <- ts_fim_utc + sec_fim
 
         ini_str <- format(ts_ini_loc, "%Y-%m-%d %H:%M")
@@ -1477,7 +1486,7 @@ server <- function(input, output, session) {
 
           if (!is.null(it$samples)) {
             s <- all_samples()
-            keep <- !vapply(s, function(x) x$sampleId %in% it$samples, logical(1))
+            keep <- !vapply(s, function(x) x$id %in% it$samples, logical(1))
             all_samples(s[keep])
           }
 
@@ -1511,12 +1520,12 @@ server <- function(input, output, session) {
         if (!length(idx)) return()
         it <- tl_atual[[idx]]
 
-        ts_utc <- parse_timestamp_utc(it$startDate$date)
-        sec <- it$startDate$secondsFromGMT %||% 0
+        ts_utc <- parse_timestamp_utc(item_start_date(it))
+        sec <- item_start_offset(it) %||% 0
         ts_local <- ts_utc + sec
 
-        tsf_utc <- parse_timestamp_utc(it$endDate$date)
-        secf <- it$endDate$secondsFromGMT %||% sec
+        tsf_utc <- parse_timestamp_utc(item_end_date(it))
+        secf <- item_end_offset(it) %||% sec
         tsf_local <- tsf_utc + secf
 
         shiny::showModal(
@@ -1548,8 +1557,8 @@ server <- function(input, output, session) {
     if (!length(idx)) return()
     it <- tl[[idx]]
 
-    start_sec <- it$startDate$secondsFromGMT %||% 0
-    end_sec   <- it$endDate$secondsFromGMT %||% start_sec
+    start_sec <- item_start_offset(it) %||% 0
+    end_sec   <- item_end_offset(it) %||% start_sec
 
     hora_ini_fmt <- formatar_hora(input$edit_hora_inicio)
     hora_fim_fmt <- formatar_hora(input$edit_hora_fim)
@@ -1576,8 +1585,8 @@ server <- function(input, output, session) {
     }
 
 
-    it$startDate$date <- format(novo_ini_utc, "%Y-%m-%dT%H:%M:%SZ")
-    it$endDate$date   <- format(novo_fim_utc, "%Y-%m-%dT%H:%M:%SZ")
+    it <- set_item_start_date(it, format(novo_ini_utc, "%Y-%m-%dT%H:%M:%SZ"))
+    it <- set_item_end_date(it, format(novo_fim_utc, "%Y-%m-%dT%H:%M:%SZ"))
 
     if (!is.null(it$samples) && length(it$samples)) {
       s <- all_samples()
@@ -1587,17 +1596,17 @@ server <- function(input, output, session) {
 
       for (i in seq_len(n)) {
         sid <- sample_ids[i]
-        idx_s <- which(vapply(s, `[[`, "", "sampleId") == sid)
+        idx_s <- which(vapply(s, `[[`, "", "id") == sid)
         if (length(idx_s)) {
           ts_utc <- novos_ts[i]
-          lat <- s[[idx_s]]$location$latitude
-          lon <- s[[idx_s]]$location$longitude
+          lat <- s[[idx_s]]$latitude
+          lon <- s[[idx_s]]$longitude
           tz <- tz_from_coords(lat, lon)
           if (is.na(tz)) tz <- "UTC"
           sec <- seconds_from_gmt(ts_utc, tz)
 
           s[[idx_s]]$date <- format(ts_utc, "%Y-%m-%dT%H:%M:%SZ")
-          s[[idx_s]]$location$timestamp <- s[[idx_s]]$date
+          s[[idx_s]]$date <- s[[idx_s]]$date
           s[[idx_s]]$secondsFromGMT <- sec
         }
       }
@@ -1626,20 +1635,16 @@ server <- function(input, output, session) {
 
     # Filtra samples com location válida
     samples <- Filter(function(s) {
-      !is.null(s$location) &&
-      !is.null(s$location$latitude) &&
-      !is.null(s$location$longitude) &&
-      length(s$location$latitude) > 0 &&
-      length(s$location$longitude) > 0
+      sample_has_coords(s)
     }, samples)
 
     if (length(samples) == 0) return()
 
     # Extrai coordenadas
-    lats <- vapply(samples, function(s) as.numeric(s$location$latitude)[1], numeric(1))
-    lngs <- vapply(samples, function(s) as.numeric(s$location$longitude)[1], numeric(1))
+    lats <- vapply(samples, function(s) as.numeric(s$latitude)[1], numeric(1))
+    lngs <- vapply(samples, function(s) as.numeric(s$longitude)[1], numeric(1))
     ids <- vapply(samples, function(s) {
-      id <- s$sampleId
+      id <- s$id
       if (is.null(id) || length(id) == 0) return(paste0("unknown_", runif(1)))
       as.character(id)[1]
     }, character(1))
@@ -1674,16 +1679,12 @@ server <- function(input, output, session) {
     if (length(virtuais) > 0) {
       # Filtra virtuais com location válida
       virtuais <- Filter(function(s) {
-        !is.null(s$location) &&
-        !is.null(s$location$latitude) &&
-        !is.null(s$location$longitude) &&
-        length(s$location$latitude) > 0 &&
-        length(s$location$longitude) > 0
+        sample_has_coords(s)
       }, virtuais)
     }
     if (length(virtuais) > 0) {
-      lats_v <- vapply(virtuais, function(s) as.numeric(s$location$latitude)[1], numeric(1))
-      lngs_v <- vapply(virtuais, function(s) as.numeric(s$location$longitude)[1], numeric(1))
+      lats_v <- vapply(virtuais, function(s) as.numeric(s$latitude)[1], numeric(1))
+      lngs_v <- vapply(virtuais, function(s) as.numeric(s$longitude)[1], numeric(1))
 
       proxy <- proxy %>%
         leaflet::addCircleMarkers(
@@ -1715,8 +1716,8 @@ server <- function(input, output, session) {
     all_lats <- lats
     all_lngs <- lngs
     if (length(virtuais) > 0) {
-      all_lats <- c(all_lats, vapply(virtuais, function(s) as.numeric(s$location$latitude)[1], numeric(1)))
-      all_lngs <- c(all_lngs, vapply(virtuais, function(s) as.numeric(s$location$longitude)[1], numeric(1)))
+      all_lats <- c(all_lats, vapply(virtuais, function(s) as.numeric(s$latitude)[1], numeric(1)))
+      all_lngs <- c(all_lngs, vapply(virtuais, function(s) as.numeric(s$longitude)[1], numeric(1)))
     }
 
     proxy %>%
@@ -1766,11 +1767,7 @@ server <- function(input, output, session) {
 
     # Filtra samples com location válida
     samples <- Filter(function(s) {
-      !is.null(s$location) &&
-      !is.null(s$location$latitude) &&
-      !is.null(s$location$longitude) &&
-      length(s$location$latitude) > 0 &&
-      length(s$location$longitude) > 0
+      sample_has_coords(s)
     }, samples_raw)
 
     n_invalidos <- length(samples_raw) - length(samples)
@@ -1818,15 +1815,15 @@ server <- function(input, output, session) {
 
     # Encontra o sample pelo ID
     idx <- which(vapply(samples, function(s) {
-      id <- s$sampleId
+      id <- s$id
       if (is.null(id) || length(id) == 0) return("")
       as.character(id)[1]
     }, character(1)) == sample_id)
     if (length(idx) == 0) return()
 
     # Atualiza coordenadas
-    samples[[idx]]$location$latitude <- new_lat
-    samples[[idx]]$location$longitude <- new_lng
+    samples[[idx]]$latitude <- new_lat
+    samples[[idx]]$longitude <- new_lng
 
     edit_samples(samples)
     rota_osrm(NULL)  # Limpa rota OSRM ao mover marcador manualmente
@@ -1835,16 +1832,12 @@ server <- function(input, output, session) {
     # Redesenha a linha (sem redesenhar os marcadores para manter drag)
     # Filtra samples com location válida
     samples_validos <- Filter(function(s) {
-      !is.null(s$location) &&
-      !is.null(s$location$latitude) &&
-      !is.null(s$location$longitude) &&
-      length(s$location$latitude) > 0 &&
-      length(s$location$longitude) > 0
+      sample_has_coords(s)
     }, samples)
     if (length(samples_validos) == 0) return()
 
-    lats <- vapply(samples_validos, function(s) as.numeric(s$location$latitude)[1], numeric(1))
-    lngs <- vapply(samples_validos, function(s) as.numeric(s$location$longitude)[1], numeric(1))
+    lats <- vapply(samples_validos, function(s) as.numeric(s$latitude)[1], numeric(1))
+    lngs <- vapply(samples_validos, function(s) as.numeric(s$longitude)[1], numeric(1))
 
     leaflet::leafletProxy("map") %>%
       leaflet::clearGroup("edit_rota") %>%
@@ -1881,7 +1874,7 @@ server <- function(input, output, session) {
       # Filtra samples ignorados para o snap-to-road
       ids <- character(length(samples))
       for (j in seq_along(samples)) {
-        val <- samples[[j]]$sampleId
+        val <- samples[[j]]$id
         if (is.null(val)) val <- paste0("sample_", j)
         if (is.list(val)) val <- unlist(val)[1]
         ids[j] <- as.character(val)
@@ -1918,8 +1911,8 @@ server <- function(input, output, session) {
       lats <- numeric(n_ativos)
       lngs <- numeric(n_ativos)
       for (j in seq_len(n_ativos)) {
-        lat_val <- samples_ativos[[j]]$location$latitude
-        lng_val <- samples_ativos[[j]]$location$longitude
+        lat_val <- samples_ativos[[j]]$latitude
+        lng_val <- samples_ativos[[j]]$longitude
         if (is.list(lat_val)) lat_val <- unlist(lat_val)
         if (is.list(lng_val)) lng_val <- unlist(lng_val)
         lats[j] <- as.numeric(lat_val)[1]
@@ -2076,8 +2069,8 @@ server <- function(input, output, session) {
         new_lon <- coords_osrm[seg_idx, 1] + frac * (coords_osrm[seg_idx + 1, 1] - coords_osrm[seg_idx, 1])
         new_lat <- coords_osrm[seg_idx, 2] + frac * (coords_osrm[seg_idx + 1, 2] - coords_osrm[seg_idx, 2])
 
-        samples_ativos[[i]]$location$longitude <- new_lon
-        samples_ativos[[i]]$location$latitude <- new_lat
+        samples_ativos[[i]]$longitude <- new_lon
+        samples_ativos[[i]]$latitude <- new_lat
       }
 
       shiny::showNotification("7/7 Finalizando...", id = "snap_progress", duration = NULL, type = "message")
@@ -2085,26 +2078,26 @@ server <- function(input, output, session) {
       # Recalcula bearings dos samples ativos - usa for loop
       coords_new <- matrix(0, nrow = length(samples_ativos), ncol = 2)
       for (j in seq_along(samples_ativos)) {
-        coords_new[j, 1] <- as.numeric(samples_ativos[[j]]$location$longitude)
-        coords_new[j, 2] <- as.numeric(samples_ativos[[j]]$location$latitude)
+        coords_new[j, 1] <- as.numeric(samples_ativos[[j]]$longitude)
+        coords_new[j, 2] <- as.numeric(samples_ativos[[j]]$latitude)
       }
       bearings <- calcular_bearings(coords_new)
 
       for (i in seq_along(samples_ativos)) {
-        samples_ativos[[i]]$location$course <- bearings[i]
+        samples_ativos[[i]]$course <- bearings[i]
       }
 
       # Atualiza samples_ativos de volta na lista completa
       ids_ativos <- character(length(samples_ativos))
       for (j in seq_along(samples_ativos)) {
-        val <- samples_ativos[[j]]$sampleId
+        val <- samples_ativos[[j]]$id
         if (is.null(val)) val <- paste0("sample_", j)
         if (is.list(val)) val <- unlist(val)[1]
         ids_ativos[j] <- as.character(val)
       }
 
       for (i in seq_along(samples)) {
-        sid <- samples[[i]]$sampleId
+        sid <- samples[[i]]$id
         if (is.null(sid)) next
         if (is.list(sid)) sid <- unlist(sid)[1]
         sid <- as.character(sid)
@@ -2169,29 +2162,28 @@ server <- function(input, output, session) {
         if (is.na(tz_v)) tz_v <- "UTC"
         sec_gmt_v <- seconds_from_gmt(ts_utc, tz_v)
 
-        # Cria sample virtual
+        # Cria sample virtual (formato LocoKit2)
         sample_v <- list(
-          sampleId = uuid::UUIDgenerate(use.time = TRUE),
+          id = toupper(uuid::UUIDgenerate(use.time = TRUE)),
+          source = "LocoKit2",
+          sourceVersion = "9.0.0",
           date = date_str,
           secondsFromGMT = sec_gmt_v,
           lastSaved = date_str,
-          movingState = "moving",
-          recordingState = "recording",
+          latitude = lat_v,
+          longitude = lon_v,
+          altitude = 0,
+          horizontalAccuracy = 10,
+          verticalAccuracy = 10,
+          speed = 0,
+          course = course_v,
+          movingState = 1L,
+          recordingState = 2L,
+          classifiedActivityType = activity_type_code("car"),
+          confirmedActivityType = activity_type_code("car"),
           stepHz = 0,
-          courseVariance = 1,
-          xyAcceleration = 0.0,
-          zAcceleration = 0.0,
-          location = list(
-            timestamp = date_str,
-            latitude = lat_v,
-            longitude = lon_v,
-            altitude = 0,
-            horizontalAccuracy = 0.01,
-            verticalAccuracy = 10,
-            speed = 0,
-            course = course_v
-          ),
-          .virtual = TRUE  # Marca como virtual para diferenciar
+          disabled = FALSE,
+          .virtual = TRUE
         )
 
         if (!is.null(ti_id_virtual)) {
@@ -2231,18 +2223,18 @@ server <- function(input, output, session) {
     sample_id <- input$ctx_propriedades$id
     samples <- edit_samples()
 
-    idx <- which(vapply(samples, function(s) s$sampleId, character(1)) == sample_id)
+    idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
     if (length(idx) == 0) return()
 
     s <- samples[[idx]]
     ts_utc <- as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
     ts_local <- ts_utc + (s$secondsFromGMT %||% 0)
 
-    lat <- s$location$latitude
-    lon <- s$location$longitude
-    speed <- s$location$speed %||% NA
-    course <- s$location$course %||% NA
-    alt <- s$location$altitude %||% NA
+    lat <- s$latitude
+    lon <- s$longitude
+    speed <- s$speed %||% NA
+    course <- s$course %||% NA
+    alt <- s$altitude %||% NA
 
     shiny::showModal(
       shiny::modalDialog(
@@ -2290,7 +2282,7 @@ server <- function(input, output, session) {
     sample_id <- input$ctx_descartar$id
     samples <- edit_samples()
 
-    idx <- which(vapply(samples, function(s) s$sampleId, character(1)) == sample_id)
+    idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
     if (length(idx) == 0) return()
 
     samples <- samples[-idx]
@@ -2311,7 +2303,7 @@ server <- function(input, output, session) {
     sample_id <- input$ctx_inserir$id
     samples <- edit_samples()
 
-    idx <- which(vapply(samples, function(s) s$sampleId, character(1)) == sample_id)
+    idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
     if (length(idx) == 0) return()
 
     # Se for o último sample, não pode inserir após
@@ -2324,8 +2316,8 @@ server <- function(input, output, session) {
     s_prox <- samples[[idx + 1]]
 
     # Calcula posição e timestamp médios
-    lat_novo <- (s_atual$location$latitude + s_prox$location$latitude) / 2
-    lon_novo <- (s_atual$location$longitude + s_prox$location$longitude) / 2
+    lat_novo <- (s_atual$latitude + s_prox$latitude) / 2
+    lon_novo <- (s_atual$longitude + s_prox$longitude) / 2
 
     ts_atual <- as.POSIXct(s_atual$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
     ts_prox <- as.POSIXct(s_prox$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
@@ -2333,11 +2325,11 @@ server <- function(input, output, session) {
 
     # Cria novo sample copiando estrutura do atual
     novo_sample <- s_atual
-    novo_sample$sampleId <- uuid::UUIDgenerate(use.time = TRUE)
+    novo_sample$id <- uuid::UUIDgenerate(use.time = TRUE)
     novo_sample$date <- format(ts_novo, "%Y-%m-%dT%H:%M:%SZ")
-    novo_sample$location$latitude <- lat_novo
-    novo_sample$location$longitude <- lon_novo
-    novo_sample$location$timestamp <- novo_sample$date
+    novo_sample$latitude <- lat_novo
+    novo_sample$longitude <- lon_novo
+    novo_sample$date <- novo_sample$date
     novo_sample$lastSaved <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
     # Insere na posição correta
@@ -2383,7 +2375,7 @@ server <- function(input, output, session) {
     }
 
     samples <- edit_samples()
-    ids <- vapply(samples, function(s) s$sampleId, character(1))
+    ids <- vapply(samples, function(s) s$id, character(1))
     samples <- samples[!ids %in% selected]
     edit_samples(samples)
 
@@ -2414,7 +2406,7 @@ server <- function(input, output, session) {
       }
 
       # Filtra samples ignorados
-      ids <- vapply(all_edit_samples, function(s) s$sampleId, character(1))
+      ids <- vapply(all_edit_samples, sample_id, character(1))
       samples <- all_edit_samples[!ids %in% ignored]
 
       if (length(samples) == 0) {
@@ -2425,65 +2417,116 @@ server <- function(input, output, session) {
       tmpdir <- tempfile("arc_edit_")
       dir.create(tmpdir)
 
-      # Cria estrutura de diretórios - SÓ LocomotionSample
-      import_dir <- file.path(tmpdir, "Import")
-      sample_dir <- file.path(import_dir, "LocomotionSample")
+      # Cria estrutura LocoKit2
+      sample_dir <- file.path(tmpdir, "samples")
       dir.create(sample_dir, recursive = TRUE)
 
       current_timestamp <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
-      # Obtém timelineItemId original (será mantido!)
       ti_id <- original_timeline_item_id()
-
-      # Obtém samples virtuais (criados pelo snap-to-road)
       virtuais <- samples_virtuais()
 
-      # ---- SAMPLES NOVOS (samples.json) ----
-      # Usa os samples VIRTUAIS se existirem, senão usa os editados
+      # ---- SAMPLES NOVOS ----
       samples_novos <- list()
 
       if (length(virtuais) > 0) {
-        # Exporta samples virtuais (já têm novos IDs e timelineItemId)
         for (i in seq_along(virtuais)) {
           s <- virtuais[[i]]
-          # Remove campo .virtual (interno)
           s$.virtual <- NULL
           s$lastSaved <- current_timestamp
           samples_novos[[length(samples_novos) + 1L]] <- s
         }
       } else {
-        # Fallback: exporta samples editados com novos IDs
         for (i in seq_along(samples)) {
           s <- samples[[i]]
-          s$sampleId <- uuid::UUIDgenerate(use.time = TRUE)
+          s$id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
           s$lastSaved <- current_timestamp
-          # Mantém timelineItemId original
           samples_novos[[length(samples_novos) + 1L]] <- s
         }
       }
 
-      samples_json <- file.path(sample_dir, "samples.json")
-      jsonlite::write_json(samples_novos, samples_json, auto_unbox = TRUE, pretty = TRUE)
+      # Agrupa por semana ISO e gera .json.gz
+      samples_by_week <- list()
+      for (s in samples_novos) {
+        ts <- tryCatch(
+          as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+          error = function(e) NULL
+        )
+        if (is.null(ts) || is.na(ts)) next
+        week_key <- strftime(ts, "%G-W%V")
+        if (!week_key %in% names(samples_by_week)) {
+          samples_by_week[[week_key]] <- list()
+        }
+        samples_by_week[[week_key]][[length(samples_by_week[[week_key]]) + 1L]] <- s
+      }
 
-      # ---- SAMPLES PARA DELETAR (samples_apagar.json) ----
-      # Apenas os samples originais do intervalo carregado (não todo o TI)
+      for (week_key in names(samples_by_week)) {
+        gz_path <- file.path(sample_dir, paste0(week_key, ".json.gz"))
+        json_str <- jsonlite::toJSON(samples_by_week[[week_key]], auto_unbox = TRUE, pretty = TRUE, digits = NA)
+        con <- gzfile(gz_path, "w")
+        writeLines(json_str, con)
+        close(con)
+      }
+
+      # ---- SAMPLES PARA DELETAR ----
       originais <- original_samples()
       samples_apagar <- list()
       for (i in seq_along(originais)) {
         s <- originais[[i]]
-        if (!(s$sampleId %in% ignored)) {
+        if (!(sample_id(s) %in% ignored)) {
           s$deleted <- TRUE
           s$lastSaved <- current_timestamp
           samples_apagar[[length(samples_apagar) + 1L]] <- s
         }
       }
-      apagar_json <- file.path(sample_dir, "samples_apagar.json")
-      jsonlite::write_json(samples_apagar, apagar_json, auto_unbox = TRUE, pretty = TRUE)
+
+      if (length(samples_apagar) > 0) {
+        # Agrupa apagar por semana também
+        apagar_by_week <- list()
+        for (s in samples_apagar) {
+          ts <- tryCatch(
+            as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+            error = function(e) NULL
+          )
+          if (is.null(ts) || is.na(ts)) next
+          week_key <- strftime(ts, "%G-W%V")
+          wk <- paste0(week_key, "_apagar")
+          if (!wk %in% names(apagar_by_week)) {
+            apagar_by_week[[wk]] <- list()
+          }
+          apagar_by_week[[wk]][[length(apagar_by_week[[wk]]) + 1L]] <- s
+        }
+
+        for (wk in names(apagar_by_week)) {
+          gz_path <- file.path(sample_dir, paste0(wk, ".json.gz"))
+          json_str <- jsonlite::toJSON(apagar_by_week[[wk]], auto_unbox = TRUE, pretty = TRUE, digits = NA)
+          con <- gzfile(gz_path, "w")
+          writeLines(json_str, con)
+          close(con)
+        }
+      }
+
+      # Metadata
+      metadata <- list(
+        exportId = toupper(uuid::UUIDgenerate(use.time = TRUE)),
+        lastBackupDate = current_timestamp,
+        sessionStartDate = current_timestamp,
+        sessionFinishDate = current_timestamp,
+        exportMode = "bucketed",
+        exportType = "partial",
+        schemaVersion = "2.2.0",
+        stats = list(itemCount = 0L, sampleCount = length(samples_novos), placeCount = 0L),
+        itemsCompleted = TRUE,
+        samplesCompleted = TRUE,
+        placesCompleted = TRUE
+      )
+      jsonlite::write_json(metadata, file.path(tmpdir, "metadata.json"), auto_unbox = TRUE, pretty = TRUE)
 
       owd <- setwd(tmpdir)
       on.exit(setwd(owd), add = TRUE)
 
-      zip::zipr(zipfile = file, files = "Import")
+      files_to_zip <- list.files(".", recursive = TRUE, all.files = FALSE)
+      zip::zipr(zipfile = file, files = files_to_zip)
 
       n_novos <- length(samples_novos)
       n_apagar <- length(samples_apagar)
@@ -2542,7 +2585,9 @@ server <- function(input, output, session) {
       owd <- setwd(tmpdir)
       on.exit(setwd(owd), add = TRUE)
 
-      zip::zipr(zipfile = file, files = "Import")
+      # Zip tudo: items/, samples/, metadata.json
+      files_to_zip <- list.files(".", recursive = TRUE, all.files = FALSE)
+      zip::zipr(zipfile = file, files = files_to_zip)
     }
   )
 
@@ -2563,8 +2608,8 @@ server <- function(input, output, session) {
       gpx_footer <- '    </trkseg>\n  </trk>\n</gpx>\n'
 
       trkpts <- vapply(s, function(x) {
-        lat <- x$location$latitude
-        lon <- x$location$longitude
+        lat <- x$latitude
+        lon <- x$longitude
         time <- x$date
         sprintf('      <trkpt lat="%.8f" lon="%.8f"><time>%s</time></trkpt>\n', lat, lon, time)
       }, character(1))
@@ -2604,7 +2649,7 @@ server <- function(input, output, session) {
       modo <- x$activityType %||% "transport"
       hora <- tryCatch({
         # Parse UTC timestamp
-        ts_utc <- lubridate::ymd_hms(x$startDate$date, tz = "UTC")
+        ts_utc <- lubridate::ymd_hms(item_start_date(x), tz = "UTC")
         # Converte para timezone local do sistema
         ts_local <- lubridate::with_tz(ts_utc, Sys.timezone())
         format(ts_local, "%H:%M")
@@ -2714,7 +2759,7 @@ server <- function(input, output, session) {
     # Busca samples associados
     s <- all_samples()
     sample_ids <- item$samples %||% character(0)
-    route_samples <- Filter(function(x) x$sampleId %in% sample_ids, s)
+    route_samples <- Filter(function(x) x$id %in% sample_ids, s)
 
     if (length(route_samples) < 2) {
       shiny::showNotification("Rota deve ter pelo menos 2 samples.", type = "error")
@@ -2729,8 +2774,8 @@ server <- function(input, output, session) {
     coords <- extract_coords_from_samples(route_samples)
     total_dist <- trajeto_distancia_km(coords) * 1000  # metros
 
-    ts_start <- as.POSIXct(gsub("Z$", "", item$startDate$date), tz = "UTC")
-    ts_end <- as.POSIXct(gsub("Z$", "", item$endDate$date), tz = "UTC")
+    ts_start <- as.POSIXct(gsub("Z$", "", item_start_date(item)), tz = "UTC")
+    ts_end <- as.POSIXct(gsub("Z$", "", item_end_date(item)), tz = "UTC")
     total_duration <- as.numeric(difftime(ts_end, ts_start, units = "secs"))
 
     # Se duracao invalida, estima baseado em velocidade padrao (30 km/h)
@@ -2753,9 +2798,9 @@ server <- function(input, output, session) {
       smp <- route_samples[[i]]
       list(
         id = paste0("node_", i),
-        lat = as.numeric(smp$location$latitude),
-        lng = as.numeric(smp$location$longitude),
-        sample_id = smp$sampleId,
+        lat = as.numeric(smp$latitude),
+        lng = as.numeric(smp$longitude),
+        sample_id = smp$id,
         is_original = TRUE,
         is_modified = FALSE,
         is_inserted = FALSE
@@ -2894,7 +2939,7 @@ server <- function(input, output, session) {
     n_route <- nrow(all_coords)
 
     # Tempo de inicio original
-    start_utc <- as.POSIXct(gsub("Z$", "", original_item$startDate$date), tz = "UTC")
+    start_utc <- as.POSIXct(gsub("Z$", "", item_start_date(original_item)), tz = "UTC")
 
     # Recalcula tempos mantendo velocidade media
     time_result <- recalcular_tempos_rota(all_coords, start_utc, avg_speed)
@@ -2907,15 +2952,17 @@ server <- function(input, output, session) {
     lat_new <- all_lats
     coords_new <- all_coords
 
-    # Cria novos samples
+    # Cria novos samples (preserva activity type da rota original)
+    edit_at <- original_item$activityType %||% "car"
     samples_novos <- criar_locomotion_samples(
       coords = coords_new,
       timestamps_utc = ts_seq,
-      accuracy = 0.01,
+      accuracy       = 10,
       force_single_tz = TRUE,
-      moving_state = "moving"
+      moving_state = "moving",
+      activity_type = edit_at
     )
-    sample_ids <- vapply(samples_novos, `[[`, "", "sampleId")
+    sample_ids <- vapply(samples_novos, `[[`, "", "id")
 
     # Atualiza timeline
     tl <- timeline()
@@ -2927,15 +2974,11 @@ server <- function(input, output, session) {
       # Remove samples antigos
       s <- all_samples()
       old_sample_ids <- item$samples %||% character(0)
-      s <- Filter(function(x) !x$sampleId %in% old_sample_ids, s)
+      s <- Filter(function(x) !x$id %in% old_sample_ids, s)
 
       # Atualiza item
       item$samples <- sample_ids
-      item$endDate$date <- format(time_result$end_time_utc, "%Y-%m-%dT%H:%M:%SZ")
-
-      # Recalcula secondsFromGMT para fim (usa mesmo offset do inicio para consistencia)
-      start_offset <- original_item$startDate$secondsFromGMT %||% -10800
-      item$endDate$secondsFromGMT <- start_offset
+      item <- set_item_end_date(item, format(time_result$end_time_utc, "%Y-%m-%dT%H:%M:%SZ"))
 
       # Atualiza descricao
       new_dist_km <- time_result$total_distance_m / 1000

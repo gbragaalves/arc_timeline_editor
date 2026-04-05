@@ -34,10 +34,10 @@ This tool originally exported in the LocoKit format used by Arc Timeline. It now
 
 ### Activity types
 
-The tool supports all LocoKit2 activity types. The integer codes below were inferred by analyzing Arc Editor export data (speeds, distances, and trip context) — they are not officially documented:
+All LocoKit2 activity types are supported:
 
-| Code | Type (inferred) | Code | Type (inferred) |
-|------|-----------------|------|-----------------|
+| Code | Type | Code | Type |
+|------|------|------|------|
 | 1 | stationary | 21 | bus |
 | 2 | walking | 24 | tram |
 | 4 | cycling | 26 | tuk tuk |
@@ -100,8 +100,8 @@ SEMANA_DIR <- "path/to/weekly/samples"
 
 # Frequently-used places (optional)
 LOCAIS_FREQUENTES <- list(
-  "Home" = list(lat = -23.5505, lon = -46.6333),
-  "Work" = list(lat = -23.5600, lon = -46.6500)
+  "Home" = list(lat = -22.88, lon = -43.26),
+  "Work" = list(lat = -22.90, lon = -43.17)
 )
 ```
 

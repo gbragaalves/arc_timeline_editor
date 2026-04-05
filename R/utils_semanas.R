@@ -7,7 +7,6 @@ carregar_samples_intervalo <- function(inicio_utc, fim_utc, semana_dir = SEMANA_
   }
   if (inicio_utc > fim_utc) return(list())
 
-  # Identifica semanas envolvidas
   semanas <- semanas_para_intervalo(inicio_utc, fim_utc)
   if (length(semanas) == 0) return(list())
 
@@ -33,7 +32,6 @@ carregar_samples_intervalo <- function(inicio_utc, fim_utc, semana_dir = SEMANA_
       )
       if (is.null(ts) || is.na(ts)) next
 
-      # Filtra pelo intervalo
       if (ts >= inicio_utc && ts <= fim_utc) {
         samples_encontrados[[length(samples_encontrados) + 1L]] <- s
       }
@@ -55,7 +53,7 @@ carregar_samples_intervalo <- function(inicio_utc, fim_utc, semana_dir = SEMANA_
 semanas_para_intervalo <- function(ini_utc, fim_utc) {
   if (ini_utc > fim_utc) return(character(0))
   dias <- seq(lubridate::floor_date(ini_utc, "day"), lubridate::ceiling_date(fim_utc, "day"), by = "1 day")
-  unique(strftime(dias, "%G-W%V"))  # ex: "2025-W30"
+  unique(strftime(dias, "%G-W%V"))
 }
 
 # Gera lista de samples marcados como deleted com base nos itens novos
@@ -64,15 +62,18 @@ gerar_samples_apagar <- function(timeline_items, semana_dir = SEMANA_DIR) {
 
   # Intervalos de cada item
   intervalos <- lapply(timeline_items, function(it) {
-    ini <- parse_timestamp_utc(it$startDate$date)
-    fim <- parse_timestamp_utc(it$endDate$date)
+    # Suporta formato LocoKit2 (base$startDate como string) e antigo
+    start_str <- it$base$startDate %||% it$startDate$date %||% it$startDate
+    end_str   <- it$base$endDate   %||% it$endDate$date   %||% it$endDate
+
+    ini <- parse_timestamp_utc(start_str)
+    fim <- parse_timestamp_utc(end_str)
     if (is.null(ini) || is.null(fim) || is.na(ini) || is.na(fim)) return(NULL)
     list(inicio = ini[1], fim = fim[1])
   })
   intervalos <- Filter(Negate(is.null), intervalos)
   if (length(intervalos) == 0) return(list())
 
-  # Semanas envolvidas
   semanas <- unique(unlist(lapply(intervalos, function(iv) {
     semanas_para_intervalo(iv$inicio, iv$fim)
   })))
@@ -86,7 +87,6 @@ gerar_samples_apagar <- function(timeline_items, semana_dir = SEMANA_DIR) {
     gz_path <- file.path(semana_dir, paste0(sem, ".json.gz"))
     if (!file.exists(gz_path)) next
 
-    # lê array de samples como lista (igual ao apagador antigo)
     semana_samples <- tryCatch(
       jsonlite::fromJSON(gzfile(gz_path), simplifyVector = FALSE),
       error = function(e) NULL
@@ -94,25 +94,20 @@ gerar_samples_apagar <- function(timeline_items, semana_dir = SEMANA_DIR) {
     if (is.null(semana_samples) || length(semana_samples) == 0) next
 
     for (s in semana_samples) {
-      # Usa o campo date (igual ao apagador antigo)
       date_str <- s$date
       if (is.null(date_str)) next
 
-      # Parse do timestamp
       ts <- tryCatch(
         as.POSIXct(date_str, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
         error = function(e) NULL
       )
       if (is.null(ts) || is.na(ts)) next
 
-      # Verifica se está em algum intervalo
       overlap <- any(vapply(intervalos, function(iv) {
         ts >= iv$inicio && ts <= iv$fim
       }, logical(1)))
 
       if (overlap) {
-        # IMPORTANTE: Preserva TODOS os campos do sample original
-        # e apenas marca como deleted (igual ao apagador antigo)
         s$deleted <- TRUE
         s$lastSaved <- current_timestamp
         samples_apagar[[length(samples_apagar) + 1L]] <- s
@@ -125,7 +120,6 @@ gerar_samples_apagar <- function(timeline_items, semana_dir = SEMANA_DIR) {
 
 
 # Verifica se [inicio_utc, fim_utc] se sobrepõe a algum item da timeline
-# ignore_id: se não for NULL, ignora item com esse .internalId (útil na edição)
 has_overlap <- function(timeline_items, inicio_utc, fim_utc, ignore_id = NULL) {
   if (length(timeline_items) == 0) return(FALSE)
   if (is.null(inicio_utc) || is.null(fim_utc) || is.na(inicio_utc) || is.na(fim_utc)) return(FALSE)
@@ -133,11 +127,14 @@ has_overlap <- function(timeline_items, inicio_utc, fim_utc, ignore_id = NULL) {
   any(vapply(timeline_items, function(it) {
     if (!is.null(ignore_id) && identical(it$.internalId, ignore_id)) return(FALSE)
 
-    ex_ini <- parse_timestamp_utc(it$startDate$date)
-    ex_fim <- parse_timestamp_utc(it$endDate$date)
+    # Suporta formato LocoKit2 (base$startDate) e antigo (startDate$date)
+    start_str <- it$base$startDate %||% it$startDate$date %||% it$startDate
+    end_str   <- it$base$endDate   %||% it$endDate$date   %||% it$endDate
+
+    ex_ini <- parse_timestamp_utc(start_str)
+    ex_fim <- parse_timestamp_utc(end_str)
     if (is.null(ex_ini) || is.null(ex_fim) || is.na(ex_ini[1]) || is.na(ex_fim[1])) return(FALSE)
 
-    # overlap se intervalos realmente se cruzam (bordas encostando é OK)
     (inicio_utc < ex_fim[1]) && (fim_utc > ex_ini[1])
   }, logical(1)))
 }
@@ -146,7 +143,6 @@ has_overlap <- function(timeline_items, inicio_utc, fim_utc, ignore_id = NULL) {
 carregar_samples_por_timeline_item <- function(timeline_item_id, semana_dir = SEMANA_DIR) {
   if (is.null(timeline_item_id) || !nzchar(timeline_item_id)) return(list())
 
-  # Lista todas as semanas disponíveis
   arquivos <- list.files(semana_dir, pattern = "\\.json\\.gz$", full.names = TRUE)
 
   samples_encontrados <- list()
@@ -165,7 +161,6 @@ carregar_samples_por_timeline_item <- function(timeline_item_id, semana_dir = SE
     }
   }
 
-  # Ordena por timestamp
   if (length(samples_encontrados) > 0) {
     ts_vec <- vapply(samples_encontrados, function(s) {
       as.numeric(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))

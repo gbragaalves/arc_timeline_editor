@@ -26,3 +26,9 @@ ver_historico_google.R
 
 # Data files
 *.gpx
+*.zip
+
+# Test / example data
+teste/
+exemplo_export/
+files/

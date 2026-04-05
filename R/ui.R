@@ -150,6 +150,17 @@ ui <- shiny::fluidPage(
       shiny::conditionalPanel(
         "input.modo == 'Rota Manual'",
         shiny::tags$small("Clique no mapa para definir os pontos."),
+        shiny::selectInput(
+          "manual_activity_type", "Tipo de atividade:",
+          choices = c(
+            "Carro" = "car", "Taxi" = "taxi", "A pe" = "walking",
+            "Bus" = "bus", "Metro" = "metro", "Tram" = "tram",
+            "Trem" = "train", "Bike" = "cycling", "Aviao" = "airplane",
+            "Tuk tuk" = "tuk_tuk", "Teleferico" = "cable_car",
+            "Funicular" = "funicular", "Skate" = "skateboarding"
+          ),
+          selected = "car", width = "100%"
+        ),
         shiny::tags$label("Inicio:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
@@ -183,6 +194,17 @@ ui <- shiny::fluidPage(
           "direcao_arquivo", NULL,
           choices = c("Normal" = "normal", "Inverter" = "inverter"),
           selected = "normal", inline = TRUE
+        ),
+        shiny::selectInput(
+          "import_activity_type", "Tipo de atividade:",
+          choices = c(
+            "Carro" = "car", "Taxi" = "taxi", "A pe" = "walking",
+            "Bus" = "bus", "Metro" = "metro", "Tram" = "tram",
+            "Trem" = "train", "Bike" = "cycling", "Aviao" = "airplane",
+            "Tuk tuk" = "tuk_tuk", "Teleferico" = "cable_car",
+            "Funicular" = "funicular", "Skate" = "skateboarding"
+          ),
+          selected = "car", width = "100%"
         ),
         shiny::tags$label("Inicio:"),
         shiny::splitLayout(
