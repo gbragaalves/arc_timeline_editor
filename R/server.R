@@ -1231,13 +1231,13 @@ server <- function(input, output, session) {
       ts_utc <- traj$ts_utc
       coords <- traj$coords
 
-      distancia_km <- track_distance_km(coords)
+      distance_km <- track_distance_km(coords)
 
-      if (distancia_km <= 0 || distancia_km > 30000) {
+      if (distance_km <= 0 || distance_km > 30000) {
         shiny::showNotification(
           sprintf(
             "Absurd distance detected for flight (%.1f km). Something is wrong with the track.",
-            distancia_km
+            distance_km
           ),
           type = "error",
           duration = NULL
@@ -1312,7 +1312,7 @@ server <- function(input, output, session) {
         coords         = coords,
         sample_ids     = sample_ids,
         type           = "voo_fr24",
-        description    = sprintf("FR24 flight (%.1f km)", distancia_km),
+        description    = sprintf("FR24 flight (%.1f km)", distance_km),
         activity_type  = "airplane"
       )
 

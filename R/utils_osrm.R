@@ -63,11 +63,11 @@ smooth_osrm_route <- function(coords, tolerance_m = 5, angle_min = 1) {
   colnames(final) <- colnames(coords)
 
   for (i in 2:(n - 1)) {
-    dist_ultimo <- geosphere::distHaversine(
+    dist_last <- geosphere::distHaversine(
       c(final[nrow(final), 1], final[nrow(final), 2]),
       c(coords[i, 1], coords[i, 2])
     )
-    if (dist_ultimo >= tolerance_m) {
+    if (dist_last >= tolerance_m) {
       final <- rbind(final, coords[i, ])
     }
   }

@@ -12,8 +12,8 @@ load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP
 
   found_samples <- list()
 
-  for (sem in weeks) {
-    gz_path <- file.path(weekly_dir, paste0(sem, ".json.gz"))
+  for (wk in weeks) {
+    gz_path <- file.path(weekly_dir, paste0(wk, ".json.gz"))
     if (!file.exists(gz_path)) next
 
     week_samples <- tryCatch(
@@ -52,8 +52,8 @@ load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP
 # Given an interval [start_utc, end_utc], generate the names of involved weekly files
 weeks_for_interval <- function(start_utc, end_utc) {
   if (start_utc > end_utc) return(character(0))
-  dias <- seq(lubridate::floor_date(start_utc, "day"), lubridate::ceiling_date(end_utc, "day"), by = "1 day")
-  unique(strftime(dias, "%G-W%V"))
+  days <- seq(lubridate::floor_date(start_utc, "day"), lubridate::ceiling_date(end_utc, "day"), by = "1 day")
+  unique(strftime(days, "%G-W%V"))
 }
 
 # NOTE: generate_samples_to_delete() was removed because LocoKit2's ImportManager

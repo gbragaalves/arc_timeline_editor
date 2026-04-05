@@ -942,7 +942,7 @@ ui <- shiny::fluidPage(
         });
       }
 
-      // Handler to clear selection de nos
+      // Handler to clear node selection
       Shiny.addCustomMessageHandler('clear_node_selection', function(msg) {
         selectedNodeIds = [];
         Shiny.setInputValue('selected_route_nodes', []);
