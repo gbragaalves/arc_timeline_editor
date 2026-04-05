@@ -2,70 +2,70 @@
 
 server <- function(input, output, session) {
 
-  # Helper: modal de OSRM offline com instruções
+  # Helper: modal for OSRM offline with instructions
 
   mostrar_modal_osrm_offline <- function(url_tentada) {
     shiny::showModal(
       shiny::modalDialog(
-        title = "Servidor OSRM nao esta rodando",
+        title = "OSRM server is not running",
         shiny::tags$p(
-          shiny::tags$strong("O servidor OSRM nao respondeu em:"),
+          shiny::tags$strong("The OSRM server did not respond at:"),
           shiny::tags$code(url_tentada)
         ),
         shiny::tags$hr(),
-        shiny::tags$p(shiny::tags$strong("Para iniciar o OSRM, execute no terminal:")),
+        shiny::tags$p(shiny::tags$strong("To start OSRM, run in terminal:")),
         shiny::tags$pre(
           style = "background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;",
-          "# Se voce usa containers individuais:\ndocker start osrm-car osrm-foot osrm-bike osrm-bus\n\n# Ou se usa docker-compose:\ncd ~/location_history/osrm\ndocker-compose up -d"
+          "# If you use individual containers:\ndocker start osrm-car osrm-foot osrm-bike osrm-bus\n\n# Or if you use docker-compose:\ncd ~/location_history/osrm\ndocker-compose up -d"
         ),
         shiny::tags$hr(),
-        shiny::tags$p(shiny::tags$strong("Para verificar se esta rodando:")),
+        shiny::tags$p(shiny::tags$strong("To check if it's running:")),
         shiny::tags$pre(
           style = "background: #f5f5f5; padding: 10px; border-radius: 4px;",
           "docker ps | grep osrm"
         ),
         shiny::tags$hr(),
         shiny::tags$p(
-          shiny::tags$strong("Portas esperadas:"),
+          shiny::tags$strong("Expected ports:"),
           shiny::tags$ul(
-            shiny::tags$li("Carro: ", shiny::tags$code("localhost:5000")),
-            shiny::tags$li("A pe: ", shiny::tags$code("localhost:5001")),
-            shiny::tags$li("Bicicleta: ", shiny::tags$code("localhost:5002")),
-            shiny::tags$li("Onibus: ", shiny::tags$code("localhost:5003"))
+            shiny::tags$li("Car: ", shiny::tags$code("localhost:5000")),
+            shiny::tags$li("Foot: ", shiny::tags$code("localhost:5001")),
+            shiny::tags$li("Bike: ", shiny::tags$code("localhost:5002")),
+            shiny::tags$li("Bus: ", shiny::tags$code("localhost:5003"))
           )
         ),
         easyClose = TRUE,
-        footer = shiny::modalButton("Entendi")
+        footer = shiny::modalButton("OK")
       )
     )
   }
 
-  # Estado reativo
+  # Reactive state
   pontos_temp <- shiny::reactiveVal(data.frame(lat = numeric(0), lng = numeric(0)))
   timeline <- shiny::reactiveVal(list())
   all_samples <- shiny::reactiveVal(list())
-  edit_samples <- shiny::reactiveVal(list())  # Samples carregados para edição
-  ignored_samples <- shiny::reactiveVal(character(0))  # IDs de samples ignorados
-  rota_osrm <- shiny::reactiveVal(NULL)  # Geometria da rota OSRM (matriz lon/lat)
-  samples_virtuais <- shiny::reactiveVal(list())  # Samples criados da rota OSRM (pontos intermediários)
-  original_samples <- shiny::reactiveVal(list())  # Samples originais antes da edição
-  original_timeline_item_id <- shiny::reactiveVal(NULL)  # timelineItemId original dos samples
+  edit_samples <- shiny::reactiveVal(list())  # Samples loaded for editing
+  ignored_samples <- shiny::reactiveVal(character(0))  # IDs of ignored samples
+  rota_osrm <- shiny::reactiveVal(NULL)  # OSRM route geometry (lon/lat matrix)
+  samples_virtuais <- shiny::reactiveVal(list())  # Samples created from OSRM route (intermediate points)
+  original_samples <- shiny::reactiveVal(list())  # Original samples before editing
+  original_timeline_item_id <- shiny::reactiveVal(NULL)  # Original timelineItemId of samples
 
-  # Estado para edicao de rota
-  route_edit_nodes <- shiny::reactiveVal(list())     # Waypoints editaveis da rota
-  route_original_item <- shiny::reactiveVal(NULL)    # TimelineItem original
-  route_original_samples <- shiny::reactiveVal(list())  # Samples originais da rota
-  route_avg_speed <- shiny::reactiveVal(NULL)        # Velocidade media (m/s)
+  # State for route editing
+  route_edit_nodes <- shiny::reactiveVal(list())     # Editable route waypoints
+  route_original_item <- shiny::reactiveVal(NULL)    # Original TimelineItem
+  route_original_samples <- shiny::reactiveVal(list())  # Original route samples
+  route_avg_speed <- shiny::reactiveVal(NULL)        # Average speed (m/s)
 
-  # ---- Location History de outras pessoas ----
-  # PESSOAS_CONFIG é carregada no app.R (variável global)
+  # ---- Location History of other people ----
+  # PESSOAS_CONFIG is loaded in app.R (global variable)
   pessoas_config <- tryCatch(
     get("PESSOAS_CONFIG", envir = globalenv()),
     error = function(e) list()
   )
-  location_history_cache <- shiny::reactiveVal(list())  # Cache dos dados carregados
+  location_history_cache <- shiny::reactiveVal(list())  # Cache of loaded data
 
-  # Gera toggles dinamicamente baseado na configuração
+  # Dynamically generates toggles based on configuration
   output$toggles_pessoas <- shiny::renderUI({
     if (length(pessoas_config) == 0) return(NULL)
 
@@ -91,14 +91,14 @@ server <- function(input, output, session) {
     )
   })
 
-  # Carrega dados de Location History quando necessário
+  # Loads Location History data when needed
   carregar_lh_pessoa <- function(pessoa_id) {
     cache <- location_history_cache()
     if (!is.null(cache[[pessoa_id]])) {
       return(cache[[pessoa_id]])
     }
 
-    # Encontra config da pessoa
+    # Find person's config
     cfg <- NULL
     for (p in pessoas_config) {
       if (p$id == pessoa_id) {
@@ -108,13 +108,13 @@ server <- function(input, output, session) {
     }
     if (is.null(cfg)) return(NULL)
 
-    # Mostra notificação de carregamento
+    # Show loading notification
     shiny::showNotification(
-      paste0("Carregando Location History de ", cfg$label, "..."),
+      paste0("Loading Location History for ", cfg$label, "..."),
       id = "lh_loading", type = "message", duration = NULL
     )
 
-    # Carrega o arquivo
+    # Load the file
     dados <- carregar_location_history(cfg$arquivo)
 
     shiny::removeNotification("lh_loading")
@@ -123,12 +123,12 @@ server <- function(input, output, session) {
       cache[[pessoa_id]] <- dados
       location_history_cache(cache)
       shiny::showNotification(
-        paste0(cfg$label, ": ", nrow(dados), " registros carregados"),
+        paste0(cfg$label, ": ", nrow(dados), " records loaded"),
         type = "message", duration = 3
       )
     } else {
       shiny::showNotification(
-        paste0("Falha ao carregar dados de ", cfg$label),
+        paste0("Failed to load data for ", cfg$label),
         type = "error"
       )
     }
@@ -136,23 +136,23 @@ server <- function(input, output, session) {
     dados
   }
 
-  # Atualiza mapa quando data ou toggles mudam
+  # Update map when date or toggles change
   shiny::observe({
     data_atual <- input$data_trabalho
     if (is.null(data_atual)) return()
 
-    # Limpa camadas anteriores
+    # Clear previous layers
     proxy <- leaflet::leafletProxy("map")
     for (p in pessoas_config) {
       proxy <- proxy %>% leaflet::clearGroup(paste0("lh_", p$id))
     }
 
-    # Desenha cada pessoa ativada
+    # Draw each enabled person
     for (p in pessoas_config) {
       toggle_id <- paste0("lh_", p$id)
       if (!isTRUE(input[[toggle_id]])) next
 
-      # Usa cache RDS se disponível, senão carrega JSON completo
+      # Use RDS cache if available, otherwise load full JSON
       if (cache_existe(p$id)) {
         df <- carregar_lh_por_data(p$id, data_atual)
       } else {
@@ -165,7 +165,7 @@ server <- function(input, output, session) {
 
       group_name <- paste0("lh_", p$id)
 
-      # Desenha visitas como círculos
+      # Draw visits as circles
       visitas <- df[df$tipo == "visit", ]
       if (nrow(visitas) > 0) {
         for (i in seq_len(nrow(visitas))) {
@@ -185,7 +185,7 @@ server <- function(input, output, session) {
         }
       }
 
-      # Desenha atividades como linhas com indicadores de direção
+      # Draw activities as lines with direction indicators
       atividades <- df[df$tipo == "activity", ]
       if (nrow(atividades) > 0) {
         for (i in seq_len(nrow(atividades))) {
@@ -194,7 +194,7 @@ server <- function(input, output, session) {
           data_hora_fim <- formatar_data_hora_lh(a$end_time)
           label_texto <- paste0(p$label, ": ", data_hora_ini, " -> ", data_hora_fim)
 
-          # Linha do trajeto
+          # Route line
           proxy <- proxy %>%
             leaflet::addPolylines(
               lng = c(a$lon, a$lon_end),
@@ -204,7 +204,7 @@ server <- function(input, output, session) {
               label = label_texto
             )
 
-          # Marcador de início (bolinha pequena verde)
+          # Start marker (small green circle)
           proxy <- proxy %>%
             leaflet::addCircleMarkers(
               lng = a$lon, lat = a$lat,
@@ -212,10 +212,10 @@ server <- function(input, output, session) {
               color = "green", fillColor = "green", fillOpacity = 1,
               stroke = FALSE,
               group = group_name,
-              label = paste0("Início: ", data_hora_ini)
+              label = paste0("Start: ", data_hora_ini)
             )
 
-          # Marcador de fim (bolinha pequena vermelha)
+          # End marker (small red circle)
           proxy <- proxy %>%
             leaflet::addCircleMarkers(
               lng = a$lon_end, lat = a$lat_end,
@@ -223,20 +223,20 @@ server <- function(input, output, session) {
               color = "red", fillColor = "red", fillOpacity = 1,
               stroke = FALSE,
               group = group_name,
-              label = paste0("Fim: ", data_hora_fim)
+              label = paste0("End: ", data_hora_fim)
             )
         }
       }
 
-      # Verifica se algum ponto ja esta visivel na tela atual
+      # Check if any point is already visible on the current screen
       all_lats <- c(visitas$lat, atividades$lat, atividades$lat_end)
       all_lons <- c(visitas$lon, atividades$lon, atividades$lon_end)
 
       if (length(all_lats) > 0 && length(all_lons) > 0) {
-        # Obtem bounds atuais do mapa
+        # Get current map bounds
         bounds <- input$map_bounds
 
-        # So faz fitBounds se nenhum ponto estiver visivel
+        # Only fitBounds if no point is visible
         algum_visivel <- FALSE
         if (!is.null(bounds)) {
           for (i in seq_along(all_lats)) {
@@ -264,13 +264,13 @@ server <- function(input, output, session) {
     }
   })
 
-  # Formata automaticamente inputs de hora (só quando parece completo)
+  # Auto-format time inputs (only when they look complete)
   auto_format_time <- function(id) {
     shiny::observeEvent(input[[id]], {
       val <- input[[id]]
       if (is.null(val) || !nzchar(val)) return()
 
-      # SÓ FORMATA se já digitou pelo menos 3 caracteres (evita formatar enquanto digita)
+      # ONLY FORMAT if at least 3 characters typed (avoids formatting while typing)
       if (nchar(gsub("\\D", "", val)) < 3) return()
 
       fmt <- formatar_hora(val)
@@ -280,7 +280,7 @@ server <- function(input, output, session) {
     }, ignoreInit = TRUE)
   }
 
-  # Campos de hora que devem ser auto-formatados
+  # Time fields that should be auto-formatted
   auto_format_time("visita_hora_inicio")
   auto_format_time("visita_hora_fim")
   auto_format_time("manual_hora_inicio")
@@ -295,64 +295,64 @@ server <- function(input, output, session) {
   auto_format_time("edit_samples_hora_fim")
 
 
-  # Retorna o fim local da ÚLTIMA atividade da timeline (ou NULL se não der pra calcular)
+  # Returns the local end of the LAST timeline activity (or NULL if it can't be calculated)
   get_last_end_local <- function() {
     tl <- timeline()
     if (length(tl) == 0) return(NULL)
 
-    # pega os endDate como POSIXct (UTC), ignorando itens quebrados
+    # get endDate as POSIXct (UTC), ignoring broken items
     ends_num <- vapply(tl, function(it) {
       date_str <- item_end_date(it) %||% NA_character_
       ts <- parse_timestamp_utc(date_str)
       if (is.null(ts) || is.na(ts[1])) {
         NA_real_
       } else {
-        as.numeric(ts[1])  # segundos desde epoch
+        as.numeric(ts[1])  # seconds since epoch
       }
     }, numeric(1))
 
-    # se todo mundo deu NA, não tem como descobrir último fim
+    # if all are NA, we can't determine the last end
     if (all(is.na(ends_num))) return(NULL)
 
-    # pega o índice do MAIOR endDate válido
+    # get the index of the LARGEST valid endDate
     idx <- which.max(ends_num)
     if (length(idx) == 0 || is.na(idx) || idx < 1) return(NULL)
 
-    # reconstrói o POSIXct em UTC
+    # reconstruct POSIXct in UTC
     end_utc <- as.POSIXct(ends_num[idx], origin = "1970-01-01", tz = "UTC")
 
     end_utc
   }
 
 
-  # Quando a timeline mudar, sugerir próximo início = fim anterior + 1 min
+  # When timeline changes, suggest next start = previous end + 1 min
   shiny::observeEvent(timeline(), {
-    last_utc <- get_last_end_local()  # retorna em UTC
+    last_utc <- get_last_end_local()  # returns in UTC
     if (is.null(last_utc)) return()
 
-    # Converte para timezone do sistema do usuário
+    # Convert to user's system timezone
     last_local <- lubridate::with_tz(last_utc, tzone = Sys.timezone())
 
-    next_local <- last_local + 60  # +1 minuto
+    next_local <- last_local + 60  # +1 minute
 
     data_next <- as.Date(next_local)
     hora_next <- format(next_local, "%H:%M:%S")
 
-    # visita
+    # visit
     shiny::updateDateInput(session, "visita_data_inicio", value = data_next)
     shiny::updateTextInput(session, "visita_hora_inicio", value = hora_next)
 
-    # rota manual
+    # manual route
     shiny::updateDateInput(session, "manual_data_inicio", value = data_next)
     shiny::updateTextInput(session, "manual_hora_inicio", value = hora_next)
 
-    # importar
+    # import
     shiny::updateDateInput(session, "import_data_inicio", value = data_next)
     shiny::updateTextInput(session, "import_hora_inicio", value = hora_next)
   })
 
 
-  # Quando a data principal mudar, replica para os outros campos de data
+  # When the main date changes, replicate to other date fields
   shiny::observeEvent(input$data_trabalho, {
     d <- input$data_trabalho
 
@@ -370,7 +370,7 @@ server <- function(input, output, session) {
   })
 
 
-  # ---- Mapa base ----
+  # ---- Base map ----
   output$map <- leaflet::renderLeaflet({
     leaflet::leaflet(options = leaflet::leafletOptions(maxZoom = 19)) |>
       leaflet::addTiles(
@@ -399,7 +399,7 @@ server <- function(input, output, session) {
       leaflet::setView(lng = -43.2, lat = -22.9, zoom = 11)
   })
 
-  # Helper: atualiza pontos no mapa
+  # Helper: update points on the map
   atualizar_pontos_mapa <- function(auto_zoom = TRUE) {
     pts <- pontos_temp()
     proxy <- leaflet::leafletProxy("map")
@@ -417,7 +417,7 @@ server <- function(input, output, session) {
           group = "waypoints"
         )
 
-      # fitBounds APENAS se auto_zoom = TRUE
+      # fitBounds ONLY if auto_zoom = TRUE
       if (auto_zoom) {
         proxy <- proxy %>%
           leaflet::fitBounds(
@@ -428,35 +428,35 @@ server <- function(input, output, session) {
     }
   }
 
-  # Clique no mapa
+  # Map click
   shiny::observeEvent(input$map_click, {
     click <- input$map_click
     if (is.null(click)) return()
 
     modo <- input$modo
 
-    # Ignora cliques no modo Editar Samples (usa marcadores arrastáveis)
+    # Ignore clicks in Edit Samples mode (uses draggable markers)
     if (modo == "Editar Samples") return()
 
-    # Ignora cliques no modo Importar Arquivo (usa arquivo carregado)
+    # Ignore clicks in Import File mode (uses uploaded file)
     if (modo == "Importar Arquivo") return()
 
     pts <- pontos_temp()
 
     if (modo == "Visita") {
-      # visita usa só 1 ponto: substitui
+      # visit uses only 1 point: replace
       pts <- data.frame(lat = click$lat, lng = click$lng)
       pontos_temp(pts)
       atualizar_pontos_mapa(auto_zoom = TRUE)
     } else {
-      # OSRM ou Rota Manual: adiciona ponto
+      # OSRM or Manual Route: add point
       pts <- rbind(pts, data.frame(lat = click$lat, lng = click$lng))
       pontos_temp(pts)
       atualizar_pontos_mapa(auto_zoom = FALSE)
     }
   })
 
-  # Limpar pontos (OSRM / manual) - SEM auto_zoom
+  # Clear points (OSRM / manual) - WITHOUT auto_zoom
   shiny::observeEvent(input$limpar_pontos_osrm, {
     pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
     atualizar_pontos_mapa(auto_zoom = FALSE)
@@ -466,7 +466,7 @@ server <- function(input, output, session) {
     atualizar_pontos_mapa(auto_zoom = FALSE)
   })
 
-  # Desfazer último ponto - SEM auto_zoom
+  # Undo last point - WITHOUT auto_zoom
   shiny::observeEvent(input$desfazer_ponto_osrm, {
     pts <- pontos_temp()
     if (nrow(pts) > 0) {
@@ -484,7 +484,7 @@ server <- function(input, output, session) {
     }
   })
 
-  # ---- Visita: auto-preencher coordenadas por nome frequente ----
+  # ---- Visit: auto-fill coordinates from frequent place name ----
 
   shiny::observeEvent(input$visita_nome, {
     nome <- input$visita_nome
@@ -494,18 +494,18 @@ server <- function(input, output, session) {
       pontos_temp(pts)
       atualizar_pontos_mapa(auto_zoom = TRUE)
       leaflet::leafletProxy("map") %>%
-        leaflet::addPopups(loc$lon, loc$lat, paste0("Local: ", nome), layerId = "visita_popup")
+        leaflet::addPopups(loc$lon, loc$lat, paste0("Place: ", nome), layerId = "visita_popup")
     } else {
       leaflet::leafletProxy("map") %>% leaflet::removePopup("visita_popup")
     }
   })
 
-  # ---- Adicionar visita ----
+  # ---- Add visit ----
 
   shiny::observeEvent(input$adicionar_visita, {
     pts <- pontos_temp()
     if (nrow(pts) != 1) {
-      shiny::showNotification("Selecione exatamente 1 ponto no mapa para a visita.", type = "error")
+      shiny::showNotification("Select exactly 1 point on the map for the visit.", type = "error")
       return()
     }
     lat <- pts$lat[1]
@@ -521,16 +521,16 @@ server <- function(input, output, session) {
       tz = tz
     )
     if (is.null(val)) {
-      shiny::showNotification("Horário inválido para a visita.", type = "error")
+      shiny::showNotification("Invalid time for the visit.", type = "error")
       return()
     }
 
-    # converte intervalo da visita para UTC para checar overlap
+    # convert visit interval to UTC to check overlap
     inicio_utc <- lubridate::with_tz(val$inicio, "UTC")
     fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
 
     if (has_overlap(timeline(), inicio_utc, fim_utc)) {
-      shiny::showNotification("Este intervalo se sobrepõe a outra atividade existente.", type = "error")
+      shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
 
@@ -546,14 +546,14 @@ server <- function(input, output, session) {
     item <- visita$item
     samples_novos <- visita$samples
 
-    # descrição
+    # description
     hora_ini_local <- format(val$inicio, "%H:%M")
     hora_fim_local <- format(val$fim, "%H:%M")
     nome_visita <- item$place$name
     item$tipo <- "visita"
     item$descricao <- sprintf("📍 %s (%s - %s)", nome_visita, hora_ini_local, hora_fim_local)
 
-    # Atualiza timeline e samples
+    # Update timeline and samples
     tl <- timeline()
     tl[[length(tl) + 1L]] <- item
     timeline(tl)
@@ -561,19 +561,19 @@ server <- function(input, output, session) {
     s <- all_samples()
     all_samples(c(s, samples_novos))
 
-    # fitBounds no ponto da visita
+    # fitBounds on the visit point
     leaflet::leafletProxy("map") %>%
       leaflet::fitBounds(lng, lat, lng, lat)
 
-    shiny::showNotification("Visita adicionada.", type = "message")
+    shiny::showNotification("Visit added.", type = "message")
   })
 
-  # ---- Rota manual ----
+  # ---- Manual route ----
 
   shiny::observeEvent(input$adicionar_manual, {
     pts <- pontos_temp()
     if (nrow(pts) < 2) {
-      shiny::showNotification("Defina pelo menos 2 pontos no mapa para a rota manual.", type = "error")
+      shiny::showNotification("Set at least 2 points on the map for the manual route.", type = "error")
       return()
     }
 
@@ -589,21 +589,21 @@ server <- function(input, output, session) {
       tz = tz
     )
     if (is.null(val)) {
-      shiny::showNotification("Horário inválido para a rota manual.", type = "error")
+      shiny::showNotification("Invalid time for the manual route.", type = "error")
       return()
     }
 
-    # Gera timestamps UTC equiespaçados
+    # Generate equally spaced UTC timestamps
     inicio_utc <- lubridate::with_tz(val$inicio, "UTC")
     fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
 
     if (has_overlap(timeline(), inicio_utc, fim_utc)) {
-      shiny::showNotification("Este intervalo se sobrepõe a outra atividade existente.", type = "error")
+      shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
 
 
-    # Interpola coords para pelo menos 100 pontos
+    # Interpolate coords to at least 100 points
     coords <- as.matrix(pts[, c("lng", "lat")])
     n0 <- nrow(coords)
     n_target <- max(n0, 100L)
@@ -646,7 +646,7 @@ server <- function(input, output, session) {
       coords = coords_new,
       sample_ids = sample_ids,
       tipo = "rota_manual",
-      descricao = sprintf("Rota manual (%.1f km)",
+      descricao = sprintf("Manual route (%.1f km)",
                           geosphere::distVincentyEllipsoid(
                             coords_new[1, 2:1], coords_new[n_target, 2:1]
                           ) / 1000),
@@ -660,7 +660,7 @@ server <- function(input, output, session) {
     s <- all_samples()
     all_samples(c(s, samples_novos))
 
-    # Desenha rota e dá zoom
+    # Draw route and zoom
     leaflet::leafletProxy("map") %>%
       leaflet::clearGroup("rota_atual") %>%
       leaflet::addPolylines(
@@ -678,15 +678,15 @@ server <- function(input, output, session) {
         lat2 = max(coords_new[, 2])
       )
 
-    shiny::showNotification("Rota manual adicionada.", type = "message")
+    shiny::showNotification("Manual route added.", type = "message")
   })
 
-  # ---- OSRM: calcular rota ----
+  # ---- OSRM: calculate route ----
 
   shiny::observeEvent(input$calcular_osrm, {
     pts <- pontos_temp()
     if (nrow(pts) < 2) {
-      shiny::showNotification("Defina pelo menos 2 pontos no mapa para a rota OSRM.", type = "error")
+      shiny::showNotification("Set at least 2 points on the map for the OSRM route.", type = "error")
       return()
     }
 
@@ -700,12 +700,12 @@ server <- function(input, output, session) {
 
     rota <- calcular_rota_osrm(pts, perfil = perfil)
     if (is.null(rota)) {
-      shiny::showNotification("Falha ao calcular rota OSRM.", type = "error")
+      shiny::showNotification("Failed to calculate OSRM route.", type = "error")
       return()
     }
 
-    # Sugere horário com base na última atividade (se houver)
-    last_utc <- get_last_end_local()  # retorna em UTC
+    # Suggest time based on the last activity (if any)
+    last_utc <- get_last_end_local()  # returns in UTC
     if (!is.null(last_utc)) {
       last_local <- lubridate::with_tz(last_utc, tzone = Sys.timezone())
       inicia_sugerido <- last_local + 60  # +1 minuto
@@ -721,15 +721,15 @@ server <- function(input, output, session) {
 
     shiny::showModal(
       shiny::modalDialog(
-        title = "Horários da rota OSRM",
-        shiny::dateInput("osrm_data_inicio", "Data início", as.Date(inicia_sugerido)),
-        shiny::textInput("osrm_hora_inicio", "Hora início", format(inicia_sugerido, "%H:%M:%S")),
-        shiny::dateInput("osrm_data_fim", "Data fim", as.Date(fim_sugerido)),
-        shiny::textInput("osrm_hora_fim", "Hora fim", format(fim_sugerido, "%H:%M:%S")),
+        title = "OSRM route times",
+        shiny::dateInput("osrm_data_inicio", "Start date", as.Date(inicia_sugerido)),
+        shiny::textInput("osrm_hora_inicio", "Start time", format(inicia_sugerido, "%H:%M:%S")),
+        shiny::dateInput("osrm_data_fim", "End date", as.Date(fim_sugerido)),
+        shiny::textInput("osrm_hora_fim", "End time", format(fim_sugerido, "%H:%M:%S")),
         footer = shiny::tagList(
-          shiny::modalButton("Cancelar"),
-          shiny::actionButton("recalcular_osrm_fim", "Recalcular chegada"),
-          shiny::actionButton("confirmar_rota_osrm", "Confirmar", class = "btn-primary")
+          shiny::modalButton("Cancel"),
+          shiny::actionButton("recalcular_osrm_fim", "Recalculate arrival"),
+          shiny::actionButton("confirmar_rota_osrm", "Confirm", class = "btn-primary")
         )
       )
     )
@@ -737,7 +737,7 @@ server <- function(input, output, session) {
     auto_format_time("osrm_hora_inicio")
     auto_format_time("osrm_hora_fim")
 
-    # Guarda rota em atributo da sessão
+    # Store route in session attribute
     session$userData$ultima_rota_osrm <- rota
     session$userData$ultima_rota_pts <- pts
     session$userData$ultima_rota_perfil <- perfil
@@ -746,30 +746,30 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$recalcular_osrm_fim, {
     rota <- session$userData$ultima_rota_osrm
     if (is.null(rota)) {
-      shiny::showNotification("Nenhuma rota OSRM calculada para recalcular o horário de chegada.", type = "error")
+      shiny::showNotification("No OSRM route calculated to recalculate the arrival time.", type = "error")
       return()
     }
 
     coords <- rota$coords
     if (is.data.frame(coords)) coords <- as.matrix(coords)
     if (!is.matrix(coords) || nrow(coords) < 1 || ncol(coords) < 2) {
-      shiny::showNotification("Coordenadas da rota OSRM estão em formato inesperado.", type = "error")
+      shiny::showNotification("OSRM route coordinates are in an unexpected format.", type = "error")
       return()
     }
 
     lat1 <- as.numeric(coords[1, 2])
     lng1 <- as.numeric(coords[1, 1])
     if (is.na(lat1) || is.na(lng1)) {
-      shiny::showNotification("Primeiro ponto da rota OSRM está inválido.", type = "error")
+      shiny::showNotification("First point of the OSRM route is invalid.", type = "error")
       return()
     }
 
     tz <- tz_from_coords(lat1, lng1)
 
-    # hora de partida (formata de novo pra garantir)
+    # departure time (format again to be safe)
     hora_ini_fmt <- formatar_hora(input$osrm_hora_inicio)
     if (is.na(hora_ini_fmt)) {
-      shiny::showNotification("Hora de partida inválida.", type = "error")
+      shiny::showNotification("Invalid departure time.", type = "error")
       return()
     }
 
@@ -780,14 +780,14 @@ server <- function(input, output, session) {
       )
     )
     if (is.na(inicio_local)) {
-      shiny::showNotification("Não consegui interpretar a data/hora de partida.", type = "error")
+      shiny::showNotification("Could not parse the departure date/time.", type = "error")
       return()
     }
 
-    # duração em segundos vinda do OSRM
+    # duration in seconds from OSRM
     dur_s <- as.numeric(rota$duration_s)
     if (is.na(dur_s)) {
-      shiny::showNotification("Duração da rota OSRM inválida.", type = "error")
+      shiny::showNotification("Invalid OSRM route duration.", type = "error")
       return()
     }
 
@@ -805,7 +805,7 @@ server <- function(input, output, session) {
 
         rota <- session$userData$ultima_rota_osrm
         if (is.null(rota)) {
-          shiny::showNotification("Nenhuma rota OSRM calculada.", type = "error")
+          shiny::showNotification("No OSRM route calculated.", type = "error")
           return()
         }
 
@@ -814,7 +814,7 @@ server <- function(input, output, session) {
           coords <- as.matrix(coords)
         }
         if (!is.matrix(coords) || ncol(coords) < 2) {
-          shiny::showNotification("Coordenadas da rota OSRM estão em formato inesperado.", type = "error")
+          shiny::showNotification("OSRM route coordinates are in an unexpected format.", type = "error")
           return()
         }
         coords <- suppressWarnings(apply(coords, 2, as.numeric))
@@ -824,7 +824,7 @@ server <- function(input, output, session) {
 
         n0 <- nrow(coords)
         if (is.null(n0) || is.na(n0) || n0 < 2) {
-          shiny::showNotification("Rota OSRM inválida (poucos pontos).", type = "error")
+          shiny::showNotification("Invalid OSRM route (too few points).", type = "error")
           return()
         }
 
@@ -832,7 +832,7 @@ server <- function(input, output, session) {
         lng1 <- coords[1, 1]
 
         if (is.na(lat1) || is.na(lng1)) {
-          shiny::showNotification("Primeiro ponto da rota OSRM está inválido.", type = "error")
+          shiny::showNotification("First point of the OSRM route is invalid.", type = "error")
           return()
         }
 
@@ -842,7 +842,7 @@ server <- function(input, output, session) {
         hora_fim_fmt <- formatar_hora(input$osrm_hora_fim)
 
         if (is.na(hora_ini_fmt) || is.na(hora_fim_fmt)) {
-          shiny::showNotification("Horas inválidas para rota OSRM.", type = "error")
+          shiny::showNotification("Invalid times for OSRM route.", type = "error")
           return()
         }
 
@@ -854,12 +854,12 @@ server <- function(input, output, session) {
           tz = tz
         )
         if (is.null(val)) {
-          shiny::showNotification("Horário inválido para rota OSRM.", type = "error")
+          shiny::showNotification("Invalid time for OSRM route.", type = "error")
           return()
         }
 
         if (!inherits(val$inicio, "POSIXt") || !inherits(val$fim, "POSIXt")) {
-          shiny::showNotification("Intervalo de horários da rota OSRM não pôde ser interpretado.", type = "error")
+          shiny::showNotification("OSRM route time interval could not be parsed.", type = "error")
           return()
         }
 
@@ -867,19 +867,19 @@ server <- function(input, output, session) {
         fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
 
         if (is.na(inicio_utc) || is.na(fim_utc) || fim_utc <= inicio_utc) {
-          shiny::showNotification("Intervalo da rota OSRM inválido (fim antes ou igual ao início).", type = "error")
+          shiny::showNotification("Invalid OSRM route interval (end before or equal to start).", type = "error")
           return()
         }
 
         if (has_overlap(timeline(), inicio_utc, fim_utc)) {
-          shiny::showNotification("Este intervalo se sobrepõe a outra atividade existente.", type = "error")
+          shiny::showNotification("This interval overlaps an existing activity.", type = "error")
           return()
         }
 
         n_target <- max(n0, 100L)
         ts_seq <- seq(from = inicio_utc, to = fim_utc, length.out = n_target)
         if (any(is.na(ts_seq))) {
-          shiny::showNotification("Falha ao gerar sequência de tempos para rota OSRM.", type = "error")
+          shiny::showNotification("Failed to generate time sequence for OSRM route.", type = "error")
           return()
         }
 
@@ -901,11 +901,11 @@ server <- function(input, output, session) {
         )$y)
 
         if (any(is.na(lon_new)) || any(is.na(lat_new))) {
-          shiny::showNotification("Falha ao interpolar coordenadas da rota OSRM.", type = "error")
+          shiny::showNotification("Failed to interpolate OSRM route coordinates.", type = "error")
           return()
         }
 
-        # Mapeia perfil OSRM para activityType
+        # Map OSRM profile to activityType
         perfil <- session$userData$ultima_rota_perfil %||% "car"
         activity_map <- c(
           car  = "car",
@@ -932,7 +932,7 @@ server <- function(input, output, session) {
           coords         = coords_new,
           sample_ids     = sample_ids,
           tipo           = "rota_osrm",
-          descricao      = sprintf("Rota OSRM (%s)", perfil),
+          descricao      = sprintf("OSRM route (%s)", perfil),
           activity_type  = activity_type
         )
 
@@ -960,14 +960,14 @@ server <- function(input, output, session) {
             lat2 = max(coords_new[, 2])
           )
 
-        # Limpa pontos temporarios apos adicionar rota
+        # Clear temporary points after adding route
         pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
 
-        shiny::showNotification("Rota OSRM adicionada.", type = "message")
+        shiny::showNotification("OSRM route added.", type = "message")
       },
       error = function(e) {
         shiny::showNotification(
-          paste("Erro ao confirmar rota OSRM:", e$message),
+          paste("Error confirming OSRM route:", e$message),
           type = "error",
           duration = NULL
         )
@@ -977,7 +977,7 @@ server <- function(input, output, session) {
 
 
 
-  # ---- Importar arquivo (GeoJSON/GPX/KML/GPKG) ----
+  # ---- Import file (GeoJSON/GPX/KML/GPKG) ----
 
   geometria_importada <- shiny::reactiveVal(NULL)
   fr24_enriquecido <- shiny::reactiveVal(FALSE)
@@ -1014,7 +1014,7 @@ server <- function(input, output, session) {
           shiny::updateTextInput(session, "import_hora_inicio", value = format(lubridate::with_tz(ini, Sys.timezone()), "%H:%M"))
           shiny::updateDateInput(session, "import_data_fim", value = as.Date(fim))
           shiny::updateTextInput(session, "import_hora_fim", value = format(lubridate::with_tz(fim, Sys.timezone()), "%H:%M"))
-          shiny::showNotification("Horários preenchidos com base no arquivo KML (UTC -> horário local do seu sistema).", type = "message")
+          shiny::showNotification("Times filled from KML file (UTC -> system local time).", type = "message")
         }
 
         leaflet::leafletProxy("map") %>%
@@ -1028,30 +1028,30 @@ server <- function(input, output, session) {
           leaflet::addCircleMarkers(
             lng = coords[1, 1], lat = coords[1, 2],
             radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-            group = "importado", label = "Início"
+            group = "importado", label = "Start"
           ) %>%
           leaflet::addCircleMarkers(
             lng = coords[nrow(coords), 1], lat = coords[nrow(coords), 2],
             radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-            group = "importado", label = "Fim"
+            group = "importado", label = "End"
           ) %>%
           leaflet::fitBounds(
             lng1 = min(coords[, 1]), lat1 = min(coords[, 2]),
             lng2 = max(coords[, 1]), lat2 = max(coords[, 2])
           )
 
-        shiny::showNotification("KML enriquecido (FR24) carregado. Verde = início, Vermelho = fim.", type = "message")
+        shiny::showNotification("Enriched KML (FR24) loaded. Green = start, Red = end.", type = "message")
         return()
       }
     }
 
-    # Caso normal: lê com sf
+    # Normal case: read with sf
     geo <- tryCatch(
       sf::st_read(arquivo, quiet = TRUE),
       error = function(e) NULL
     )
     if (is.null(geo)) {
-      shiny::showNotification("Não consegui ler o arquivo como camada geográfica.", type = "error")
+      shiny::showNotification("Could not read file as geographic layer.", type = "error")
       return()
     }
 
@@ -1069,7 +1069,7 @@ server <- function(input, output, session) {
 
     bbox <- sf::st_bbox(geo)
 
-    # Extrai primeiro e último ponto para marcadores de direção
+    # Extract first and last point for direction markers
     coords_all <- sf::st_coordinates(geo)
     pt_inicio <- coords_all[1, c("X", "Y")]
     pt_fim <- coords_all[nrow(coords_all), c("X", "Y")]
@@ -1084,19 +1084,19 @@ server <- function(input, output, session) {
       leaflet::addCircleMarkers(
         lng = pt_inicio["X"], lat = pt_inicio["Y"],
         radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-        group = "importado", label = "Início"
+        group = "importado", label = "Start"
       ) %>%
       leaflet::addCircleMarkers(
         lng = pt_fim["X"], lat = pt_fim["Y"],
         radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-        group = "importado", label = "Fim"
+        group = "importado", label = "End"
       ) %>%
       leaflet::fitBounds(
         lng1 = bbox["xmin"], lat1 = bbox["ymin"],
         lng2 = bbox["xmax"], lat2 = bbox["ymax"]
       )
 
-    shiny::showNotification("Arquivo geográfico importado. Verde = início, Vermelho = fim.", type = "message")
+    shiny::showNotification("Geographic file imported. Green = start, Red = end.", type = "message")
   })
 
   shiny::observeEvent(input$direcao_arquivo, {
@@ -1121,12 +1121,12 @@ server <- function(input, output, session) {
         leaflet::addCircleMarkers(
           lng = coords[1, 1], lat = coords[1, 2],
           radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-          group = "importado", label = "Início"
+          group = "importado", label = "Start"
         ) %>%
         leaflet::addCircleMarkers(
           lng = coords[nrow(coords), 1], lat = coords[nrow(coords), 2],
           radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-          group = "importado", label = "Fim"
+          group = "importado", label = "End"
         ) %>%
         leaflet::fitBounds(
           lng1 = min(coords[, 1]), lat1 = min(coords[, 2]),
@@ -1136,7 +1136,7 @@ server <- function(input, output, session) {
       bbox <- sf::st_bbox(geo)
       coords_all <- sf::st_coordinates(geo)
 
-      # Considera inversão para marcadores
+      # Consider inversion for markers
       if (input$direcao_arquivo == "inverter") {
         pt_inicio <- coords_all[nrow(coords_all), c("X", "Y")]
         pt_fim <- coords_all[1, c("X", "Y")]
@@ -1155,12 +1155,12 @@ server <- function(input, output, session) {
         leaflet::addCircleMarkers(
           lng = pt_inicio["X"], lat = pt_inicio["Y"],
           radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-          group = "importado", label = "Início"
+          group = "importado", label = "Start"
         ) %>%
         leaflet::addCircleMarkers(
           lng = pt_fim["X"], lat = pt_fim["Y"],
           radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-          group = "importado", label = "Fim"
+          group = "importado", label = "End"
         ) %>%
         leaflet::fitBounds(
           lng1 = bbox["xmin"], lat1 = bbox["ymin"],
@@ -1172,12 +1172,12 @@ server <- function(input, output, session) {
   shiny::observeEvent(input$adicionar_import, {
     geo <- geometria_importada()
     if (is.null(geo)) {
-      shiny::showNotification("Nenhum arquivo importado.", type = "error")
+      shiny::showNotification("No file imported.", type = "error")
       return()
     }
 
     # -------------------------------------------------------------------
-    # IMPORTAÇÃO ESPECIAL: trilha de voo FR24 já enriquecida
+    # SPECIAL IMPORT: FR24 flight track already enriched
     # -------------------------------------------------------------------
     if (isTRUE(fr24_enriquecido())) {
       traj <- tryCatch(
@@ -1189,7 +1189,7 @@ server <- function(input, output, session) {
         ),
         error = function(e) {
           shiny::showNotification(
-            paste("Erro ao processar trilha do FR24:", e$message),
+            paste("Error processing FR24 track:", e$message),
             type = "error",
             duration = NULL
           )
@@ -1207,7 +1207,7 @@ server <- function(input, output, session) {
       if (distancia_km <= 0 || distancia_km > 30000) {
         shiny::showNotification(
           sprintf(
-            "Distância absurda detectada para o voo (%.1f km). Algo está errado com a trilha.",
+            "Absurd distance detected for flight (%.1f km). Something is wrong with the track.",
             distancia_km
           ),
           type = "error",
@@ -1283,7 +1283,7 @@ server <- function(input, output, session) {
         coords         = coords,
         sample_ids     = sample_ids,
         tipo           = "voo_fr24",
-        descricao      = sprintf("Voo FR24 (%.1f km)", distancia_km),
+        descricao      = sprintf("FR24 flight (%.1f km)", distancia_km),
         activity_type  = "airplane"
       )
 
@@ -1309,20 +1309,20 @@ server <- function(input, output, session) {
           lat2 = max(coords[, "lat"], na.rm = TRUE)
         )
 
-      shiny::showNotification("Voo FR24 adicionado à timeline.", type = "message")
+      shiny::showNotification("FR24 flight added to timeline.", type = "message")
       return()
     }
 
 
-    # Caso padrão (sf): timestamps vêm do formulário (horário local)
+    # Default case (sf): timestamps come from the form (local time)
     if (!inherits(geo, "sf")) {
-      shiny::showNotification("Geometria importada inválida.", type = "error")
+      shiny::showNotification("Invalid imported geometry.", type = "error")
       return()
     }
 
     coords_list <- sf::st_coordinates(geo)
     if (nrow(coords_list) < 2) {
-      shiny::showNotification("Geometria muito curta para rota.", type = "error")
+      shiny::showNotification("Geometry too short for route.", type = "error")
       return()
     }
 
@@ -1347,7 +1347,7 @@ server <- function(input, output, session) {
       tz = tz_origem
     )
     if (is.null(val)) {
-      shiny::showNotification("Horário inválido para rota importada.", type = "error")
+      shiny::showNotification("Invalid time for imported route.", type = "error")
       return()
     }
 
@@ -1355,7 +1355,7 @@ server <- function(input, output, session) {
     fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
 
     if (has_overlap(timeline(), inicio_utc, fim_utc)) {
-      shiny::showNotification("Este intervalo se sobrepõe a outra atividade existente.", type = "error")
+      shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
 
@@ -1389,7 +1389,7 @@ server <- function(input, output, session) {
       coords = coords_new,
       sample_ids = sample_ids,
       tipo = "rota_importada",
-      descricao = "Rota importada de arquivo",
+      descricao = "Route imported from file",
       activity_type = import_at
     )
 
@@ -1414,7 +1414,7 @@ server <- function(input, output, session) {
         lng2 = max(coords_new[, 1]), lat2 = max(coords_new[, 2])
       )
 
-    shiny::showNotification("Rota do arquivo adicionada.", type = "message")
+    shiny::showNotification("File route added.", type = "message")
   })
 
   # ---- Timeline UI ----
@@ -1422,7 +1422,7 @@ server <- function(input, output, session) {
   output$timeline_list <- shiny::renderUI({
     tl <- timeline()
     if (length(tl) == 0) {
-      return(shiny::tags$p("Nenhum item na timeline ainda."))
+      return(shiny::tags$p("No items in the timeline yet."))
     }
 
     ord <- order(vapply(tl, function(it) item_start_date(it), character(1)))
@@ -1453,12 +1453,12 @@ server <- function(input, output, session) {
           shiny::br(),
           shiny::actionButton(
             paste0("editar_", it$.internalId),
-            "Editar",
+            "Edit",
             class = "btn-sm btn-warning"
           ),
           shiny::actionButton(
             paste0("deletar_", it$.internalId),
-            "Excluir",
+            "Delete",
             class = "btn-sm btn-danger"
           )
         )
@@ -1467,9 +1467,9 @@ server <- function(input, output, session) {
 
   })
 
-  # ---- Editar / deletar items ----
+  # ---- Edit / delete items ----
 
-  # Deletar
+  # Delete
   shiny::observe({
     tl <- timeline()
     if (length(tl) == 0) return()
@@ -1499,14 +1499,14 @@ server <- function(input, output, session) {
 
           pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
 
-          shiny::showNotification("Item removido da timeline.", type = "message")
+          shiny::showNotification("Item removed from timeline.", type = "message")
         }
       }, ignoreInit = TRUE)
 
     })
   })
 
-  # Editar
+  # Edit
   shiny::observe({
     tl <- timeline()
     if (length(tl) == 0) return()
@@ -1530,14 +1530,14 @@ server <- function(input, output, session) {
 
         shiny::showModal(
           shiny::modalDialog(
-            title = "Editar item",
-            shiny::dateInput("edit_data_inicio", "Data início", as.Date(ts_local)),
-            shiny::textInput("edit_hora_inicio", "Hora início", format(ts_local, "%H:%M")),
-            shiny::dateInput("edit_data_fim", "Data fim", as.Date(tsf_local)),
-            shiny::textInput("edit_hora_fim", "Hora fim", format(tsf_local, "%H:%M")),
+            title = "Edit item",
+            shiny::dateInput("edit_data_inicio", "Start date", as.Date(ts_local)),
+            shiny::textInput("edit_hora_inicio", "Start time", format(ts_local, "%H:%M")),
+            shiny::dateInput("edit_data_fim", "End date", as.Date(tsf_local)),
+            shiny::textInput("edit_hora_fim", "End time", format(tsf_local, "%H:%M")),
             footer = shiny::tagList(
-              shiny::modalButton("Cancelar"),
-              shiny::actionButton("salvar_edicao", "Salvar", class = "btn-primary")
+              shiny::modalButton("Cancel"),
+              shiny::actionButton("salvar_edicao", "Save", class = "btn-primary")
             )
           )
         )
@@ -1567,7 +1567,7 @@ server <- function(input, output, session) {
     local_fim <- lubridate::ymd_hms(paste(input$edit_data_fim, hora_fim_fmt), tz = "UTC")
 
     if (is.na(local_ini) || is.na(local_fim)) {
-      shiny::showNotification("Horários inválidos.", type = "error")
+      shiny::showNotification("Invalid times.", type = "error")
       return()
     }
 
@@ -1575,12 +1575,12 @@ server <- function(input, output, session) {
     novo_fim_utc <- local_fim  - end_sec
 
     if (novo_fim_utc <= novo_ini_utc) {
-      shiny::showNotification("O fim deve ser depois do início.", type = "error")
+      shiny::showNotification("End must be after start.", type = "error")
       return()
     }
 
     if (has_overlap(tl, novo_ini_utc, novo_fim_utc, ignore_id = id)) {
-      shiny::showNotification("Este intervalo se sobrepõe a outra atividade existente.", type = "error")
+      shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
 
@@ -1615,12 +1615,12 @@ server <- function(input, output, session) {
 
     tl[[idx]] <- it
     timeline(tl)
-    shiny::showNotification("Item atualizado.", type = "message")
+    shiny::showNotification("Item updated.", type = "message")
   })
 
-  # ---- Modo Editar Samples ----
+  # ---- Edit Samples mode ----
 
-  # Helper: renderiza samples no mapa como marcadores arrastáveis
+  # Helper: render samples on the map as draggable markers
   renderizar_edit_samples <- function() {
     samples <- edit_samples()
     virtuais <- samples_virtuais()
@@ -1633,14 +1633,14 @@ server <- function(input, output, session) {
 
     if (length(samples) == 0) return()
 
-    # Filtra samples com location válida
+    # Filter samples with valid location
     samples <- Filter(function(s) {
       sample_has_coords(s)
     }, samples)
 
     if (length(samples) == 0) return()
 
-    # Extrai coordenadas
+    # Extract coordinates
     lats <- vapply(samples, function(s) as.numeric(s$latitude)[1], numeric(1))
     lngs <- vapply(samples, function(s) as.numeric(s$longitude)[1], numeric(1))
     ids <- vapply(samples, function(s) {
@@ -1649,10 +1649,10 @@ server <- function(input, output, session) {
       as.character(id)[1]
     }, character(1))
 
-    # Verifica se há rota OSRM armazenada
+    # Check if there is a stored OSRM route
     rota <- rota_osrm()
     if (!is.null(rota) && is.matrix(rota) && nrow(rota) >= 2) {
-      # Desenha a rota OSRM completa (verde)
+      # Draw the complete OSRM route (green)
       proxy <- proxy %>%
         leaflet::addPolylines(
           lng = rota[, 1],  # lon
@@ -1663,7 +1663,7 @@ server <- function(input, output, session) {
           group = "edit_rota"
         )
     } else {
-      # Sem rota OSRM: desenha linha conectando os samples
+      # No OSRM route: draw line connecting the samples
       proxy <- proxy %>%
         leaflet::addPolylines(
           lng = lngs,
@@ -1675,9 +1675,9 @@ server <- function(input, output, session) {
         )
     }
 
-    # ---- SAMPLES VIRTUAIS (pontos laranjas menores) ----
+    # ---- VIRTUAL SAMPLES (smaller orange dots) ----
     if (length(virtuais) > 0) {
-      # Filtra virtuais com location válida
+      # Filter virtual samples with valid location
       virtuais <- Filter(function(s) {
         sample_has_coords(s)
       }, virtuais)
@@ -1699,7 +1699,7 @@ server <- function(input, output, session) {
         )
     }
 
-    # ---- SAMPLES ARC (alfinetes arrastáveis) ----
+    # ---- ARC SAMPLES (draggable pins) ----
     for (i in seq_along(samples)) {
       is_ignored <- ids[i] %in% ignored
       proxy <- proxy %>%
@@ -1712,7 +1712,7 @@ server <- function(input, output, session) {
         )
     }
 
-    # Zoom para os samples (inclui virtuais se existirem)
+    # Zoom to samples (includes virtual samples if they exist)
     all_lats <- lats
     all_lngs <- lngs
     if (length(virtuais) > 0) {
@@ -1726,21 +1726,21 @@ server <- function(input, output, session) {
         lng2 = max(all_lngs), lat2 = max(all_lats)
       )
 
-    # Adiciona handler de clique direito via JS
+    # Add right-click handler via JS
     session$sendCustomMessage("setup_context_menu", list())
   }
 
-  # Carregar samples existentes
+  # Load existing samples
   shiny::observeEvent(input$carregar_samples, {
     hora_ini_fmt <- formatar_hora(input$edit_samples_hora_inicio)
     hora_fim_fmt <- formatar_hora(input$edit_samples_hora_fim)
 
     if (is.na(hora_ini_fmt) || is.na(hora_fim_fmt)) {
-      shiny::showNotification("Horários inválidos.", type = "error")
+      shiny::showNotification("Invalid times.", type = "error")
       return()
     }
 
-    # Converte para UTC (assume timezone local do sistema)
+    # Convert to UTC (assumes system local timezone)
     inicio_local <- lubridate::ymd_hms(
       paste(input$edit_samples_data_inicio, hora_ini_fmt),
       tz = Sys.timezone()
@@ -1751,7 +1751,7 @@ server <- function(input, output, session) {
     )
 
     if (is.na(inicio_local) || is.na(fim_local)) {
-      shiny::showNotification("Data/hora inválida.", type = "error")
+      shiny::showNotification("Invalid date/time.", type = "error")
       return()
     }
 
@@ -1761,11 +1761,11 @@ server <- function(input, output, session) {
     samples_raw <- carregar_samples_intervalo(inicio_utc, fim_utc)
 
     if (length(samples_raw) == 0) {
-      shiny::showNotification("Nenhum sample encontrado no intervalo.", type = "warning")
+      shiny::showNotification("No samples found in the interval.", type = "warning")
       return()
     }
 
-    # Filtra samples com location válida
+    # Filter samples with valid location
     samples <- Filter(function(s) {
       sample_has_coords(s)
     }, samples_raw)
@@ -1773,35 +1773,35 @@ server <- function(input, output, session) {
     n_invalidos <- length(samples_raw) - length(samples)
     if (n_invalidos > 0) {
       shiny::showNotification(
-        sprintf("%d samples ignorados (sem coordenadas válidas).", n_invalidos),
+        sprintf("%d samples skipped (no valid coordinates).", n_invalidos),
         type = "warning"
       )
     }
 
     if (length(samples) == 0) {
-      shiny::showNotification("Nenhum sample com coordenadas válidas.", type = "error")
+      shiny::showNotification("No samples with valid coordinates.", type = "error")
       return()
     }
 
-    original_samples(samples)  # Guarda cópia dos samples originais para exportação
-    # Guarda timelineItemId original (se existir)
+    original_samples(samples)  # Keep copy of original samples for export
+    # Store original timelineItemId (if it exists)
     if (length(samples) > 0 && !is.null(samples[[1]]$timelineItemId)) {
       original_timeline_item_id(samples[[1]]$timelineItemId)
     } else {
       original_timeline_item_id(NULL)
     }
     edit_samples(samples)
-    rota_osrm(NULL)  # Limpa rota OSRM ao carregar novos samples
-    samples_virtuais(list())  # Limpa samples virtuais
+    rota_osrm(NULL)  # Clear OSRM route when loading new samples
+    samples_virtuais(list())  # Clear virtual samples
     renderizar_edit_samples()
 
     shiny::showNotification(
-      sprintf("%d samples carregados.", length(samples)),
+      sprintf("%d samples loaded.", length(samples)),
       type = "message"
     )
   })
 
-  # Captura arraste de marcador
+  # Capture marker drag
   shiny::observeEvent(input$map_marker_dragend, {
     event <- input$map_marker_dragend
     if (is.null(event)) return()
@@ -1813,7 +1813,7 @@ server <- function(input, output, session) {
     samples <- edit_samples()
     if (length(samples) == 0) return()
 
-    # Encontra o sample pelo ID
+    # Find the sample by ID
     idx <- which(vapply(samples, function(s) {
       id <- s$id
       if (is.null(id) || length(id) == 0) return("")
@@ -1821,16 +1821,16 @@ server <- function(input, output, session) {
     }, character(1)) == sample_id)
     if (length(idx) == 0) return()
 
-    # Atualiza coordenadas
+    # Update coordinates
     samples[[idx]]$latitude <- new_lat
     samples[[idx]]$longitude <- new_lng
 
     edit_samples(samples)
-    rota_osrm(NULL)  # Limpa rota OSRM ao mover marcador manualmente
-    samples_virtuais(list())  # Limpa samples virtuais
+    rota_osrm(NULL)  # Clear OSRM route when manually moving marker
+    samples_virtuais(list())  # Clear virtual samples
 
-    # Redesenha a linha (sem redesenhar os marcadores para manter drag)
-    # Filtra samples com location válida
+    # Redraw the line (without redrawing markers to keep drag)
+    # Filter samples with valid location
     samples_validos <- Filter(function(s) {
       sample_has_coords(s)
     }, samples)
@@ -1852,26 +1852,26 @@ server <- function(input, output, session) {
       )
   })
 
-  # Snap-to-road OSRM
+  # Snap-to-road OSRM route
   shiny::observeEvent(input$snap_to_road, {
-    # Remove notificações anteriores
+    # Remove previous notifications
     shiny::removeNotification("snap_progress")
 
     tryCatch({
-      shiny::showNotification("1/7 Iniciando...", id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification("1/7 Starting...", id = "snap_progress", duration = NULL, type = "message")
 
       samples <- edit_samples()
       ignored <- ignored_samples()
 
       if (length(samples) == 0) {
         shiny::removeNotification("snap_progress")
-        shiny::showNotification("Nenhum sample carregado. Clique em 'Carregar' primeiro.", type = "error")
+        shiny::showNotification("No samples loaded. Click 'Load' first.", type = "error")
         return()
       }
 
-      shiny::showNotification(sprintf("2/7 Filtrando %d samples...", length(samples)), id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification(sprintf("2/7 Filtering %d samples...", length(samples)), id = "snap_progress", duration = NULL, type = "message")
 
-      # Filtra samples ignorados para o snap-to-road
+      # Filter ignored samples for snap-to-road
       ids <- character(length(samples))
       for (j in seq_along(samples)) {
         val <- samples[[j]]$id
@@ -1883,7 +1883,7 @@ server <- function(input, output, session) {
 
       if (length(samples_ativos) < 2) {
         shiny::removeNotification("snap_progress")
-        shiny::showNotification("Carregue pelo menos 2 samples (nao ignorados) para snap-to-road.", type = "error")
+        shiny::showNotification("Load at least 2 samples (not ignored) for snap-to-road.", type = "error")
         return()
       }
 
@@ -1892,11 +1892,11 @@ server <- function(input, output, session) {
 
       if (is.null(base_url)) {
         shiny::removeNotification("snap_progress")
-        shiny::showNotification(sprintf("Perfil OSRM '%s' nao configurado.", perfil), type = "error")
+        shiny::showNotification(sprintf("OSRM profile '%s' not configured.", perfil), type = "error")
         return()
       }
 
-      shiny::showNotification("3/7 Verificando OSRM...", id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification("3/7 Checking OSRM...", id = "snap_progress", duration = NULL, type = "message")
 
       if (!check_osrm_server(base_url)) {
         shiny::removeNotification("snap_progress")
@@ -1904,9 +1904,9 @@ server <- function(input, output, session) {
         return()
       }
 
-      shiny::showNotification("4/7 Extraindo coordenadas...", id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification("4/7 Extracting coordinates...", id = "snap_progress", duration = NULL, type = "message")
 
-      # Extrai coordenadas dos samples ativos (com conversão defensiva)
+      # Extract coordinates from active samples (with defensive conversion)
       n_ativos <- length(samples_ativos)
       lats <- numeric(n_ativos)
       lngs <- numeric(n_ativos)
@@ -1919,11 +1919,11 @@ server <- function(input, output, session) {
         lngs[j] <- as.numeric(lng_val)[1]
       }
 
-      # Limita a 100 waypoints (chunking se necessário)
+      # Limit to 100 waypoints (chunking if necessary)
       n <- length(samples_ativos)
       if (n > 100) {
         shiny::showNotification(
-          sprintf("Muitos samples (%d). Usando apenas os primeiros 100 para OSRM.", n),
+          sprintf("Too many samples (%d). Using only the first 100 for OSRM.", n),
           type = "warning"
         )
         lats <- lats[1:100]
@@ -1932,16 +1932,16 @@ server <- function(input, output, session) {
         n <- 100
       }
 
-      shiny::showNotification(sprintf("5/7 Chamando OSRM com %d pontos...", n), id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification(sprintf("5/7 Calling OSRM with %d points...", n), id = "snap_progress", duration = NULL, type = "message")
 
-      # Chama OSRM
+      # Call OSRM
       pts <- data.frame(lat = lats, lng = lngs)
       rota <- calcular_rota_osrm(pts, perfil = perfil)
 
       if (is.null(rota)) {
         shiny::removeNotification("snap_progress")
         shiny::showNotification(
-          "Falha ao calcular rota OSRM. O servidor pode nao ter conseguido rotear entre os pontos.",
+          "Failed to calculate OSRM route. The server may not have been able to route between the points.",
           type = "error"
         )
         return()
@@ -1949,45 +1949,45 @@ server <- function(input, output, session) {
 
       if (is.null(rota$coords) || nrow(rota$coords) < 2) {
         shiny::removeNotification("snap_progress")
-        shiny::showNotification("Rota OSRM retornou sem coordenadas validas.", type = "error")
+        shiny::showNotification("OSRM route returned no valid coordinates.", type = "error")
         return()
       }
 
-      shiny::showNotification("6/7 Interpolando samples...", id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification("6/7 Interpolating samples...", id = "snap_progress", duration = NULL, type = "message")
 
       coords_osrm <- rota$coords
 
-      # Converte para matriz numérica de forma defensiva
+      # Defensively convert to numeric matrix
       if (is.data.frame(coords_osrm)) {
         coords_osrm <- as.matrix(coords_osrm)
       }
       if (is.list(coords_osrm) && !is.matrix(coords_osrm)) {
-        # Se ainda é lista, converte manualmente
+        # If still a list, convert manually
         coords_osrm <- do.call(rbind, lapply(coords_osrm, function(x) as.numeric(unlist(x))))
       }
-      # Garante que é matriz numérica
+      # Ensure it is a numeric matrix
       storage.mode(coords_osrm) <- "double"
 
-      # Calcula distância acumulada na rota OSRM
+      # Calculate accumulated distance on the OSRM route
       n_osrm <- nrow(coords_osrm)
       if (is.null(n_osrm) || n_osrm < 2) {
         shiny::removeNotification("snap_progress")
-        shiny::showNotification("Rota OSRM muito curta ou invalida.", type = "error")
+        shiny::showNotification("OSRM route too short or invalid.", type = "error")
         return()
       }
 
-      # Armazena a geometria da rota OSRM para exibição
+      # Store the OSRM route geometry for display
       rota_osrm(coords_osrm)
 
-      # Filtra pontos com mudança de direção (>2 graus) ou distância significativa
-      # Critérios: mudança angular OU distância > 50m do último ponto incluído
-      pontos_relevantes <- 1L  # sempre inclui o primeiro
+      # Filter points with direction change (>2 degrees) or significant distance
+      # Criteria: angular change OR distance > 50m from last included point
+      pontos_relevantes <- 1L  # always include the first
       ultimo_incluido <- 1L
 
       for (i in 2:(n_osrm - 1)) {
         incluir <- FALSE
 
-        # Critério 1: mudança de direção > 2 graus
+        # Criterion 1: direction change > 2 degrees
         b1 <- geosphere::bearing(
           c(coords_osrm[i - 1, 1], coords_osrm[i - 1, 2]),
           c(coords_osrm[i, 1], coords_osrm[i, 2])
@@ -2001,7 +2001,7 @@ server <- function(input, output, session) {
           incluir <- TRUE
         }
 
-        # Critério 2: distância > 50m do último ponto incluído
+        # Criterion 2: distance > 50m from last included point
         if (!incluir) {
           dist_ultimo <- geosphere::distHaversine(
             c(coords_osrm[ultimo_incluido, 1], coords_osrm[ultimo_incluido, 2]),
@@ -2017,9 +2017,9 @@ server <- function(input, output, session) {
           ultimo_incluido <- i
         }
       }
-      pontos_relevantes <- c(pontos_relevantes, n_osrm)  # sempre inclui o último
+      pontos_relevantes <- c(pontos_relevantes, n_osrm)  # always include the last
 
-      # Coordenadas filtradas para samples virtuais
+      # Filtered coordinates for virtual samples
       coords_filtradas <- coords_osrm[pontos_relevantes, , drop = FALSE]
       n_filtrados <- nrow(coords_filtradas)
 
@@ -2032,8 +2032,8 @@ server <- function(input, output, session) {
       }
       dist_total <- dist_acum[n_osrm]
 
-      # Para cada sample ativo, interpola posição na rota OSRM
-      # usando proporção temporal - extrair timestamps com for loop
+      # For each active sample, interpolate position on the OSRM route
+      # using time proportion - extract timestamps with for loop
       ts_vec <- numeric(n)
       for (j in seq_len(n)) {
         date_val <- samples_ativos[[j]]$date
@@ -2047,17 +2047,17 @@ server <- function(input, output, session) {
       if (t_range <= 0) t_range <- 1
 
       for (i in seq_len(n)) {
-        # Proporção temporal (0 a 1)
+        # Time proportion (0 to 1)
         prop <- (ts_vec[i] - t_min) / t_range
 
-        # Distância alvo na rota OSRM
+        # Target distance on the OSRM route
         dist_alvo <- prop * dist_total
 
-        # Encontra segmento na rota OSRM
+        # Find segment on the OSRM route
         seg_idx <- max(1, sum(dist_acum <= dist_alvo))
         if (seg_idx >= n_osrm) seg_idx <- n_osrm - 1
 
-        # Interpola dentro do segmento
+        # Interpolate within the segment
         d1 <- dist_acum[seg_idx]
         d2 <- dist_acum[seg_idx + 1]
         seg_len <- d2 - d1
@@ -2073,9 +2073,9 @@ server <- function(input, output, session) {
         samples_ativos[[i]]$latitude <- new_lat
       }
 
-      shiny::showNotification("7/7 Finalizando...", id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification("7/7 Finishing...", id = "snap_progress", duration = NULL, type = "message")
 
-      # Recalcula bearings dos samples ativos - usa for loop
+      # Recalculate bearings of active samples - uses for loop
       coords_new <- matrix(0, nrow = length(samples_ativos), ncol = 2)
       for (j in seq_along(samples_ativos)) {
         coords_new[j, 1] <- as.numeric(samples_ativos[[j]]$longitude)
@@ -2087,7 +2087,7 @@ server <- function(input, output, session) {
         samples_ativos[[i]]$course <- bearings[i]
       }
 
-      # Atualiza samples_ativos de volta na lista completa
+      # Update active samples back into the full list
       ids_ativos <- character(length(samples_ativos))
       for (j in seq_along(samples_ativos)) {
         val <- samples_ativos[[j]]$id
@@ -2107,38 +2107,38 @@ server <- function(input, output, session) {
         }
       }
 
-      # ---- CRIA SAMPLES VIRTUAIS da rota OSRM ----
-      # Calcula distância acumulada para os pontos filtrados
+      # ---- CREATE VIRTUAL SAMPLES from OSRM route ----
+      # Calculate accumulated distance for filtered points
       dist_acum_filtrados <- numeric(n_filtrados)
       dist_acum_filtrados[1] <- 0
       for (i in 2:n_filtrados) {
-        # Usa índices dos pontos originais para calcular distância
+        # Use original point indices to calculate distance
         idx_orig <- pontos_relevantes[i]
         dist_acum_filtrados[i] <- dist_acum[idx_orig]
       }
 
-      # Pega o timelineItemId do primeiro sample (para os virtuais)
+      # Get timelineItemId from the first sample (for virtual samples)
       ti_id_virtual <- NULL
       if (length(samples_ativos) > 0 && !is.null(samples_ativos[[1]]$timelineItemId)) {
         ti_id_virtual <- samples_ativos[[1]]$timelineItemId
       }
 
-      # Cria samples virtuais interpolando timestamps
+      # Create virtual samples interpolating timestamps
       novos_virtuais <- list()
       for (i in seq_len(n_filtrados)) {
-        # Proporção baseada na distância
+        # Distance-based proportion
         prop <- if (dist_total > 0) dist_acum_filtrados[i] / dist_total else 0
 
-        # Interpola timestamp
+        # Interpolate timestamp
         ts_virtual <- t_min + prop * t_range
         ts_utc <- as.POSIXct(ts_virtual, origin = "1970-01-01", tz = "UTC")
         date_str <- format(ts_utc, "%Y-%m-%dT%H:%M:%SZ")
 
-        # Coordenadas
+        # Coordinates
         lon_v <- coords_filtradas[i, 1]
         lat_v <- coords_filtradas[i, 2]
 
-        # Calcula bearing para o próximo ponto
+        # Calculate bearing to the next point
         course_v <- 0
         if (i < n_filtrados) {
           course_v <- geosphere::bearing(
@@ -2148,7 +2148,7 @@ server <- function(input, output, session) {
           if (is.na(course_v)) course_v <- 0
           if (course_v < 0) course_v <- course_v + 360
         } else if (i > 1) {
-          # Último ponto: usa bearing do anterior
+          # Last point: use bearing from previous
           course_v <- geosphere::bearing(
             c(coords_filtradas[i - 1, 1], coords_filtradas[i - 1, 2]),
             c(coords_filtradas[i, 1], coords_filtradas[i, 2])
@@ -2157,12 +2157,12 @@ server <- function(input, output, session) {
           if (course_v < 0) course_v <- course_v + 360
         }
 
-        # Timezone
+        # Timezone lookup
         tz_v <- tz_from_coords(lat_v, lon_v)
         if (is.na(tz_v)) tz_v <- "UTC"
         sec_gmt_v <- seconds_from_gmt(ts_utc, tz_v)
 
-        # Cria sample virtual (formato LocoKit2)
+        # Create virtual sample (LocoKit2 format)
         sample_v <- list(
           id = toupper(uuid::UUIDgenerate(use.time = TRUE)),
           source = "LocoKit2",
@@ -2193,7 +2193,7 @@ server <- function(input, output, session) {
         novos_virtuais[[length(novos_virtuais) + 1L]] <- sample_v
       }
 
-      # Armazena samples virtuais
+      # Store virtual samples
       samples_virtuais(novos_virtuais)
 
       edit_samples(samples)
@@ -2201,23 +2201,23 @@ server <- function(input, output, session) {
 
       shiny::removeNotification("snap_progress")
       shiny::showNotification(
-        sprintf("Snap-to-road concluido! %d samples Arc + %d virtuais (%.1f km).",
+        sprintf("Snap-to-road complete! %d Arc samples + %d virtual (%.1f km).",
                 n, length(novos_virtuais), dist_total / 1000),
         type = "message"
       )
     }, error = function(e) {
       shiny::removeNotification("snap_progress")
       shiny::showNotification(
-        paste("Erro no snap-to-road:", e$message),
+        paste("Snap-to-road error:", e$message),
         type = "error",
         duration = NULL
       )
     })
   })
 
-  # ---- Handlers do menu de contexto ----
+  # ---- Context menu handlers ----
 
-  # Propriedades: mostra modal com informações do sample
+  # Properties: show modal with sample information
   shiny::observeEvent(input$ctx_propriedades, {
     req(input$ctx_propriedades)
     sample_id <- input$ctx_propriedades$id
@@ -2238,45 +2238,45 @@ server <- function(input, output, session) {
 
     shiny::showModal(
       shiny::modalDialog(
-        title = "Propriedades do Sample",
+        title = "Sample Properties",
         shiny::tags$table(
           class = "table table-condensed",
           shiny::tags$tr(shiny::tags$td(shiny::strong("ID:")), shiny::tags$td(sample_id)),
-          shiny::tags$tr(shiny::tags$td(shiny::strong("Data/Hora (UTC):")), shiny::tags$td(format(ts_utc, "%Y-%m-%d %H:%M:%S"))),
-          shiny::tags$tr(shiny::tags$td(shiny::strong("Data/Hora (Local):")), shiny::tags$td(format(ts_local, "%Y-%m-%d %H:%M:%S"))),
+          shiny::tags$tr(shiny::tags$td(shiny::strong("Date/Time (UTC):")), shiny::tags$td(format(ts_utc, "%Y-%m-%d %H:%M:%S"))),
+          shiny::tags$tr(shiny::tags$td(shiny::strong("Date/Time (Local):")), shiny::tags$td(format(ts_local, "%Y-%m-%d %H:%M:%S"))),
           shiny::tags$tr(shiny::tags$td(shiny::strong("Latitude:")), shiny::tags$td(sprintf("%.8f", lat))),
           shiny::tags$tr(shiny::tags$td(shiny::strong("Longitude:")), shiny::tags$td(sprintf("%.8f", lon))),
-          shiny::tags$tr(shiny::tags$td(shiny::strong("Velocidade:")), shiny::tags$td(if (is.na(speed)) "-" else sprintf("%.1f km/h", speed * 3.6))),
-          shiny::tags$tr(shiny::tags$td(shiny::strong("Curso:")), shiny::tags$td(if (is.na(course)) "-" else sprintf("%.1f graus", course))),
+          shiny::tags$tr(shiny::tags$td(shiny::strong("Speed:")), shiny::tags$td(if (is.na(speed)) "-" else sprintf("%.1f km/h", speed * 3.6))),
+          shiny::tags$tr(shiny::tags$td(shiny::strong("Course:")), shiny::tags$td(if (is.na(course)) "-" else sprintf("%.1f degrees", course))),
           shiny::tags$tr(shiny::tags$td(shiny::strong("Altitude:")), shiny::tags$td(if (is.na(alt)) "-" else sprintf("%.1f m", alt)))
         ),
         easyClose = TRUE,
-        footer = shiny::modalButton("Fechar")
+        footer = shiny::modalButton("Close")
       )
     )
   })
 
-  # Ignorar: toggle sample ignorado
+  # Ignore: toggle sample ignored
   shiny::observeEvent(input$ctx_ignorar, {
     req(input$ctx_ignorar)
     sample_id <- input$ctx_ignorar$id
     ignored <- ignored_samples()
 
     if (sample_id %in% ignored) {
-      # Remove da lista de ignorados
+      # Remove from ignored list
       ignored <- ignored[ignored != sample_id]
-      shiny::showNotification("Sample incluido novamente.", type = "message")
+      shiny::showNotification("Sample re-included.", type = "message")
     } else {
-      # Adiciona à lista de ignorados
+      # Add to ignored list
       ignored <- c(ignored, sample_id)
-      shiny::showNotification("Sample ignorado.", type = "message")
+      shiny::showNotification("Sample ignored.", type = "message")
     }
 
     ignored_samples(ignored)
     renderizar_edit_samples()
   })
 
-  # Descartar: remove sample da lista
+  # Discard: remove sample from list
   shiny::observeEvent(input$ctx_descartar, {
     req(input$ctx_descartar)
     sample_id <- input$ctx_descartar$id
@@ -2288,16 +2288,16 @@ server <- function(input, output, session) {
     samples <- samples[-idx]
     edit_samples(samples)
 
-    # Remove também da lista de ignorados se estiver
+    # Also remove from ignored list if present
     ignored <- ignored_samples()
     ignored <- ignored[ignored != sample_id]
     ignored_samples(ignored)
 
     renderizar_edit_samples()
-    shiny::showNotification("Sample descartado.", type = "message")
+    shiny::showNotification("Sample discarded.", type = "message")
   })
 
-  # Inserir: cria novo sample após o selecionado
+  # Insert: create new sample after the selected one
   shiny::observeEvent(input$ctx_inserir, {
     req(input$ctx_inserir)
     sample_id <- input$ctx_inserir$id
@@ -2306,16 +2306,16 @@ server <- function(input, output, session) {
     idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
     if (length(idx) == 0) return()
 
-    # Se for o último sample, não pode inserir após
+    # If it's the last sample, cannot insert after
     if (idx == length(samples)) {
-      shiny::showNotification("Nao e possivel inserir apos o ultimo sample.", type = "warning")
+      shiny::showNotification("Cannot insert after the last sample.", type = "warning")
       return()
     }
 
     s_atual <- samples[[idx]]
     s_prox <- samples[[idx + 1]]
 
-    # Calcula posição e timestamp médios
+    # Calculate average position and timestamp
     lat_novo <- (s_atual$latitude + s_prox$latitude) / 2
     lon_novo <- (s_atual$longitude + s_prox$longitude) / 2
 
@@ -2323,7 +2323,7 @@ server <- function(input, output, session) {
     ts_prox <- as.POSIXct(s_prox$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
     ts_novo <- ts_atual + as.numeric(difftime(ts_prox, ts_atual, units = "secs")) / 2
 
-    # Cria novo sample copiando estrutura do atual
+    # Create new sample copying structure from current
     novo_sample <- s_atual
     novo_sample$id <- uuid::UUIDgenerate(use.time = TRUE)
     novo_sample$date <- format(ts_novo, "%Y-%m-%dT%H:%M:%SZ")
@@ -2332,7 +2332,7 @@ server <- function(input, output, session) {
     novo_sample$date <- novo_sample$date
     novo_sample$lastSaved <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
-    # Insere na posição correta
+    # Insert at the correct position
     if (idx == length(samples)) {
       samples <- c(samples, list(novo_sample))
     } else {
@@ -2341,16 +2341,16 @@ server <- function(input, output, session) {
 
     edit_samples(samples)
     renderizar_edit_samples()
-    shiny::showNotification("Novo sample inserido.", type = "message")
+    shiny::showNotification("New sample inserted.", type = "message")
   })
 
-  # ---- Acoes em massa (selecao) ----
+  # ---- Bulk actions (selection) ----
 
-  # Ignorar selecionados
+  # Ignore selected
   shiny::observeEvent(input$ignorar_selecionados, {
     selected <- input$selected_samples
     if (is.null(selected) || length(selected) == 0) {
-      shiny::showNotification("Nenhum sample selecionado.", type = "warning")
+      shiny::showNotification("No samples selected.", type = "warning")
       return()
     }
 
@@ -2359,18 +2359,18 @@ server <- function(input, output, session) {
     ignored <- c(ignored, novos)
     ignored_samples(ignored)
 
-    # Limpa selecao
+    # Clear selection
     session$sendCustomMessage("clear_selection", list())
 
     renderizar_edit_samples()
-    shiny::showNotification(sprintf("%d samples ignorados.", length(novos)), type = "message")
+    shiny::showNotification(sprintf("%d samples ignored.", length(novos)), type = "message")
   })
 
-  # Descartar selecionados
+  # Discard selected
   shiny::observeEvent(input$descartar_selecionados, {
     selected <- input$selected_samples
     if (is.null(selected) || length(selected) == 0) {
-      shiny::showNotification("Nenhum sample selecionado.", type = "warning")
+      shiny::showNotification("No samples selected.", type = "warning")
       return()
     }
 
@@ -2379,19 +2379,19 @@ server <- function(input, output, session) {
     samples <- samples[!ids %in% selected]
     edit_samples(samples)
 
-    # Remove da lista de ignorados também
+    # Remove from ignored list as well
     ignored <- ignored_samples()
     ignored <- ignored[!ignored %in% selected]
     ignored_samples(ignored)
 
-    # Limpa selecao
+    # Clear selection
     session$sendCustomMessage("clear_selection", list())
 
     renderizar_edit_samples()
-    shiny::showNotification(sprintf("%d samples descartados.", length(selected)), type = "message")
+    shiny::showNotification(sprintf("%d samples discarded.", length(selected)), type = "message")
   })
 
-  # Download samples corrigidos
+  # Download corrected samples
   output$download_edit_arc <- shiny::downloadHandler(
     filename = function() {
       paste0("arc_edit_", format(Sys.Date(), "%Y%m%d"), ".zip")
@@ -2401,23 +2401,23 @@ server <- function(input, output, session) {
       ignored <- ignored_samples()
 
       if (length(all_edit_samples) == 0) {
-        shiny::showNotification("Nenhum sample para exportar.", type = "error")
+        shiny::showNotification("No samples to export.", type = "error")
         return()
       }
 
-      # Filtra samples ignorados
+      # Filter ignored samples
       ids <- vapply(all_edit_samples, sample_id, character(1))
       samples <- all_edit_samples[!ids %in% ignored]
 
       if (length(samples) == 0) {
-        shiny::showNotification("Todos os samples foram ignorados.", type = "error")
+        shiny::showNotification("All samples were ignored.", type = "error")
         return()
       }
 
       tmpdir <- tempfile("arc_edit_")
       dir.create(tmpdir)
 
-      # Cria estrutura LocoKit2
+      # Create LocoKit2 structure
       sample_dir <- file.path(tmpdir, "samples")
       dir.create(sample_dir, recursive = TRUE)
 
@@ -2426,7 +2426,7 @@ server <- function(input, output, session) {
       ti_id <- original_timeline_item_id()
       virtuais <- samples_virtuais()
 
-      # ---- SAMPLES NOVOS ----
+      # ---- NEW SAMPLES ----
       samples_novos <- list()
 
       if (length(virtuais) > 0) {
@@ -2445,7 +2445,7 @@ server <- function(input, output, session) {
         }
       }
 
-      # Agrupa por semana ISO e gera .json.gz
+      # Group by ISO week and generate .json.gz
       samples_by_week <- list()
       for (s in samples_novos) {
         ts <- tryCatch(
@@ -2468,7 +2468,7 @@ server <- function(input, output, session) {
         close(con)
       }
 
-      # ---- SAMPLES PARA DELETAR ----
+      # ---- SAMPLES TO DELETE ----
       originais <- original_samples()
       samples_apagar <- list()
       for (i in seq_along(originais)) {
@@ -2481,7 +2481,7 @@ server <- function(input, output, session) {
       }
 
       if (length(samples_apagar) > 0) {
-        # Agrupa apagar por semana também
+        # Group deletions by week as well
         apagar_by_week <- list()
         for (s in samples_apagar) {
           ts <- tryCatch(
@@ -2531,16 +2531,16 @@ server <- function(input, output, session) {
       n_novos <- length(samples_novos)
       n_apagar <- length(samples_apagar)
 
-      msg <- sprintf("%d samples novos exportados, %d marcados p/ deletar",
+      msg <- sprintf("%d new samples exported, %d marked for deletion",
                      n_novos, n_apagar)
       if (length(virtuais) > 0) {
-        msg <- paste0(msg, " (virtuais da rota OSRM)")
+        msg <- paste0(msg, " (OSRM route virtual samples)")
       }
       shiny::showNotification(msg, type = "message")
     }
   )
 
-  # ---- Limpar tudo ----
+  # ---- Clear all ----
 
   shiny::observeEvent(input$limpar_tudo, {
     timeline(list())
@@ -2559,7 +2559,7 @@ server <- function(input, output, session) {
       leaflet::clearGroup("edit_samples") %>%
       leaflet::clearGroup("edit_virtuais") %>%
       leaflet::clearGroup("edit_rota")
-    shiny::showNotification("Timeline, samples e mapa limpos.", type = "message")
+    shiny::showNotification("Timeline, samples and map cleared.", type = "message")
   })
 
   # ---- Download Arc ----
@@ -2575,7 +2575,7 @@ server <- function(input, output, session) {
       s <- all_samples()
 
       if (length(tl) == 0 || length(s) == 0) {
-        shiny::showNotification("Não há itens/samples para exportar.", type = "error")
+        shiny::showNotification("No items/samples to export.", type = "error")
         return()
       }
 
@@ -2585,7 +2585,7 @@ server <- function(input, output, session) {
       owd <- setwd(tmpdir)
       on.exit(setwd(owd), add = TRUE)
 
-      # Zip tudo: items/, samples/, metadata.json
+      # Zip everything: items/, samples/, metadata.json
       files_to_zip <- list.files(".", recursive = TRUE, all.files = FALSE)
       zip::zipr(zipfile = file, files = files_to_zip)
     }
@@ -2600,7 +2600,7 @@ server <- function(input, output, session) {
     content = function(file) {
       s <- all_samples()
       if (length(s) == 0) {
-        shiny::showNotification("Nenhum sample para exportar.", type = "error")
+        shiny::showNotification("No samples to export.", type = "error")
         return()
       }
 
@@ -2620,37 +2620,37 @@ server <- function(input, output, session) {
     }
   )
 
-  # ---- Edicao de Rota ----
+  # ---- Route Editing ----
 
-  # Atualiza seletor de rotas quando entra no modo "Editar Rota"
+  # Update route selector when entering "Editar Rota" mode
   shiny::observe({
     if (input$modo != "Editar Rota") return()
 
     tl <- timeline()
     if (length(tl) == 0) {
       shiny::updateSelectInput(session, "rota_editar_selecionada",
-                               choices = c("Nenhuma rota" = ""),
+                               choices = c("No routes" = ""),
                                selected = "")
       return()
     }
 
-    # Filtra apenas rotas (nao visitas)
+    # Filter routes only (not visits)
     rotas <- Filter(function(x) !isTRUE(x$.isVisit), tl)
     if (length(rotas) == 0) {
       shiny::updateSelectInput(session, "rota_editar_selecionada",
-                               choices = c("Nenhuma rota" = ""),
+                               choices = c("No routes" = ""),
                                selected = "")
       return()
     }
 
-    # Cria opcoes com nome, modo e horario local
+    # Create options with name, mode and local time
     opcoes <- vapply(rotas, function(x) {
-      nome <- x$descricao %||% "Rota"
+      nome <- x$descricao %||% "Route"
       modo <- x$activityType %||% "transport"
       hora <- tryCatch({
         # Parse UTC timestamp
         ts_utc <- lubridate::ymd_hms(item_start_date(x), tz = "UTC")
-        # Converte para timezone local do sistema
+        # Convert to system local timezone
         ts_local <- lubridate::with_tz(ts_utc, Sys.timezone())
         format(ts_local, "%H:%M")
       }, error = function(e) "")
@@ -2658,7 +2658,7 @@ server <- function(input, output, session) {
     }, character(1))
     names(opcoes) <- vapply(rotas, `[[`, "", ".internalId")
 
-    # Inverte para ter ID como valor
+    # Invert to have ID as value
     choices <- stats::setNames(names(opcoes), opcoes)
 
     shiny::updateSelectInput(session, "rota_editar_selecionada",
@@ -2666,7 +2666,7 @@ server <- function(input, output, session) {
                              selected = choices[1])
   })
 
-  # Funcao auxiliar para renderizar rota editavel
+  # Helper function to render editable route
   renderizar_rota_editavel <- function() {
     nodes <- route_edit_nodes()
     proxy <- leaflet::leafletProxy("map")
@@ -2677,11 +2677,11 @@ server <- function(input, output, session) {
 
     if (length(nodes) == 0) return()
 
-    # Extrai coordenadas para desenhar a polyline
+    # Extract coordinates to draw the polyline
     all_lngs <- vapply(nodes, `[[`, numeric(1), "lng")
     all_lats <- vapply(nodes, `[[`, numeric(1), "lat")
 
-    # Desenha a polyline conectando todos os nos
+    # Draw the polyline connecting all nodes
     proxy <- proxy %>%
       leaflet::addPolylines(
         lng = all_lngs,
@@ -2692,18 +2692,18 @@ server <- function(input, output, session) {
         group = "edit_route"
       )
 
-    # Desenha nos como Markers com divIcon (circulos CSS que suportam drag)
+    # Draw nodes as Markers with divIcon (CSS circles that support drag)
     for (i in seq_along(nodes)) {
       node <- nodes[[i]]
 
-      # Cor baseada no tipo de no
-      fill_color <- if (i == 1) "#28a745"           # verde - inicio
-                    else if (i == length(nodes)) "#dc3545"  # vermelho - fim
-                    else if (isTRUE(node$is_inserted)) "#fd7e14"  # laranja - inserido
-                    else if (isTRUE(node$is_modified)) "#007bff"  # azul - modificado
-                    else "#6c757d"  # cinza - original
+      # Color based on node type
+      fill_color <- if (i == 1) "#28a745"           # green - start
+                    else if (i == length(nodes)) "#dc3545"  # red - end
+                    else if (isTRUE(node$is_inserted)) "#fd7e14"  # orange - inserted
+                    else if (isTRUE(node$is_modified)) "#007bff"  # blue - modified
+                    else "#6c757d"  # gray - original
 
-      # makeIcon com SVG inline para circulos draggable
+      # makeIcon with inline SVG for draggable circles
       icon <- leaflet::makeIcon(
         iconUrl = sprintf(
           "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16'><circle cx='8' cy='8' r='6' fill='%s' stroke='white' stroke-width='2'/></svg>",
@@ -2723,54 +2723,54 @@ server <- function(input, output, session) {
           options = leaflet::markerOptions(
             draggable = TRUE
           ),
-          label = sprintf("No %d", i)
+          label = sprintf("Node %d", i)
         )
     }
 
-    # Ajusta bounds
+    # Adjust bounds
     proxy %>%
       leaflet::fitBounds(
         lng1 = min(all_lngs) - 0.005, lat1 = min(all_lats) - 0.005,
         lng2 = max(all_lngs) + 0.005, lat2 = max(all_lats) + 0.005
       )
 
-    # Configura handlers de eventos nos nos
+    # Set up event handlers on nodes
     session$sendCustomMessage("setup_route_nodes", list())
   }
 
-  # Handler: Carregar rota para edicao
+  # Handler: Load route for editing
   shiny::observeEvent(input$carregar_rota_edit, {
     item_id <- input$rota_editar_selecionada
     if (is.null(item_id) || item_id == "") {
-      shiny::showNotification("Selecione uma rota.", type = "warning")
+      shiny::showNotification("Select a route.", type = "warning")
       return()
     }
 
     tl <- timeline()
     idx <- which(vapply(tl, `[[`, "", ".internalId") == item_id)
     if (length(idx) == 0) {
-      shiny::showNotification("Rota nao encontrada.", type = "error")
+      shiny::showNotification("Route not found.", type = "error")
       return()
     }
 
     item <- tl[[idx]]
     route_original_item(item)
 
-    # Busca samples associados
+    # Find associated samples
     s <- all_samples()
     sample_ids <- item$samples %||% character(0)
     route_samples <- Filter(function(x) x$id %in% sample_ids, s)
 
     if (length(route_samples) < 2) {
-      shiny::showNotification("Rota deve ter pelo menos 2 samples.", type = "error")
+      shiny::showNotification("Route must have at least 2 samples.", type = "error")
       return()
     }
 
-    # Ordena samples por timestamp
+    # Sort samples by timestamp
     route_samples <- route_samples[order(vapply(route_samples, function(x) x$date, ""))]
     route_original_samples(route_samples)
 
-    # Calcula metricas originais
+    # Calculate original metrics
     coords <- extract_coords_from_samples(route_samples)
     total_dist <- trajeto_distancia_km(coords) * 1000  # metros
 
@@ -2778,21 +2778,21 @@ server <- function(input, output, session) {
     ts_end <- as.POSIXct(gsub("Z$", "", item_end_date(item)), tz = "UTC")
     total_duration <- as.numeric(difftime(ts_end, ts_start, units = "secs"))
 
-    # Se duracao invalida, estima baseado em velocidade padrao (30 km/h)
+    # If duration is invalid, estimate based on default speed (30 km/h)
     if (total_duration <= 0 || is.na(total_duration)) {
       # 30 km/h = 8.33 m/s
       total_duration <- total_dist / 8.33
-      if (total_duration < 60) total_duration <- 60  # minimo 1 minuto
+      if (total_duration < 60) total_duration <- 60  # minimum 1 minute
     }
 
     avg_speed <- total_dist / total_duration  # m/s
 
-    # Limita velocidade maxima a 200 km/h (55.5 m/s)
+    # Limit maximum speed to 200 km/h (55.5 m/s)
     if (avg_speed > 55.5) avg_speed <- 55.5
 
     route_avg_speed(avg_speed)
 
-    # Cria nos a partir de TODOS os samples
+    # Create nodes from ALL samples
     n_samples <- length(route_samples)
     nodes <- lapply(seq_len(n_samples), function(i) {
       smp <- route_samples[[i]]
@@ -2811,13 +2811,13 @@ server <- function(input, output, session) {
     renderizar_rota_editavel()
 
     shiny::showNotification(
-      sprintf("Rota carregada: %d nos, %.1f km, vel. media %.1f km/h",
+      sprintf("Route loaded: %d nodes, %.1f km, avg speed %.1f km/h",
               n_samples, total_dist / 1000, avg_speed * 3.6),
       type = "message"
     )
   })
 
-  # Handler: Arrastar no (dragend)
+  # Handler: Drag node (dragend)
   shiny::observeEvent(input$route_node_dragend, {
     event <- input$route_node_dragend
     if (is.null(event)) return()
@@ -2831,17 +2831,17 @@ server <- function(input, output, session) {
 
     if (length(node_idx) == 0) return()
 
-    # Atualiza posicao do no
+    # Update node position
     nodes[[node_idx]]$lat <- new_lat
     nodes[[node_idx]]$lng <- new_lng
     nodes[[node_idx]]$is_modified <- TRUE
     route_edit_nodes(nodes)
 
-    # Re-renderiza a rota (linha reta entre nos)
+    # Re-render the route (straight line between nodes)
     renderizar_rota_editavel()
   })
 
-  # Handler: Deletar no (context menu)
+  # Handler: Delete node (context menu)
   shiny::observeEvent(input$ctx_delete_node, {
     event <- input$ctx_delete_node
     if (is.null(event)) return()
@@ -2852,21 +2852,21 @@ server <- function(input, output, session) {
 
     if (length(node_idx) == 0) return()
 
-    # Nao pode deletar primeiro ou ultimo no
+    # Cannot delete first or last node
     if (node_idx == 1 || node_idx == length(nodes)) {
-      shiny::showNotification("Nao e possivel deletar o primeiro ou ultimo no.", type = "warning")
+      shiny::showNotification("Cannot delete the first or last node.", type = "warning")
       return()
     }
 
-    # Remove o no
+    # Remove the node
     nodes <- nodes[-node_idx]
     route_edit_nodes(nodes)
 
     renderizar_rota_editavel()
-    shiny::showNotification("No deletado.", type = "message")
+    shiny::showNotification("Node deleted.", type = "message")
   })
 
-  # Handler: Inserir waypoint (click no mapa)
+  # Handler: Insert waypoint (map click)
   shiny::observeEvent(input$insert_waypoint_click, {
     if (!isTRUE(input$modo_inserir_waypoint)) return()
 
@@ -2879,11 +2879,11 @@ server <- function(input, output, session) {
     nodes <- route_edit_nodes()
 
     if (length(nodes) == 0) {
-      shiny::showNotification("Carregue uma rota primeiro.", type = "warning")
+      shiny::showNotification("Load a route first.", type = "warning")
       return()
     }
 
-    # Encontra segmento mais proximo (linha reta entre nos consecutivos)
+    # Find closest segment (straight line between consecutive nodes)
     min_dist <- Inf
     insert_after <- 1
 
@@ -2899,7 +2899,7 @@ server <- function(input, output, session) {
       }
     }
 
-    # Cria novo no
+    # Create new node
     new_node_id <- paste0("node_ins_", format(Sys.time(), "%H%M%S%OS3"))
     new_node <- list(
       id = new_node_id,
@@ -2911,26 +2911,26 @@ server <- function(input, output, session) {
       is_modified = FALSE
     )
 
-    # Insere no na posicao correta
+    # Insert node at the correct position
     nodes <- append(nodes, list(new_node), after = insert_after)
     route_edit_nodes(nodes)
 
     renderizar_rota_editavel()
-    shiny::showNotification("Waypoint inserido.", type = "message")
+    shiny::showNotification("Waypoint inserted.", type = "message")
   })
 
-  # Handler: Aplicar edicoes
+  # Handler: Apply edits
   shiny::observeEvent(input$aplicar_edicoes_rota, {
     nodes <- route_edit_nodes()
     original_item <- route_original_item()
     avg_speed <- route_avg_speed()
 
     if (length(nodes) < 2 || is.null(original_item)) {
-      shiny::showNotification("Nenhuma rota para aplicar.", type = "error")
+      shiny::showNotification("No route to apply.", type = "error")
       return()
     }
 
-    # Extrai coordenadas dos nos
+    # Extract coordinates from nodes
     all_lngs <- vapply(nodes, `[[`, numeric(1), "lng")
     all_lats <- vapply(nodes, `[[`, numeric(1), "lat")
     all_coords <- cbind(all_lngs, all_lats)
@@ -2938,13 +2938,13 @@ server <- function(input, output, session) {
 
     n_route <- nrow(all_coords)
 
-    # Tempo de inicio original
+    # Original start time
     start_utc <- as.POSIXct(gsub("Z$", "", item_start_date(original_item)), tz = "UTC")
 
-    # Recalcula tempos mantendo velocidade media
+    # Recalculate times keeping average speed
     time_result <- recalcular_tempos_rota(all_coords, start_utc, avg_speed)
 
-    # Usa os nos diretamente como samples (ja temos todos os pontos)
+    # Use nodes directly as samples (we already have all points)
     n_target <- n_route
     ts_seq <- time_result$timestamps_utc
 
@@ -2952,7 +2952,7 @@ server <- function(input, output, session) {
     lat_new <- all_lats
     coords_new <- all_coords
 
-    # Cria novos samples (preserva activity type da rota original)
+    # Create new samples (preserve activity type from original route)
     edit_at <- original_item$activityType %||% "car"
     samples_novos <- criar_locomotion_samples(
       coords = coords_new,
@@ -2964,33 +2964,33 @@ server <- function(input, output, session) {
     )
     sample_ids <- vapply(samples_novos, `[[`, "", "id")
 
-    # Atualiza timeline
+    # Update timeline
     tl <- timeline()
     idx <- which(vapply(tl, `[[`, "", ".internalId") == original_item$.internalId)
 
     if (length(idx) > 0) {
       item <- tl[[idx]]
 
-      # Remove samples antigos
+      # Remove old samples
       s <- all_samples()
       old_sample_ids <- item$samples %||% character(0)
       s <- Filter(function(x) !x$id %in% old_sample_ids, s)
 
-      # Atualiza item
+      # Update item
       item$samples <- sample_ids
       item <- set_item_end_date(item, format(time_result$end_time_utc, "%Y-%m-%dT%H:%M:%SZ"))
 
-      # Atualiza descricao
+      # Update description
       new_dist_km <- time_result$total_distance_m / 1000
-      item$descricao <- sprintf("Rota editada (%.1f km)", new_dist_km)
+      item$descricao <- sprintf("Edited route (%.1f km)", new_dist_km)
 
       tl[[idx]] <- item
       timeline(tl)
 
-      # Adiciona novos samples
+      # Add new samples
       all_samples(c(s, samples_novos))
 
-      # Desenha rota atualizada
+      # Draw updated route
       leaflet::leafletProxy("map") %>%
         leaflet::clearGroup("edit_route") %>%
         leaflet::clearGroup("edit_route_nodes") %>%
@@ -3003,17 +3003,17 @@ server <- function(input, output, session) {
           group = "rota_atual"
         )
 
-      # Limpa estado de edicao
+      # Clear editing state
       route_edit_nodes(list())
       route_original_item(NULL)
       route_original_samples(list())
       route_avg_speed(NULL)
 
-      # Desativa modo inserir waypoint
+      # Deactivate insert waypoint mode
       shiny::updateCheckboxInput(session, "modo_inserir_waypoint", value = FALSE)
       session$sendCustomMessage("clear_route_edit", list())
 
-      # Calcula velocidade media real da rota editada
+      # Calculate actual average speed of the edited route
       recalc_speed_kmh <- if (time_result$total_duration_s > 0) {
         (time_result$total_distance_m / time_result$total_duration_s) * 3.6
       } else {
@@ -3021,7 +3021,7 @@ server <- function(input, output, session) {
       }
 
       shiny::showNotification(
-        sprintf("Rota atualizada! %.1f km, duracao %.0f min, vel. media %.1f km/h",
+        sprintf("Route updated! %.1f km, duration %.0f min, avg speed %.1f km/h",
                 new_dist_km,
                 time_result$total_duration_s / 60,
                 recalc_speed_kmh),
@@ -3030,72 +3030,72 @@ server <- function(input, output, session) {
     }
   })
 
-  # Handler: Cancelar edicoes
+  # Handler: Cancel edits
   shiny::observeEvent(input$cancelar_edicoes_rota, {
-    # Limpa estado de edicao
+    # Clear editing state
     route_edit_nodes(list())
     route_original_item(NULL)
     route_original_samples(list())
     route_avg_speed(NULL)
 
-    # Limpa mapa
+    # Clear map
     leaflet::leafletProxy("map") %>%
       leaflet::clearGroup("edit_route") %>%
       leaflet::clearGroup("edit_route_nodes")
 
-    # Desativa modo inserir waypoint
+    # Deactivate insert waypoint mode
     shiny::updateCheckboxInput(session, "modo_inserir_waypoint", value = FALSE)
     session$sendCustomMessage("clear_route_edit", list())
 
-    shiny::showNotification("Edicao cancelada.", type = "message")
+    shiny::showNotification("Edit cancelled.", type = "message")
   })
 
-  # Handler: Deletar nos selecionados (via laco)
+  # Handler: Delete selected nodes (via lasso)
   shiny::observeEvent(input$deletar_nodes_selecionados, {
     selected <- input$selected_route_nodes
     if (is.null(selected) || length(selected) == 0) {
-      shiny::showNotification("Nenhum no selecionado.", type = "warning")
+      shiny::showNotification("No nodes selected.", type = "warning")
       return()
     }
 
     nodes <- route_edit_nodes()
     if (length(nodes) < 3) {
-      shiny::showNotification("Rota deve ter pelo menos 2 nos.", type = "warning")
+      shiny::showNotification("Route must have at least 2 nodes.", type = "warning")
       return()
     }
 
-    # Obtem IDs do primeiro e ultimo no
+    # Get IDs of first and last node
     node_ids <- vapply(nodes, `[[`, "", "id")
     first_id <- node_ids[1]
     last_id <- node_ids[length(node_ids)]
 
-    # Remove primeiro e ultimo da lista de selecionados
+    # Remove first and last from selected list
     to_delete <- setdiff(selected, c(first_id, last_id))
 
     if (length(to_delete) == 0) {
-      shiny::showNotification("Nao pode deletar primeiro/ultimo no.", type = "warning")
+      shiny::showNotification("Cannot delete first/last node.", type = "warning")
       return()
     }
 
-    # Verifica se sobrara pelo menos 2 nos
+    # Check if at least 2 nodes will remain
     remaining <- length(nodes) - length(to_delete)
     if (remaining < 2) {
-      shiny::showNotification("Rota deve ter pelo menos 2 nos.", type = "warning")
+      shiny::showNotification("Route must have at least 2 nodes.", type = "warning")
       return()
     }
 
-    # Remove os nos selecionados
+    # Remove selected nodes
     nodes <- Filter(function(n) !n$id %in% to_delete, nodes)
     route_edit_nodes(nodes)
 
     renderizar_rota_editavel()
     session$sendCustomMessage("clear_node_selection", list())
-    shiny::showNotification(sprintf("%d no(s) deletado(s).", length(to_delete)), type = "message")
+    shiny::showNotification(sprintf("%d node(s) deleted.", length(to_delete)), type = "message")
   })
 
-  # Handler: Limpar selecao de nos
+  # Handler: Clear node selection
   shiny::observeEvent(input$limpar_selecao_nodes, {
     session$sendCustomMessage("clear_node_selection", list())
-    shiny::showNotification("Selecao limpa.", type = "message")
+    shiny::showNotification("Selection cleared.", type = "message")
   })
 }

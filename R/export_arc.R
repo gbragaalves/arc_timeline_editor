@@ -1,5 +1,5 @@
-# ---- Exportador Arc Editor JSON (LocoKit2 format) ----
-# Estrutura: items/{YYYY-MM}.json, samples/{YYYY-Www}.json.gz, metadata.json
+# ---- Arc Editor JSON Exporter (LocoKit2 format) ----
+# Structure: items/{YYYY-MM}.json, samples/{YYYY-Www}.json.gz, metadata.json
 
 exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho) {
   if (!dir.exists(output_dir)) {
@@ -18,7 +18,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
 
   now_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
 
-  # ---- Vincula samples aos timeline items ----
+  # ---- Link samples to timeline items ----
   sample_idx <- setNames(
     seq_along(samples),
     vapply(samples, sample_id, "")
@@ -38,15 +38,15 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     }
   }
 
-  # ---- Items: agrupa por mês e gera um JSON por mês ----
+  # ---- Items: group by month and generate one JSON per month ----
   items_export <- lapply(timeline_items, function(it) {
     internal_id <- it$.internalId %||% it$base$id
     is_visit <- isTRUE(it$.isVisit) || isTRUE(it$base$isVisit)
 
-    # Monta base
+    # Build base
     base <- it$base
     if (is.null(base)) {
-      # Fallback: constrói base a partir de campos antigos
+      # Fallback: build base from old-format fields
       base <- list(
         id              = internal_id,
         source          = "LocoKit2",
@@ -70,7 +70,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     if (is_visit) {
       visit <- it$visit
       if (is.null(visit)) {
-        # Fallback: constrói visit a partir de campos antigos
+        # Fallback: build visit from old-format fields
         lat <- it$place$center$latitude %||% 0
         lon <- it$place$center$longitude %||% 0
         visit <- list(
@@ -108,7 +108,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     result
   })
 
-  # Agrupa items por mês (baseado em startDate)
+  # Group items by month (based on startDate)
   items_by_month <- list()
   for (i in seq_along(items_export)) {
     start_str <- items_export[[i]]$base$startDate
@@ -130,7 +130,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     )
   }
 
-  # ---- Samples: agrupa por semana ISO e gera .json.gz por semana ----
+  # ---- Samples: group by ISO week and generate .json.gz per week ----
   samples_by_week <- list()
   for (s in samples) {
     ts <- tryCatch(
@@ -144,7 +144,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
       samples_by_week[[week_key]] <- list()
     }
 
-    # Remove campos internos antes de exportar
+    # Remove internal fields before exporting
     s_export <- s
     s_export$.virtual <- NULL
     s_export$lastSaved <- now_utc
@@ -165,7 +165,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     close(con)
   }
 
-  # ---- Samples a apagar (baseado nos arquivos semanais existentes) ----
+  # ---- Samples to delete (based on existing weekly files) ----
   apagar <- gerar_samples_apagar(timeline_items, semana_dir = SEMANA_DIR)
 
   if (length(apagar) > 0) {

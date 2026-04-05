@@ -1,15 +1,15 @@
 # ---- Helpers: OSRM ----
 
-# Suaviza rota OSRM removendo pontos redundantes e aplicando simplificação
-# coords: matriz n x 2 (lon, lat)
-# tolerancia_m: distância mínima entre pontos consecutivos (metros)
-# angulo_min: ângulo mínimo de mudança de direção para manter ponto (graus)
+# Smooth OSRM route by removing redundant points and applying simplification
+# coords: n x 2 matrix (lon, lat)
+# tolerancia_m: minimum distance between consecutive points (meters)
+# angulo_min: minimum direction change angle to keep a point (degrees)
 suavizar_rota_osrm <- function(coords, tolerancia_m = 5, angulo_min = 1) {
   if (!is.matrix(coords)) coords <- as.matrix(coords)
   n <- nrow(coords)
   if (n < 3) return(coords)
 
-  # Passo 1: Remove pontos duplicados ou muito próximos
+  # Step 1: Remove duplicate or very close points
   manter <- rep(TRUE, n)
   for (i in 2:n) {
     dist <- geosphere::distHaversine(

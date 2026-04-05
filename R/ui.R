@@ -13,12 +13,12 @@ ui <- shiny::fluidPage(
         font-size: 14px !important;
       }
 
-      /* Cruzinha no mapa Leaflet */
+      /* Crosshair cursor on Leaflet map */
       .leaflet-container {
         cursor: crosshair !important;
       }
 
-      /* Menu de contexto customizado */
+      /* Custom context menu */
       .sample-context-menu {
         position: absolute;
         z-index: 10000;
@@ -50,7 +50,7 @@ ui <- shiny::fluidPage(
         margin: 5px 0;
       }
 
-      /* Laco de selecao */
+      /* Selection lasso */
       .selection-lasso {
         position: absolute;
         top: 0;
@@ -67,7 +67,7 @@ ui <- shiny::fluidPage(
         stroke-dasharray: 5,5;
       }
 
-      /* Inputs mais compactos na coluna de controles */
+      /* Compact inputs in the controls column */
       .shiny-split-layout > div {
         padding: 0 2px !important;
       }
@@ -99,15 +99,15 @@ ui <- shiny::fluidPage(
   shiny::titlePanel("Arc Timeline Builder 2.0"),
 
   shiny::fluidRow(
-    # Coluna esquerda - controles (width = 2)
+    # Left column - controls (width = 2)
     shiny::column(
       width = 2,
-      shiny::dateInput("data_trabalho", "Data principal", Sys.Date()),
+      shiny::dateInput("data_trabalho", "Working date", Sys.Date()),
       shiny::uiOutput("toggles_pessoas"),
       shiny::radioButtons(
         "modo",
-        "Modo de edição",
-        choices = c("OSRM", "Visita", "Rota Manual", "Importar Arquivo", "Editar Samples", "Editar Rota"),
+        "Edit mode",
+        choices = c("OSRM", "Visita" = "Visita", "Manual Route" = "Rota Manual", "Import File" = "Importar Arquivo", "Edit Samples" = "Editar Samples", "Edit Route" = "Editar Rota"),
         selected = "OSRM"
       ),
       shiny::hr(),
@@ -115,59 +115,59 @@ ui <- shiny::fluidPage(
       shiny::conditionalPanel(
         "input.modo == 'OSRM'",
         shiny::selectInput(
-          "osrm_perfil", "Perfil:",
-          choices = c("Carro" = "car", "A pé" = "foot", "Bike" = "bike", "Bus" = "bus"),
+          "osrm_perfil", "Profile:",
+          choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus"),
           selected = "car", width = "100%"
         ),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("desfazer_ponto_osrm", "Desfazer", class = "btn-sm"),
-          shiny::actionButton("limpar_pontos_osrm", "Limpar", class = "btn-sm")
+          shiny::actionButton("desfazer_ponto_osrm", "Undo", class = "btn-sm"),
+          shiny::actionButton("limpar_pontos_osrm", "Clear", class = "btn-sm")
         ),
         shiny::br(),
-        shiny::actionButton("calcular_osrm", "Calcular rota OSRM", class = "btn-primary btn-sm btn-block")
+        shiny::actionButton("calcular_osrm", "Calculate OSRM route", class = "btn-primary btn-sm btn-block")
       ),
-      # Visita
+      # Visit
       shiny::conditionalPanel(
         "input.modo == 'Visita'",
-        shiny::textInput("visita_nome", "Nome da visita", "", width = "100%"),
-        shiny::tags$small("Clique no mapa para marcar o local."),
-        shiny::tags$label("Entrada:"),
+        shiny::textInput("visita_nome", "Visit name", "", width = "100%"),
+        shiny::tags$small("Click the map to set the location."),
+        shiny::tags$label("Entry:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("visita_data_inicio", NULL, Sys.Date(), width = "100%"),
           shiny::textInput("visita_hora_inicio", NULL, "08:00", width = "100%")
         ),
-        shiny::tags$label("Saida:"),
+        shiny::tags$label("Exit:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("visita_data_fim", NULL, Sys.Date(), width = "100%"),
           shiny::textInput("visita_hora_fim", NULL, "09:00", width = "100%")
         ),
-        shiny::actionButton("adicionar_visita", "Adicionar visita", class = "btn-success btn-sm btn-block")
+        shiny::actionButton("adicionar_visita", "Add visit", class = "btn-success btn-sm btn-block")
       ),
-      # Rota manual
+      # Manual route
       shiny::conditionalPanel(
         "input.modo == 'Rota Manual'",
-        shiny::tags$small("Clique no mapa para definir os pontos."),
+        shiny::tags$small("Click the map to set the points."),
         shiny::selectInput(
-          "manual_activity_type", "Tipo de atividade:",
+          "manual_activity_type", "Activity type:",
           choices = c(
-            "Carro" = "car", "Taxi" = "taxi", "A pe" = "walking",
+            "Car" = "car", "Taxi" = "taxi", "Walking" = "walking",
             "Bus" = "bus", "Metro" = "metro", "Tram" = "tram",
-            "Trem" = "train", "Bike" = "cycling", "Aviao" = "airplane",
-            "Tuk tuk" = "tuk_tuk", "Teleferico" = "cable_car",
-            "Funicular" = "funicular", "Skate" = "skateboarding"
+            "Train" = "train", "Bike" = "cycling", "Airplane" = "airplane",
+            "Tuk tuk" = "tuk_tuk", "Cable car" = "cable_car",
+            "Funicular" = "funicular", "Skateboard" = "skateboarding"
           ),
           selected = "car", width = "100%"
         ),
-        shiny::tags$label("Inicio:"),
+        shiny::tags$label("Start:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("manual_data_inicio", NULL, Sys.Date(), width = "100%"),
           shiny::textInput("manual_hora_inicio", NULL, "08:00", width = "100%")
         ),
-        shiny::tags$label("Fim:"),
+        shiny::tags$label("End:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("manual_data_fim", NULL, Sys.Date(), width = "100%"),
@@ -175,55 +175,55 @@ ui <- shiny::fluidPage(
         ),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("desfazer_ponto_manual", "Desfazer", class = "btn-sm"),
-          shiny::actionButton("limpar_pontos_manual", "Limpar", class = "btn-sm")
+          shiny::actionButton("desfazer_ponto_manual", "Undo", class = "btn-sm"),
+          shiny::actionButton("limpar_pontos_manual", "Clear", class = "btn-sm")
         ),
         shiny::br(),
-        shiny::actionButton("adicionar_manual", "Adicionar rota", class = "btn-success btn-sm btn-block")
+        shiny::actionButton("adicionar_manual", "Add route", class = "btn-success btn-sm btn-block")
       ),
-      # Importar arquivo
+      # Import file
       shiny::conditionalPanel(
         "input.modo == 'Importar Arquivo'",
         shiny::fileInput(
           "arquivo_geo", NULL,
           accept = c(".geojson", ".json", ".gpx", ".kml", ".gpkg"),
-          buttonLabel = "Arquivo...",
+          buttonLabel = "Browse...",
           placeholder = "GeoJSON/GPX/KML"
         ),
         shiny::radioButtons(
           "direcao_arquivo", NULL,
-          choices = c("Normal" = "normal", "Inverter" = "inverter"),
+          choices = c("Normal" = "normal", "Reverse" = "inverter"),
           selected = "normal", inline = TRUE
         ),
         shiny::selectInput(
-          "import_activity_type", "Tipo de atividade:",
+          "import_activity_type", "Activity type:",
           choices = c(
-            "Carro" = "car", "Taxi" = "taxi", "A pe" = "walking",
+            "Car" = "car", "Taxi" = "taxi", "Walking" = "walking",
             "Bus" = "bus", "Metro" = "metro", "Tram" = "tram",
-            "Trem" = "train", "Bike" = "cycling", "Aviao" = "airplane",
-            "Tuk tuk" = "tuk_tuk", "Teleferico" = "cable_car",
-            "Funicular" = "funicular", "Skate" = "skateboarding"
+            "Train" = "train", "Bike" = "cycling", "Airplane" = "airplane",
+            "Tuk tuk" = "tuk_tuk", "Cable car" = "cable_car",
+            "Funicular" = "funicular", "Skateboard" = "skateboarding"
           ),
           selected = "car", width = "100%"
         ),
-        shiny::tags$label("Inicio:"),
+        shiny::tags$label("Start:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("import_data_inicio", NULL, Sys.Date(), width = "100%"),
           shiny::textInput("import_hora_inicio", NULL, "08:00", width = "100%")
         ),
-        shiny::tags$label("Fim:"),
+        shiny::tags$label("End:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("import_data_fim", NULL, Sys.Date(), width = "100%"),
           shiny::textInput("import_hora_fim", NULL, "09:00", width = "100%")
         ),
-        shiny::actionButton("adicionar_import", "Adicionar rota", class = "btn-success btn-sm btn-block")
+        shiny::actionButton("adicionar_import", "Add route", class = "btn-success btn-sm btn-block")
       ),
-      # Editar Samples
+      # Edit Samples
       shiny::conditionalPanel(
         "input.modo == 'Editar Samples'",
-        shiny::tags$small("Carregar samples:"),
+        shiny::tags$small("Load samples:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::dateInput("edit_samples_data_inicio", NULL, Sys.Date(), width = "100%"),
@@ -234,115 +234,115 @@ ui <- shiny::fluidPage(
           shiny::dateInput("edit_samples_data_fim", NULL, Sys.Date(), width = "100%"),
           shiny::textInput("edit_samples_hora_fim", NULL, "23:59", width = "100%")
         ),
-        shiny::actionButton("carregar_samples", "Carregar", class = "btn-primary btn-sm btn-block"),
+        shiny::actionButton("carregar_samples", "Load", class = "btn-primary btn-sm btn-block"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::selectInput(
             "edit_osrm_perfil", NULL,
-            choices = c("Carro" = "car", "A pé" = "foot", "Bike" = "bike", "Bus" = "bus"),
+            choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus"),
             selected = "car", width = "100%"
           ),
           shiny::actionButton("snap_to_road", "Snap", class = "btn-warning btn-sm", style = "margin-top: 0;")
         ),
-        shiny::checkboxInput("modo_selecao", "Modo selecao", FALSE),
+        shiny::checkboxInput("modo_selecao", "Selection mode", FALSE),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("ignorar_selecionados", "Ignorar", class = "btn-xs"),
-          shiny::actionButton("descartar_selecionados", "Descartar", class = "btn-xs btn-danger")
+          shiny::actionButton("ignorar_selecionados", "Ignore", class = "btn-xs"),
+          shiny::actionButton("descartar_selecionados", "Discard", class = "btn-xs btn-danger")
         ),
         shiny::br(),
-        shiny::downloadButton("download_edit_arc", "Exportar (zip)", class = "btn-success btn-sm btn-block")
+        shiny::downloadButton("download_edit_arc", "Export (zip)", class = "btn-success btn-sm btn-block")
       ),
-      # Editar Rota
+      # Edit Route
       shiny::conditionalPanel(
         "input.modo == 'Editar Rota'",
-        shiny::tags$small("Selecione uma rota da timeline:"),
+        shiny::tags$small("Select a route from the timeline:"),
         shiny::selectInput(
-          "rota_editar_selecionada", "Rota:",
+          "rota_editar_selecionada", "Route:",
           choices = NULL, width = "100%"
         ),
-        shiny::actionButton("carregar_rota_edit", "Carregar rota", class = "btn-primary btn-sm btn-block"),
+        shiny::actionButton("carregar_rota_edit", "Load route", class = "btn-primary btn-sm btn-block"),
         shiny::hr(),
-        shiny::tags$small("Arrastar: mover nos", style = "color: #666;"),
+        shiny::tags$small("Drag: move nodes", style = "color: #666;"),
         shiny::br(),
-        shiny::tags$small("Clique direito: deletar no", style = "color: #666;"),
+        shiny::tags$small("Right-click: delete node", style = "color: #666;"),
         shiny::br(),
-        shiny::checkboxInput("modo_inserir_waypoint", "Modo inserir waypoint", FALSE),
-        shiny::tags$small("Clique no mapa para inserir", style = "color: #888;"),
+        shiny::checkboxInput("modo_inserir_waypoint", "Insert waypoint mode", FALSE),
+        shiny::tags$small("Click the map to insert", style = "color: #888;"),
         shiny::hr(),
-        shiny::checkboxInput("modo_selecao_nodes", "Modo selecao (laco)", FALSE),
+        shiny::checkboxInput("modo_selecao_nodes", "Selection mode (lasso)", FALSE),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("deletar_nodes_selecionados", "Deletar sel.", class = "btn-xs btn-danger"),
-          shiny::actionButton("limpar_selecao_nodes", "Limpar sel.", class = "btn-xs")
+          shiny::actionButton("deletar_nodes_selecionados", "Delete sel.", class = "btn-xs btn-danger"),
+          shiny::actionButton("limpar_selecao_nodes", "Clear sel.", class = "btn-xs")
         ),
         shiny::hr(),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("aplicar_edicoes_rota", "Aplicar", class = "btn-success btn-sm"),
-          shiny::actionButton("cancelar_edicoes_rota", "Cancelar", class = "btn-danger btn-sm")
+          shiny::actionButton("aplicar_edicoes_rota", "Apply", class = "btn-success btn-sm"),
+          shiny::actionButton("cancelar_edicoes_rota", "Cancel", class = "btn-danger btn-sm")
         )
       ),
       shiny::hr(),
-      shiny::actionButton("limpar_tudo", "Limpar tudo", class = "btn-danger")
+      shiny::actionButton("limpar_tudo", "Clear all", class = "btn-danger")
     ),
 
-    # Coluna central - mapa (width = 8)
+    # Center column - map (width = 8)
     shiny::column(
       width = 8,
       leaflet::leafletOutput("map", height = "700px")
     ),
 
-    # Coluna direita - timeline (width = 2)
+    # Right column - timeline (width = 2)
     shiny::column(
       width = 2,
-      shiny::h4("Timeline do dia"),
+      shiny::h4("Day timeline"),
       shiny::uiOutput("timeline_list"),
       shiny::hr(),
-      shiny::downloadButton("download_arc", "Baixar pacote Arc (zip)", class = "btn-block"),
+      shiny::downloadButton("download_arc", "Download Arc package (zip)", class = "btn-block"),
       shiny::br(),
-      shiny::downloadButton("download_gpx", "Baixar GPX (todos samples)", class = "btn-block")
+      shiny::downloadButton("download_gpx", "Download GPX (all samples)", class = "btn-block")
     )
   ),
 
-  # Menu de contexto para samples
+  # Context menu for samples
   shiny::div(
     id = "sample-context-menu",
     class = "sample-context-menu",
-    shiny::div(id = "ctx-propriedades", class = "sample-context-menu-item", "Propriedades"),
+    shiny::div(id = "ctx-propriedades", class = "sample-context-menu-item", "Properties"),
     shiny::div(class = "sample-context-menu-separator"),
-    shiny::div(id = "ctx-ignorar", class = "sample-context-menu-item", "Ignorar"),
-    shiny::div(id = "ctx-inserir", class = "sample-context-menu-item", "Inserir sample apos"),
+    shiny::div(id = "ctx-ignorar", class = "sample-context-menu-item", "Ignore"),
+    shiny::div(id = "ctx-inserir", class = "sample-context-menu-item", "Insert sample after"),
     shiny::div(class = "sample-context-menu-separator"),
-    shiny::div(id = "ctx-descartar", class = "sample-context-menu-item danger", "Descartar")
+    shiny::div(id = "ctx-descartar", class = "sample-context-menu-item danger", "Discard")
   ),
 
-  # Menu de contexto para nos de rota
+  # Context menu for route nodes
   shiny::div(
     id = "route-node-context-menu",
     class = "sample-context-menu",
-    shiny::div(id = "ctx-node-props", class = "sample-context-menu-item", "Propriedades do no"),
+    shiny::div(id = "ctx-node-props", class = "sample-context-menu-item", "Node properties"),
     shiny::div(class = "sample-context-menu-separator"),
-    shiny::div(id = "ctx-delete-node", class = "sample-context-menu-item danger", "Deletar no")
+    shiny::div(id = "ctx-delete-node", class = "sample-context-menu-item danger", "Delete node")
   ),
 
-  # JavaScript para menu de contexto
+  # JavaScript for context menu
   shiny::tags$script(shiny::HTML("
     $(document).ready(function() {
       var currentSampleId = null;
       var $menu = $('#sample-context-menu');
 
-      // Esconde menu ao clicar fora
+      // Hide menu on outside click
       $(document).on('click', function() {
         $menu.removeClass('show');
       });
 
-      // Previne propagacao do clique no menu
+      // Prevent click propagation on the menu
       $menu.on('click', function(e) {
         e.stopPropagation();
       });
 
-      // Handler para cada opcao do menu
+      // Handler for each menu option
       $('#ctx-propriedades').on('click', function() {
         if (currentSampleId) {
           Shiny.setInputValue('ctx_propriedades', {id: currentSampleId, ts: Date.now()});
@@ -371,13 +371,13 @@ ui <- shiny::fluidPage(
         $menu.removeClass('show');
       });
 
-      // Expoe funcao global para mostrar menu (chamada do Shiny)
+      // Expose global function to show menu (called from Shiny)
       window.showSampleContextMenu = function(sampleId, x, y) {
         currentSampleId = sampleId;
         $menu.css({left: x + 'px', top: y + 'px'}).addClass('show');
       };
 
-      // Handler para mensagem do Shiny configurar menu de contexto
+      // Handler for Shiny message to set up context menu
       Shiny.addCustomMessageHandler('setup_context_menu', function(msg) {
         setTimeout(function() {
           var widget = HTMLWidgets.find('#map');
@@ -385,24 +385,24 @@ ui <- shiny::fluidPage(
           var map = widget.getMap();
           if (!map) return;
 
-          // Adiciona handlers em cada Marker com layerId (Arc samples)
+          // Add handlers on each Marker with layerId (Arc samples)
           map.eachLayer(function(layer) {
             if (layer.options && layer.options.layerId && layer.options.draggable) {
               var layerId = layer.options.layerId;
 
-              // Remove handlers antigos
+              // Remove old handlers
               layer.off('contextmenu');
               layer.off('click');
               layer.off('dragend');
 
-              // Menu de contexto (clique direito)
+              // Context menu (right click)
               layer.on('contextmenu', function(e) {
                 L.DomEvent.stopPropagation(e);
                 L.DomEvent.preventDefault(e);
                 showSampleContextMenu(layerId, e.originalEvent.pageX, e.originalEvent.pageY);
               });
 
-              // Clique para selecionar/deselecionar
+              // Click to select/deselect
               layer.on('click', function(e) {
                 L.DomEvent.stopPropagation(e);
                 var idx = selectedSampleIds.indexOf(layerId);
@@ -415,7 +415,7 @@ ui <- shiny::fluidPage(
                 updateSelectionVisual();
               });
 
-              // Drag end - notifica Shiny
+              // Drag end - notify Shiny
               layer.on('dragend', function(e) {
                 var newLatLng = layer.getLatLng();
                 Shiny.setInputValue('map_marker_dragend', {
@@ -430,32 +430,32 @@ ui <- shiny::fluidPage(
         }, 300);
       });
 
-      // ---- Modo de selecao por laco (lasso) ----
+      // ---- Selection mode (lasso) ----
       var selectionMode = false;
       var lassoSvg = null;
       var lassoPoints = [];
       var selectedSampleIds = [];
       var mapInstance = null;
 
-      // Escuta mudanca no checkbox de modo selecao
+      // Listen to selection mode checkbox changes
       $(document).on('shiny:inputchanged', function(e) {
         if (e.name === 'modo_selecao') {
           selectionMode = e.value;
 
-          // Pega instancia do mapa
+          // Get map instance
           var widget = HTMLWidgets.find('#map');
           if (widget) mapInstance = widget.getMap();
 
           if (mapInstance) {
             if (selectionMode) {
-              // Desabilita drag do mapa
+              // Disable map dragging
               mapInstance.dragging.disable();
               $('#map').css('cursor', 'crosshair');
             } else {
-              // Reabilita drag do mapa
+              // Re-enable map dragging
               mapInstance.dragging.enable();
               $('#map').css('cursor', '');
-              // Limpa selecao ao desativar
+              // Clear selection on deactivation
               selectedSampleIds = [];
               Shiny.setInputValue('selected_samples', []);
               updateSelectionVisual();
@@ -464,7 +464,7 @@ ui <- shiny::fluidPage(
         }
       });
 
-      // Cria SVG do laco
+      // Create lasso SVG
       function createLassoSvg() {
         if (lassoSvg) lassoSvg.remove();
         var mapEl = $('#map');
@@ -481,7 +481,7 @@ ui <- shiny::fluidPage(
         return lassoSvg;
       }
 
-      // Mouse down no mapa
+      // Mouse down on the map
       $('#map').on('mousedown', function(e) {
         if (!selectionMode) return;
         if (e.button !== 0) return;
@@ -511,10 +511,10 @@ ui <- shiny::fluidPage(
             return;
           }
 
-          // Fecha o poligono
+          // Close the polygon
           lassoPoints.push(lassoPoints[0]);
 
-          // Encontra samples dentro do laco
+          // Find samples inside the lasso
           if (!mapInstance) return;
 
           var mapOffset = $('#map').offset();
@@ -540,7 +540,7 @@ ui <- shiny::fluidPage(
         });
       });
 
-      // Verifica se ponto esta dentro do poligono (ray casting)
+      // Check if point is inside polygon (ray casting)
       function pointInPolygon(x, y, polygon) {
         var inside = false;
         for (var i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -554,7 +554,7 @@ ui <- shiny::fluidPage(
         return inside;
       }
 
-      // Atualiza visual dos selecionados (Markers usam _icon)
+      // Update visual of selected items (Markers use _icon)
       function updateSelectionVisual() {
         if (!mapInstance) {
           var widget = HTMLWidgets.find('#map');
@@ -567,30 +567,30 @@ ui <- shiny::fluidPage(
             var id = layer.options.layerId;
             var isSelected = selectedSampleIds.indexOf(id) !== -1;
             if (isSelected) {
-              // Selecionado: adiciona filtro de cor
+              // Selected: add color filter
               $(layer._icon).css('filter', 'hue-rotate(180deg) brightness(1.3)');
             } else {
-              // Não selecionado: remove filtro
+              // Not selected: remove filter
               $(layer._icon).css('filter', '');
             }
           }
         });
       }
 
-      // Handler para limpar selecao
+      // Handler to clear selection
       Shiny.addCustomMessageHandler('clear_selection', function(msg) {
         selectedSampleIds = [];
         Shiny.setInputValue('selected_samples', []);
         updateSelectionVisual();
       });
 
-      // ---- Edicao de rota ----
+      // ---- Route editing ----
       var currentNodeId = null;
       var $nodeMenu = $('#route-node-context-menu');
       var routeEditMode = false;
       var insertWaypointMode = false;
 
-      // Esconde menu de no ao clicar fora
+      // Hide node menu on outside click
       $(document).on('click', function() {
         $nodeMenu.removeClass('show');
       });
@@ -599,7 +599,7 @@ ui <- shiny::fluidPage(
         e.stopPropagation();
       });
 
-      // Handler para deletar no
+      // Handler to delete node
       $('#ctx-delete-node').on('click', function() {
         if (currentNodeId) {
           Shiny.setInputValue('ctx_delete_node', {id: currentNodeId, ts: Date.now()});
@@ -607,7 +607,7 @@ ui <- shiny::fluidPage(
         $nodeMenu.removeClass('show');
       });
 
-      // Handler para propriedades do no
+      // Handler for node properties
       $('#ctx-node-props').on('click', function() {
         if (currentNodeId) {
           Shiny.setInputValue('ctx_node_props', {id: currentNodeId, ts: Date.now()});
@@ -615,13 +615,13 @@ ui <- shiny::fluidPage(
         $nodeMenu.removeClass('show');
       });
 
-      // Funcao global para mostrar menu de contexto de no
+      // Global function to show route node context menu
       window.showRouteNodeContextMenu = function(nodeId, x, y) {
         currentNodeId = nodeId;
         $nodeMenu.css({left: x + 'px', top: y + 'px'}).addClass('show');
       };
 
-      // Handler para configurar nos de rota (chamado do Shiny)
+      // Handler to set up route nodes (called from Shiny)
       Shiny.addCustomMessageHandler('setup_route_nodes', function(msg) {
         setTimeout(function() {
           var widget = HTMLWidgets.find('#map');
@@ -630,17 +630,17 @@ ui <- shiny::fluidPage(
           if (!map) return;
 
           map.eachLayer(function(layer) {
-            // Verifica se e um marker draggable do grupo edit_route_nodes
+            // Check if it's a draggable marker in the edit_route_nodes group
             if (layer.options && layer.options.layerId && layer.options.draggable) {
               var group = layer.options.group;
               if (group === 'edit_route_nodes') {
                 var nodeId = layer.options.layerId;
 
-                // Remove handlers antigos
+                // Remove old handlers
                 layer.off('contextmenu');
                 layer.off('dragend');
 
-                // Menu de contexto
+                // Context menu
                 layer.on('contextmenu', function(e) {
                   L.DomEvent.stopPropagation(e);
                   L.DomEvent.preventDefault(e);
@@ -663,7 +663,7 @@ ui <- shiny::fluidPage(
         }, 500);  // Aumentado para garantir que markers estejam renderizados
       });
 
-      // Escuta mudanca no checkbox de modo inserir waypoint
+      // Listen to insert waypoint mode checkbox changes
       $(document).on('shiny:inputchanged', function(e) {
         if (e.name === 'modo_inserir_waypoint') {
           insertWaypointMode = e.value;
@@ -691,7 +691,7 @@ ui <- shiny::fluidPage(
         });
       }
 
-      // Handler para limpar estado de edicao de rota
+      // Handler to clear route edit state
       Shiny.addCustomMessageHandler('clear_route_edit', function(msg) {
         routeEditMode = false;
         insertWaypointMode = false;
@@ -706,14 +706,14 @@ ui <- shiny::fluidPage(
         $('#map').css('cursor', '');
       });
 
-      // ---- Selecao por laco para nos de rota ----
+      // ---- Lasso selection for route nodes ----
       var nodeSelectionMode = false;
       var nodeLassoSvg = null;
       var nodeLassoPoints = [];
       var selectedNodeIds = [];
       var nodeMapInstance = null;
 
-      // Escuta mudanca no checkbox de modo selecao de nos
+      // Listen to node selection mode checkbox changes
       $(document).on('shiny:inputchanged', function(e) {
         if (e.name === 'modo_selecao_nodes') {
           nodeSelectionMode = e.value;
@@ -736,7 +736,7 @@ ui <- shiny::fluidPage(
         }
       });
 
-      // Cria SVG do laco para nos
+      // Create lasso SVG for nodes
       function createNodeLassoSvg() {
         if (nodeLassoSvg) nodeLassoSvg.remove();
         var mapEl = $('#map');
@@ -753,7 +753,7 @@ ui <- shiny::fluidPage(
         return nodeLassoSvg;
       }
 
-      // Mouse down no mapa para selecao de nos
+      // Mouse down on the map for node selection
       $('#map').on('mousedown.nodeselect', function(e) {
         if (!nodeSelectionMode) return;
         if (e.button !== 0) return;
@@ -811,7 +811,7 @@ ui <- shiny::fluidPage(
         });
       });
 
-      // Atualiza visual dos nos selecionados
+      // Update visual of selected nodes
       function updateNodeSelectionVisual() {
         if (!nodeMapInstance) {
           var widget = HTMLWidgets.find('#map');
@@ -835,7 +835,7 @@ ui <- shiny::fluidPage(
         });
       }
 
-      // Handler para limpar selecao de nos
+      // Handler to clear selection de nos
       Shiny.addCustomMessageHandler('clear_node_selection', function(msg) {
         selectedNodeIds = [];
         Shiny.setInputValue('selected_route_nodes', []);

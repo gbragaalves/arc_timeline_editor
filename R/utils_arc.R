@@ -1,6 +1,6 @@
 # ---- Helpers Arc: samples & timeline items (LocoKit2 format) ----
 
-# Operador auxiliar para null coalescing
+# Null coalescing operator
 `%||%` <- function(x, y) if (!is.null(x)) x else y
 
 # ---- Activity Type mapping (LocoKit2 integer codes) ----
@@ -21,17 +21,17 @@ ACTIVITY_TYPES <- list(
   skateboarding = 50L
 )
 
-# Mapeamento inverso: código -> nome
+# Reverse mapping: code -> name
 ACTIVITY_TYPE_NAMES <- stats::setNames(
   names(ACTIVITY_TYPES),
   vapply(ACTIVITY_TYPES, as.character, "")
 )
 
-# Converte nome de atividade (string) para código inteiro LocoKit2
+# Convert activity name (string) to LocoKit2 integer code
 activity_type_code <- function(name) {
   code <- ACTIVITY_TYPES[[name]]
   if (is.null(code)) {
-    warning("Activity type desconhecido: ", name, ". Usando 'car' (5).")
+    warning("Unknown activity type: ", name, ". Defaulting to 'car' (5).")
     return(5L)
   }
   code
@@ -49,7 +49,7 @@ moving_state_code <- function(state_str) {
   )
 }
 
-# ---- Helpers para acessar campos de sample (compatível LocoKit2) ----
+# ---- Helpers for accessing sample fields (LocoKit2 compatible) ----
 sample_id <- function(s)  s$id %||% s$sampleId %||% ""
 sample_lat <- function(s) as.numeric(s$latitude %||% s$location$latitude)[1]
 sample_lon <- function(s) as.numeric(s$longitude %||% s$location$longitude)[1]
@@ -60,16 +60,16 @@ sample_has_coords <- function(s) {
   !is.null(lat) && !is.null(lon) && length(lat) > 0 && length(lon) > 0
 }
 
-# ---- Helpers para acessar campos de TimelineItem (compatível LocoKit2) ----
+# ---- Helpers for accessing TimelineItem fields (LocoKit2 compatible) ----
 item_start_date <- function(it) it$base$startDate %||% it$startDate$date %||% it$startDate
 item_end_date   <- function(it) it$base$endDate   %||% it$endDate$date   %||% it$endDate
 
-# secondsFromGMT: no LocoKit2 não existe no item, calcula a partir das coordenadas
+# secondsFromGMT: not present in LocoKit2 items, computed from coordinates
 item_start_offset <- function(it) {
-  # Tenta pegar do formato antigo primeiro
+  # Try old format first
   off <- it$startDate$secondsFromGMT
   if (!is.null(off)) return(off)
-  # LocoKit2: usa timezone do sistema
+  # LocoKit2: use system timezone
   ts_utc <- parse_timestamp_utc(item_start_date(it))
   if (is.null(ts_utc) || is.na(ts_utc[1])) return(0L)
   seconds_from_gmt(ts_utc[1], Sys.timezone())
@@ -81,7 +81,7 @@ item_end_offset <- function(it) {
   item_start_offset(it)
 }
 
-# Seta start/end date no item (compatível com formato LocoKit2)
+# Set start/end date on item (LocoKit2 format compatible)
 set_item_start_date <- function(it, date_str) {
   if (!is.null(it$base)) {
     it$base$startDate <- date_str
@@ -100,7 +100,7 @@ set_item_end_date <- function(it, date_str) {
   it
 }
 
-# ---- Cria LocomotionSamples (formato LocoKit2 flat) ----
+# ---- Create LocomotionSamples (LocoKit2 flat format) ----
 criar_locomotion_samples <- function(coords,
                                      timestamps_utc,
                                      altitude = NULL,
@@ -112,7 +112,7 @@ criar_locomotion_samples <- function(coords,
                                      activity_type = "car") {
 
   n <- nrow(coords)
-  if (length(timestamps_utc) != n) stop("coords e timestamps_utc com comprimentos diferentes.")
+  if (length(timestamps_utc) != n) stop("coords and timestamps_utc have different lengths.")
 
   if (is.null(altitude)) altitude <- rep(0, n)
   if (is.null(speed))    speed    <- rep(0, n)
@@ -167,7 +167,7 @@ criar_locomotion_samples <- function(coords,
   samples
 }
 
-# ---- Cria TimelineItem de visita (formato LocoKit2: base + visit) ----
+# ---- Create visit TimelineItem (LocoKit2 format: base + visit) ----
 criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = NULL) {
   tz <- tz_from_coords(lat, lon)
   if (is.na(tz)) tz <- "UTC"
@@ -228,14 +228,14 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
       uncertainPlace  = TRUE,
       lastSaved       = now_utc
     ),
-    # Campos internos usados pelo app Shiny
+    # Internal fields used by the Shiny app
     .isVisit = TRUE,
     samples = sample_ids,
     place = list(
       center = list(latitude = lat, longitude = lon),
       radius = 25,
       secondsFromGMT = sec_ini,
-      name = nome %||% "Visita"
+      name = nome %||% "Visit"
     )
   )
 
@@ -246,7 +246,7 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
   list(item = item, samples = samples)
 }
 
-# ---- Cria TimelineItem de trajeto (formato LocoKit2: base + trip) ----
+# ---- Create trip TimelineItem (LocoKit2 format: base + trip) ----
 criar_timeline_item_path <- function(timestamps_utc,
                                      coords,
                                      sample_ids,
@@ -255,8 +255,8 @@ criar_timeline_item_path <- function(timestamps_utc,
                                      activity_type = "car") {
 
   n <- length(timestamps_utc)
-  if (n == 0) stop("Sem timestamps para criar path.")
-  if (nrow(coords) != n) stop("timestamps e coords com comprimentos diferentes.")
+  if (n == 0) stop("No timestamps to create path.")
+  if (nrow(coords) != n) stop("timestamps and coords have different lengths.")
 
   ini_utc <- timestamps_utc[1]
   fim_utc <- timestamps_utc[n]
@@ -266,7 +266,7 @@ criar_timeline_item_path <- function(timestamps_utc,
 
   at_code <- activity_type_code(activity_type)
 
-  # Calcula distância total (m)
+  # Calculate total distance (m)
   total_dist <- 0
   if (n >= 2) {
     for (i in 2:n) {
@@ -306,11 +306,11 @@ criar_timeline_item_path <- function(timestamps_utc,
       speed                  = avg_speed,
       lastSaved              = now_utc
     ),
-    # Campos internos usados pelo app Shiny
+    # Internal fields used by the Shiny app
     .isVisit = FALSE,
     samples = sample_ids,
     tipo = tipo,
-    descricao = descricao %||% "Trajeto",
+    descricao = descricao %||% "Trip",
     activityType = activity_type
   )
 
