@@ -215,11 +215,22 @@ ui <- shiny::fluidPage(
         shiny::selectInput(
           "manual_activity_type", "Activity type:",
           choices = c(
-            "Car" = "car", "Taxi" = "taxi", "Walking" = "walking",
-            "Bus" = "bus", "Metro" = "metro", "Tram" = "tram",
-            "Train" = "train", "Bike" = "cycling", "Airplane" = "airplane",
-            "Tuk tuk" = "tuk_tuk", "Cable car" = "cable_car",
-            "Funicular" = "funicular", "Skateboard" = "skateboarding"
+            "Walking" = "walking", "Running" = "running", "Hiking" = "hiking",
+            "Cycling" = "cycling", "Skateboard" = "skateboarding",
+            "Inline skating" = "inline_skating",
+            "Car" = "car", "Taxi" = "taxi", "Motorcycle" = "motorcycle",
+            "Scooter" = "scooter", "Bus" = "bus",
+            "Metro" = "metro", "Tram" = "tram", "Train" = "train",
+            "Tuk tuk" = "tuktuk", "Songthaew" = "songthaew",
+            "Cable car" = "cable_car", "Funicular" = "funicular",
+            "Chairlift" = "chairlift", "Ski lift" = "ski_lift",
+            "Boat" = "boat", "Kayaking" = "kayaking", "Rowing" = "rowing",
+            "Surfing" = "surfing", "Swimming" = "swimming",
+            "Airplane" = "airplane", "Hot air balloon" = "hot_air_balloon",
+            "Tractor" = "tractor", "Horseback" = "horseback",
+            "Wheelchair" = "wheelchair",
+            "Skiing" = "skiing", "Snowboarding" = "snowboarding",
+            "Golf" = "golf"
           ),
           selected = "car", width = "100%"
         ),
@@ -264,11 +275,22 @@ ui <- shiny::fluidPage(
         shiny::selectInput(
           "import_activity_type", "Activity type:",
           choices = c(
-            "Car" = "car", "Taxi" = "taxi", "Walking" = "walking",
-            "Bus" = "bus", "Metro" = "metro", "Tram" = "tram",
-            "Train" = "train", "Bike" = "cycling", "Airplane" = "airplane",
-            "Tuk tuk" = "tuk_tuk", "Cable car" = "cable_car",
-            "Funicular" = "funicular", "Skateboard" = "skateboarding"
+            "Walking" = "walking", "Running" = "running", "Hiking" = "hiking",
+            "Cycling" = "cycling", "Skateboard" = "skateboarding",
+            "Inline skating" = "inline_skating",
+            "Car" = "car", "Taxi" = "taxi", "Motorcycle" = "motorcycle",
+            "Scooter" = "scooter", "Bus" = "bus",
+            "Metro" = "metro", "Tram" = "tram", "Train" = "train",
+            "Tuk tuk" = "tuktuk", "Songthaew" = "songthaew",
+            "Cable car" = "cable_car", "Funicular" = "funicular",
+            "Chairlift" = "chairlift", "Ski lift" = "ski_lift",
+            "Boat" = "boat", "Kayaking" = "kayaking", "Rowing" = "rowing",
+            "Surfing" = "surfing", "Swimming" = "swimming",
+            "Airplane" = "airplane", "Hot air balloon" = "hot_air_balloon",
+            "Tractor" = "tractor", "Horseback" = "horseback",
+            "Wheelchair" = "wheelchair",
+            "Skiing" = "skiing", "Snowboarding" = "snowboarding",
+            "Golf" = "golf"
           ),
           selected = "car", width = "100%"
         ),

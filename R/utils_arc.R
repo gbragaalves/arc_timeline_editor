@@ -4,21 +4,44 @@
 `%||%` <- function(x, y) if (!is.null(x)) x else y
 
 # ---- Activity Type mapping (LocoKit2 integer codes) ----
+# Source: https://github.com/sobri909/LocoKit2/blob/main/Sources/LocoKit2/ActivityTypes/ActivityType.swift
 ACTIVITY_TYPES <- list(
-  stationary    = 1L,
-  walking       = 2L,
-  cycling       = 4L,
-  car           = 5L,
-  airplane      = 6L,
-  train         = 20L,
-  bus           = 21L,
-  tram          = 24L,
-  tuk_tuk       = 26L,
-  metro         = 29L,
-  cable_car     = 30L,
-  funicular     = 31L,
-  taxi          = 34L,
-  skateboarding = 50L
+  unknown        = -1L,
+  bogus          = 0L,
+  stationary     = 1L,
+  walking        = 2L,
+  running        = 3L,
+  cycling        = 4L,
+  car            = 5L,
+  airplane       = 6L,
+  train          = 20L,
+  bus            = 21L,
+  motorcycle     = 22L,
+  boat           = 23L,
+  tram           = 24L,
+  tractor        = 25L,
+  tuktuk         = 26L,
+  songthaew      = 27L,
+  scooter        = 28L,
+  metro          = 29L,
+  cable_car      = 30L,
+  funicular      = 31L,
+  chairlift      = 32L,
+  ski_lift       = 33L,
+  taxi           = 34L,
+  hot_air_balloon = 35L,
+  skateboarding  = 50L,
+  inline_skating = 51L,
+  snowboarding   = 52L,
+  skiing         = 53L,
+  horseback      = 54L,
+  swimming       = 55L,
+  golf           = 56L,
+  wheelchair     = 57L,
+  rowing         = 58L,
+  kayaking       = 59L,
+  surfing        = 60L,
+  hiking         = 61L
 )
 
 # Reverse mapping: code -> name

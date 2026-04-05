@@ -34,17 +34,22 @@ This tool originally exported in the LocoKit format used by Arc Timeline. It now
 
 ### Activity types
 
-The tool supports all LocoKit2 activity types. The integer codes below were inferred by analyzing Arc Editor export data (speeds, distances, and trip context) — they are not officially documented:
+The tool supports all [LocoKit2 activity types](https://github.com/sobri909/LocoKit2/blob/main/Sources/LocoKit2/ActivityTypes/ActivityType.swift):
 
-| Code | Type (inferred) | Code | Type (inferred) |
-|------|-----------------|------|-----------------|
-| 1 | stationary | 21 | bus |
-| 2 | walking | 24 | tram |
-| 4 | cycling | 26 | tuk tuk |
-| 5 | car | 29 | metro |
-| 6 | airplane | 30 | cable car |
-| 20 | train | 31 | funicular |
-| 34 | taxi | 50 | skateboarding |
+| Code | Type | Code | Type | Code | Type |
+|------|------|------|------|------|------|
+| 1 | stationary | 24 | tram | 50 | skateboarding |
+| 2 | walking | 25 | tractor | 51 | inline skating |
+| 3 | running | 26 | tuk tuk | 52 | snowboarding |
+| 4 | cycling | 27 | songthaew | 53 | skiing |
+| 5 | car | 28 | scooter | 54 | horseback |
+| 6 | airplane | 29 | metro | 55 | swimming |
+| 20 | train | 30 | cable car | 56 | golf |
+| 21 | bus | 31 | funicular | 57 | wheelchair |
+| 22 | motorcycle | 32 | chairlift | 58 | rowing |
+| 23 | boat | 33 | ski lift | 59 | kayaking |
+| | | 34 | taxi | 60 | surfing |
+| | | 35 | hot air balloon | 61 | hiking |
 
 ### Export format
 
