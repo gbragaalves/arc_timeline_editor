@@ -2513,10 +2513,10 @@ server <- function(input, output, session) {
         }
       }
 
-      # Generate new timeline item ID and link to all new samples
-      new_item_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
+      # Reuse original item ID (so Arc updates in-place) or generate new
+      item_id <- if (!is.null(ti_id) && nzchar(ti_id)) ti_id else toupper(uuid::UUIDgenerate(use.time = TRUE))
       for (i in seq_along(samples_novos)) {
-        samples_novos[[i]]$timelineItemId <- new_item_id
+        samples_novos[[i]]$timelineItemId <- item_id
       }
 
       # Group by ISO week
@@ -2557,10 +2557,10 @@ server <- function(input, output, session) {
       at_code <- originais[[1]]$confirmedActivityType %||%
                  originais[[1]]$classifiedActivityType %||% 5L
 
-      # New edited item
+      # Edited item — reuses original ID so Arc updates in-place via lastSaved
       new_item <- list(
         base = list(
-          id              = new_item_id,
+          id              = item_id,
           source          = "LocoKit2",
           sourceVersion   = "9.0.0",
           isVisit         = FALSE,
@@ -2575,7 +2575,7 @@ server <- function(input, output, session) {
           activeEnergyBurned = 0
         ),
         trip = list(
-          itemId                 = new_item_id,
+          itemId                 = item_id,
           classifiedActivityType = at_code,
           confirmedActivityType  = at_code,
           uncertainActivityType  = FALSE,
@@ -2586,37 +2586,6 @@ server <- function(input, output, session) {
       )
 
       items_export <- list(new_item)
-
-      # Delete original timeline item (if we know its ID)
-      if (!is.null(ti_id) && nzchar(ti_id)) {
-        deleted_item <- list(
-          base = list(
-            id              = ti_id,
-            source          = "LocoKit2",
-            sourceVersion   = "9.0.0",
-            isVisit         = FALSE,
-            startDate       = start_date_str,
-            endDate         = end_date_str,
-            lastSaved       = current_timestamp,
-            deleted         = TRUE,
-            disabled        = FALSE,
-            locked          = FALSE,
-            samplesChanged  = FALSE,
-            stepCount       = 0L,
-            activeEnergyBurned = 0
-          ),
-          trip = list(
-            itemId                 = ti_id,
-            classifiedActivityType = at_code,
-            confirmedActivityType  = at_code,
-            uncertainActivityType  = FALSE,
-            distance               = 0,
-            speed                  = 0,
-            lastSaved              = current_timestamp
-          )
-        )
-        items_export[[length(items_export) + 1L]] <- deleted_item
-      }
 
       # Write items grouped by month
       month_key <- substr(start_date_str, 1, 7)
