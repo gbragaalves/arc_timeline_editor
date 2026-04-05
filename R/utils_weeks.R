@@ -56,67 +56,10 @@ weeks_for_interval <- function(start_utc, end_utc) {
   unique(strftime(dias, "%G-W%V"))
 }
 
-# Generate list of samples marked as deleted based on the new items
-generate_samples_to_delete <- function(timeline_items, weekly_dir = WEEKLY_BACKUP_DIR) {
-  if (length(timeline_items) == 0) return(list())
-
-  # Intervals of each item
-  intervals <- lapply(timeline_items, function(it) {
-    # Supports LocoKit2 format (base$startDate as string) and legacy
-    start_str <- it$base$startDate %||% it$startDate$date %||% it$startDate
-    end_str   <- it$base$endDate   %||% it$endDate$date   %||% it$endDate
-
-    item_start <- parse_timestamp_utc(start_str)
-    item_end <- parse_timestamp_utc(end_str)
-    if (is.null(item_start) || is.null(item_end) || is.na(item_start) || is.na(item_end)) return(NULL)
-    list(start = item_start[1], end = item_end[1])
-  })
-  intervals <- Filter(Negate(is.null), intervals)
-  if (length(intervals) == 0) return(list())
-
-  weeks <- unique(unlist(lapply(intervals, function(iv) {
-    weeks_for_interval(iv$start, iv$end)
-  })))
-
-  if (length(weeks) == 0) return(list())
-
-  delete_samples <- list()
-  current_timestamp <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
-
-  for (sem in weeks) {
-    gz_path <- file.path(weekly_dir, paste0(sem, ".json.gz"))
-    if (!file.exists(gz_path)) next
-
-    week_samples <- tryCatch(
-      jsonlite::fromJSON(gzfile(gz_path), simplifyVector = FALSE),
-      error = function(e) NULL
-    )
-    if (is.null(week_samples) || length(week_samples) == 0) next
-
-    for (s in week_samples) {
-      date_str <- s$date
-      if (is.null(date_str)) next
-
-      ts <- tryCatch(
-        as.POSIXct(date_str, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-        error = function(e) NULL
-      )
-      if (is.null(ts) || is.na(ts)) next
-
-      overlap <- any(vapply(intervals, function(iv) {
-        ts >= iv$start && ts <= iv$end
-      }, logical(1)))
-
-      if (overlap) {
-        s$deleted <- TRUE
-        s$lastSaved <- current_timestamp
-        delete_samples[[length(delete_samples) + 1L]] <- s
-      }
-    }
-  }
-
-  delete_samples
-}
+# NOTE: generate_samples_to_delete() was removed because LocoKit2's ImportManager
+# uses INSERT OR IGNORE for all data types. Marking samples as deleted/disabled
+# in an import package has no effect — existing records are silently skipped.
+# See README.md "How the LocoKit2 Import Works" for details.
 
 
 # Check if [start_utc, end_utc] overlaps any item in the timeline

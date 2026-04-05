@@ -416,12 +416,12 @@ ui <- shiny::fluidPage(
   shiny::div(
     id = "sample-context-menu",
     class = "sample-context-menu",
-    shiny::div(id = "ctx-propriedades", class = "sample-context-menu-item", "Properties"),
+    shiny::div(id = "ctx-properties", class = "sample-context-menu-item", "Properties"),
     shiny::div(class = "sample-context-menu-separator"),
-    shiny::div(id = "ctx-ignorar", class = "sample-context-menu-item", "Ignore"),
-    shiny::div(id = "ctx-inserir", class = "sample-context-menu-item", "Insert sample after"),
+    shiny::div(id = "ctx-ignore", class = "sample-context-menu-item", "Ignore"),
+    shiny::div(id = "ctx-insert", class = "sample-context-menu-item", "Insert sample after"),
     shiny::div(class = "sample-context-menu-separator"),
-    shiny::div(id = "ctx-descartar", class = "sample-context-menu-item danger", "Discard")
+    shiny::div(id = "ctx-discard", class = "sample-context-menu-item danger", "Discard")
   ),
 
   # Context menu for route nodes
@@ -450,30 +450,30 @@ ui <- shiny::fluidPage(
       });
 
       // Handler for each menu option
-      $('#ctx-propriedades').on('click', function() {
+      $('#ctx-properties').on('click', function() {
         if (currentSampleId) {
-          Shiny.setInputValue('ctx_propriedades', {id: currentSampleId, ts: Date.now()});
+          Shiny.setInputValue('ctx_properties', {id: currentSampleId, ts: Date.now()});
         }
         $menu.removeClass('show');
       });
 
-      $('#ctx-ignorar').on('click', function() {
+      $('#ctx-ignore').on('click', function() {
         if (currentSampleId) {
-          Shiny.setInputValue('ctx_ignorar', {id: currentSampleId, ts: Date.now()});
+          Shiny.setInputValue('ctx_ignore', {id: currentSampleId, ts: Date.now()});
         }
         $menu.removeClass('show');
       });
 
-      $('#ctx-inserir').on('click', function() {
+      $('#ctx-insert').on('click', function() {
         if (currentSampleId) {
-          Shiny.setInputValue('ctx_inserir', {id: currentSampleId, ts: Date.now()});
+          Shiny.setInputValue('ctx_insert', {id: currentSampleId, ts: Date.now()});
         }
         $menu.removeClass('show');
       });
 
-      $('#ctx-descartar').on('click', function() {
+      $('#ctx-discard').on('click', function() {
         if (currentSampleId) {
-          Shiny.setInputValue('ctx_descartar', {id: currentSampleId, ts: Date.now()});
+          Shiny.setInputValue('ctx_discard', {id: currentSampleId, ts: Date.now()});
         }
         $menu.removeClass('show');
       });
@@ -767,7 +767,7 @@ ui <- shiny::fluidPage(
               }
             }
           });
-        }, 500);  // Aumentado para garantir que markers estejam renderizados
+        }, 500);  // Increased to ensure markers are fully rendered
       });
 
       // Listen to insert waypoint mode checkbox changes

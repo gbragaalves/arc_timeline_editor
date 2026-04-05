@@ -237,7 +237,7 @@ server <- function(input, output, session) {
         bounds <- shiny::isolate(input$map_bounds)
 
         # Only fitBounds if no point is visible
-        algum_visivel <- FALSE
+        any_visible <- FALSE
         if (!is.null(bounds)) {
           for (i in seq_along(all_lats)) {
             lat_i <- all_lats[i]
@@ -245,13 +245,13 @@ server <- function(input, output, session) {
             if (!is.na(lat_i) && !is.na(lon_i) &&
                 lat_i >= bounds$south && lat_i <= bounds$north &&
                 lon_i >= bounds$west && lon_i <= bounds$east) {
-              algum_visivel <- TRUE
+              any_visible <- TRUE
               break
             }
           }
         }
 
-        if (!algum_visivel) {
+        if (!any_visible) {
           proxy <- proxy %>%
             leaflet::fitBounds(
               lng1 = min(all_lons, na.rm = TRUE) - 0.01,
@@ -1486,7 +1486,7 @@ server <- function(input, output, session) {
             class = "btn-sm btn-warning"
           ),
           shiny::actionButton(
-            paste0("deletar_", it$.internalId),
+            paste0("delete_", it$.internalId),
             "Delete",
             class = "btn-sm btn-danger"
           )
@@ -1506,7 +1506,7 @@ server <- function(input, output, session) {
     ids <- vapply(tl, `[[`, "", ".internalId")
 
     lapply(ids, function(id) {
-      shiny::observeEvent(input[[paste0("deletar_", id)]], {
+      shiny::observeEvent(input[[paste0("delete_", id)]], {
         tl_current <- timeline()
         idx <- which(vapply(tl_current, `[[`, "", ".internalId") == id)
         if (length(idx)) {
@@ -1571,14 +1571,14 @@ server <- function(input, output, session) {
           )
         )
 
-        session$userData$item_editando <- id
+        session$userData$editing_item <- id
       }, ignoreInit = TRUE)
     })
   })
 
   shiny::observeEvent(input$save_edit, {
     shiny::removeModal()
-    id <- session$userData$item_editando
+    id <- session$userData$editing_item
     if (is.null(id)) return()
 
     tl <- timeline()
@@ -1813,10 +1813,10 @@ server <- function(input, output, session) {
       sample_has_coords(s)
     }, samples_raw)
 
-    n_invalidos <- length(samples_raw) - length(samples)
-    if (n_invalidos > 0) {
+    n_invalid <- length(samples_raw) - length(samples)
+    if (n_invalid > 0) {
       shiny::showNotification(
-        sprintf("%d samples skipped (no valid coordinates).", n_invalidos),
+        sprintf("%d samples skipped (no valid coordinates).", n_invalid),
         type = "warning"
       )
     }
@@ -1874,13 +1874,13 @@ server <- function(input, output, session) {
 
     # Redraw the line (without redrawing markers to keep drag)
     # Filter samples with valid location
-    samples_validos <- Filter(function(s) {
+    valid_samples <- Filter(function(s) {
       sample_has_coords(s)
     }, samples)
-    if (length(samples_validos) == 0) return()
+    if (length(valid_samples) == 0) return()
 
-    lats <- vapply(samples_validos, function(s) as.numeric(s$latitude)[1], numeric(1))
-    lngs <- vapply(samples_validos, function(s) as.numeric(s$longitude)[1], numeric(1))
+    lats <- vapply(valid_samples, function(s) as.numeric(s$latitude)[1], numeric(1))
+    lngs <- vapply(valid_samples, function(s) as.numeric(s$longitude)[1], numeric(1))
 
     leaflet::leafletProxy("map") %>%
       leaflet::clearGroup("edit_path") %>%
@@ -1922,18 +1922,18 @@ server <- function(input, output, session) {
         if (is.list(val)) val <- unlist(val)[1]
         ids[j] <- as.character(val)
       }
-      samples_ativos <- samples[!ids %in% ignored]
+      active_samples <- samples[!ids %in% ignored]
 
-      if (length(samples_ativos) < 2) {
+      if (length(active_samples) < 2) {
         shiny::removeNotification("snap_progress")
         shiny::showNotification("Load at least 2 samples (not ignored) for snap-to-road.", type = "error")
         return()
       }
 
       profile <- input$edit_osrm_profile
-      usa_google <- profile %in% GOOGLE_TRANSIT_MODES
+      uses_google <- profile %in% GOOGLE_TRANSIT_MODES
 
-      if (usa_google) {
+      if (uses_google) {
         if (!check_google_api()) {
           shiny::removeNotification("snap_progress")
           shiny::showNotification(
@@ -1963,12 +1963,12 @@ server <- function(input, output, session) {
       shiny::showNotification("4/7 Extracting coordinates...", id = "snap_progress", duration = NULL, type = "message")
 
       # Extract coordinates from active samples (with defensive conversion)
-      n_ativos <- length(samples_ativos)
-      lats <- numeric(n_ativos)
-      lngs <- numeric(n_ativos)
-      for (j in seq_len(n_ativos)) {
-        lat_val <- samples_ativos[[j]]$latitude
-        lng_val <- samples_ativos[[j]]$longitude
+      n_active <- length(active_samples)
+      lats <- numeric(n_active)
+      lngs <- numeric(n_active)
+      for (j in seq_len(n_active)) {
+        lat_val <- active_samples[[j]]$latitude
+        lng_val <- active_samples[[j]]$longitude
         if (is.list(lat_val)) lat_val <- unlist(lat_val)
         if (is.list(lng_val)) lng_val <- unlist(lng_val)
         lats[j] <- as.numeric(lat_val)[1]
@@ -1976,7 +1976,7 @@ server <- function(input, output, session) {
       }
 
       # Limit to 100 waypoints (chunking if necessary)
-      n <- length(samples_ativos)
+      n <- length(active_samples)
       if (n > 100) {
         shiny::showNotification(
           sprintf("Too many samples (%d). Using only the first 100.", n),
@@ -1984,7 +1984,7 @@ server <- function(input, output, session) {
         )
         lats <- lats[1:100]
         lngs <- lngs[1:100]
-        samples_ativos <- samples_ativos[1:100]
+        active_samples <- active_samples[1:100]
         n <- 100
       }
 
@@ -1992,7 +1992,7 @@ server <- function(input, output, session) {
 
       pts <- data.frame(lat = lats, lng = lngs)
 
-      if (usa_google) {
+      if (uses_google) {
         transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[profile]]
         route <- calculate_google_transit_route(pts, transit_mode = transit_mode)
         if (!is.null(route)) {
@@ -2094,13 +2094,13 @@ server <- function(input, output, session) {
         p2 <- c(osrm_coords[i, 1], osrm_coords[i, 2])
         cumulative_dist[i] <- cumulative_dist[i - 1] + geosphere::distHaversine(p1, p2)
       }
-      dist_total <- cumulative_dist[n_osrm]
+      total_dist <- cumulative_dist[n_osrm]
 
       # For each active sample, interpolate position on the OSRM route
       # using time proportion - extract timestamps with for loop
       ts_vec <- numeric(n)
       for (j in seq_len(n)) {
-        date_val <- samples_ativos[[j]]$date
+        date_val <- active_samples[[j]]$date
         if (is.list(date_val)) date_val <- unlist(date_val)[1]
         ts_vec[j] <- as.numeric(as.POSIXct(as.character(date_val), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
       }
@@ -2115,10 +2115,10 @@ server <- function(input, output, session) {
         prop <- (ts_vec[i] - t_min) / t_range
 
         # Target distance on the OSRM route
-        dist_alvo <- prop * dist_total
+        target_dist <- prop * total_dist
 
         # Find segment on the OSRM route
-        seg_idx <- max(1, sum(cumulative_dist <= dist_alvo))
+        seg_idx <- max(1, sum(cumulative_dist <= target_dist))
         if (seg_idx >= n_osrm) seg_idx <- n_osrm - 1
 
         # Interpolate within the segment
@@ -2127,37 +2127,37 @@ server <- function(input, output, session) {
         seg_len <- d2 - d1
         if (seg_len <= 0) seg_len <- 1
 
-        frac <- (dist_alvo - d1) / seg_len
+        frac <- (target_dist - d1) / seg_len
         frac <- max(0, min(1, frac))
 
         new_lon <- osrm_coords[seg_idx, 1] + frac * (osrm_coords[seg_idx + 1, 1] - osrm_coords[seg_idx, 1])
         new_lat <- osrm_coords[seg_idx, 2] + frac * (osrm_coords[seg_idx + 1, 2] - osrm_coords[seg_idx, 2])
 
-        samples_ativos[[i]]$longitude <- new_lon
-        samples_ativos[[i]]$latitude <- new_lat
+        active_samples[[i]]$longitude <- new_lon
+        active_samples[[i]]$latitude <- new_lat
       }
 
       shiny::showNotification("7/7 Finishing...", id = "snap_progress", duration = NULL, type = "message")
 
       # Recalculate bearings of active samples - uses for loop
-      coords_new <- matrix(0, nrow = length(samples_ativos), ncol = 2)
-      for (j in seq_along(samples_ativos)) {
-        coords_new[j, 1] <- as.numeric(samples_ativos[[j]]$longitude)
-        coords_new[j, 2] <- as.numeric(samples_ativos[[j]]$latitude)
+      coords_new <- matrix(0, nrow = length(active_samples), ncol = 2)
+      for (j in seq_along(active_samples)) {
+        coords_new[j, 1] <- as.numeric(active_samples[[j]]$longitude)
+        coords_new[j, 2] <- as.numeric(active_samples[[j]]$latitude)
       }
       bearings <- calculate_bearings(coords_new)
 
-      for (i in seq_along(samples_ativos)) {
-        samples_ativos[[i]]$course <- bearings[i]
+      for (i in seq_along(active_samples)) {
+        active_samples[[i]]$course <- bearings[i]
       }
 
       # Update active samples back into the full list
-      ids_ativos <- character(length(samples_ativos))
-      for (j in seq_along(samples_ativos)) {
-        val <- samples_ativos[[j]]$id
+      active_ids <- character(length(active_samples))
+      for (j in seq_along(active_samples)) {
+        val <- active_samples[[j]]$id
         if (is.null(val)) val <- paste0("sample_", j)
         if (is.list(val)) val <- unlist(val)[1]
-        ids_ativos[j] <- as.character(val)
+        active_ids[j] <- as.character(val)
       }
 
       for (i in seq_along(samples)) {
@@ -2165,9 +2165,9 @@ server <- function(input, output, session) {
         if (is.null(sid)) next
         if (is.list(sid)) sid <- unlist(sid)[1]
         sid <- as.character(sid)
-        idx_ativo <- which(ids_ativos == sid)
-        if (length(idx_ativo) == 1) {
-          samples[[i]] <- samples_ativos[[idx_ativo]]
+        active_idx <- which(active_ids == sid)
+        if (length(active_idx) == 1) {
+          samples[[i]] <- active_samples[[active_idx]]
         }
       }
 
@@ -2183,15 +2183,15 @@ server <- function(input, output, session) {
 
       # Get timelineItemId from the first sample (for virtual samples)
       ti_id_virtual <- NULL
-      if (length(samples_ativos) > 0 && !is.null(samples_ativos[[1]]$timelineItemId)) {
-        ti_id_virtual <- samples_ativos[[1]]$timelineItemId
+      if (length(active_samples) > 0 && !is.null(active_samples[[1]]$timelineItemId)) {
+        ti_id_virtual <- active_samples[[1]]$timelineItemId
       }
 
       # Create virtual samples interpolating timestamps
       new_virtual_samples <- list()
       for (i in seq_len(n_filtered)) {
         # Distance-based proportion
-        prop <- if (dist_total > 0) cumulative_dist_filtered[i] / dist_total else 0
+        prop <- if (total_dist > 0) cumulative_dist_filtered[i] / total_dist else 0
 
         # Interpolate timestamp
         ts_virtual <- t_min + prop * t_range
@@ -2266,7 +2266,7 @@ server <- function(input, output, session) {
       shiny::removeNotification("snap_progress")
       shiny::showNotification(
         sprintf("Snap-to-road complete! %d Arc samples + %d virtual (%.1f km).",
-                n, length(new_virtual_samples), dist_total / 1000),
+                n, length(new_virtual_samples), total_dist / 1000),
         type = "message"
       )
     }, error = function(e) {
@@ -2282,9 +2282,9 @@ server <- function(input, output, session) {
   # ---- Context menu handlers ----
 
   # Properties: show modal with sample information
-  shiny::observeEvent(input$ctx_propriedades, {
-    req(input$ctx_propriedades)
-    sample_id <- input$ctx_propriedades$id
+  shiny::observeEvent(input$ctx_properties, {
+    req(input$ctx_properties)
+    sample_id <- input$ctx_properties$id
     samples <- edit_samples()
 
     idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
@@ -2321,9 +2321,9 @@ server <- function(input, output, session) {
   })
 
   # Ignore: toggle sample ignored
-  shiny::observeEvent(input$ctx_ignorar, {
-    req(input$ctx_ignorar)
-    sample_id <- input$ctx_ignorar$id
+  shiny::observeEvent(input$ctx_ignore, {
+    req(input$ctx_ignore)
+    sample_id <- input$ctx_ignore$id
     ignored <- ignored_samples()
 
     if (sample_id %in% ignored) {
@@ -2341,9 +2341,9 @@ server <- function(input, output, session) {
   })
 
   # Discard: remove sample from list
-  shiny::observeEvent(input$ctx_descartar, {
-    req(input$ctx_descartar)
-    sample_id <- input$ctx_descartar$id
+  shiny::observeEvent(input$ctx_discard, {
+    req(input$ctx_discard)
+    sample_id <- input$ctx_discard$id
     samples <- edit_samples()
 
     idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
@@ -2362,9 +2362,9 @@ server <- function(input, output, session) {
   })
 
   # Insert: create new sample after the selected one
-  shiny::observeEvent(input$ctx_inserir, {
-    req(input$ctx_inserir)
-    sample_id <- input$ctx_inserir$id
+  shiny::observeEvent(input$ctx_insert, {
+    req(input$ctx_insert)
+    sample_id <- input$ctx_insert$id
     samples <- edit_samples()
 
     idx <- which(vapply(samples, function(s) s$id, character(1)) == sample_id)
@@ -2544,7 +2544,7 @@ server <- function(input, output, session) {
         samples_by_week[[week_key]][[length(samples_by_week[[week_key]]) + 1L]] <- s
       }
 
-      originais <- original_samples()
+      originals <- original_samples()
 
       # Write all weekly files
       for (week_key in names(samples_by_week)) {
@@ -2564,8 +2564,8 @@ server <- function(input, output, session) {
       end_date_str   <- format(as.POSIXct(max(ts_new_ids), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
 
       # Activity type from original samples
-      at_code <- originais[[1]]$confirmedActivityType %||%
-                 originais[[1]]$classifiedActivityType %||% 5L
+      at_code <- originals[[1]]$confirmedActivityType %||%
+                 originals[[1]]$classifiedActivityType %||% 5L
 
       # Edited item — reuses original ID so Arc updates in-place via lastSaved
       new_item <- list(

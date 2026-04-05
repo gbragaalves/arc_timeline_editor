@@ -195,18 +195,18 @@ create_timeline_item_visit <- function(lat, lon, start_local, end_local, name = 
   tz <- tz_from_coords(lat, lon)
   if (is.na(tz)) tz <- "UTC"
 
-  inicio_utc <- lubridate::with_tz(start_local, tzone = "UTC")
-  fim_utc    <- lubridate::with_tz(end_local,    tzone = "UTC")
+  start_utc <- lubridate::with_tz(start_local, tzone = "UTC")
+  end_utc   <- lubridate::with_tz(end_local,    tzone = "UTC")
 
-  sec_ini <- seconds_from_gmt(inicio_utc, tz)
+  sec_start <- seconds_from_gmt(start_utc, tz)
 
-  start_date_str <- format(inicio_utc, "%Y-%m-%dT%H:%M:%SZ")
-  end_date_str   <- format(fim_utc,    "%Y-%m-%dT%H:%M:%SZ")
+  start_date_str <- format(start_utc, "%Y-%m-%dT%H:%M:%SZ")
+  end_date_str   <- format(end_utc,   "%Y-%m-%dT%H:%M:%SZ")
 
-  n_samp <- max(3L, min(20L, as.integer(as.numeric(difftime(fim_utc, inicio_utc, units = "mins")) / 5)))
+  n_samp <- max(3L, min(20L, as.integer(as.numeric(difftime(end_utc, start_utc, units = "mins")) / 5)))
   if (is.na(n_samp) || n_samp < 1) n_samp <- 3L
 
-  ts_seq <- seq(inicio_utc, fim_utc, length.out = n_samp)
+  ts_seq <- seq(start_utc, end_utc, length.out = n_samp)
   coords <- cbind(rep(lon, n_samp), rep(lat, n_samp))
 
   samples <- create_locomotion_samples(
@@ -236,7 +236,7 @@ create_timeline_item_visit <- function(lat, lon, start_local, end_local, name = 
     longitude      = lon,
     radiusMean     = 25,
     radiusSD       = 0,
-    secondsFromGMT = sec_ini,
+    secondsFromGMT = sec_start,
     isStale        = FALSE,
     visitCount     = 1L,
     visitDays      = 1L,
@@ -297,8 +297,8 @@ create_timeline_item_path <- function(timestamps_utc,
   if (n == 0) stop("No timestamps to create path.")
   if (nrow(coords) != n) stop("timestamps and coords have different lengths.")
 
-  ini_utc <- timestamps_utc[1]
-  fim_utc <- timestamps_utc[n]
+  start_utc <- timestamps_utc[1]
+  end_utc <- timestamps_utc[n]
 
   item_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
   now_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
@@ -316,7 +316,7 @@ create_timeline_item_path <- function(timestamps_utc,
     }
   }
 
-  duration_s <- as.numeric(difftime(fim_utc, ini_utc, units = "secs"))
+  duration_s <- as.numeric(difftime(end_utc, start_utc, units = "secs"))
   avg_speed <- if (duration_s > 0) total_dist / duration_s else 0
 
   item <- list(
@@ -326,8 +326,8 @@ create_timeline_item_path <- function(timestamps_utc,
       source          = "LocoKit2",
       sourceVersion   = "9.0.0",
       isVisit         = FALSE,
-      startDate       = format(ini_utc, "%Y-%m-%dT%H:%M:%SZ"),
-      endDate         = format(fim_utc, "%Y-%m-%dT%H:%M:%SZ"),
+      startDate       = format(start_utc, "%Y-%m-%dT%H:%M:%SZ"),
+      endDate         = format(end_utc, "%Y-%m-%dT%H:%M:%SZ"),
       lastSaved       = now_utc,
       deleted         = FALSE,
       disabled        = FALSE,

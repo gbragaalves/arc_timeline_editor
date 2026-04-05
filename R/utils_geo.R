@@ -262,15 +262,15 @@ filter_location_history_by_date <- function(df, target_date, local_tz = Sys.time
   if (is.null(df) || nrow(df) == 0) return(NULL)
 
   # Convert target_date to UTC timestamp range
-  inicio_local <- lubridate::ymd_hms(paste(target_date, "00:00:00"), tz = local_tz)
-  fim_local    <- lubridate::ymd_hms(paste(target_date, "23:59:59"), tz = local_tz)
+  start_local <- lubridate::ymd_hms(paste(target_date, "00:00:00"), tz = local_tz)
+  end_local    <- lubridate::ymd_hms(paste(target_date, "23:59:59"), tz = local_tz)
 
-  inicio_utc <- lubridate::with_tz(inicio_local, "UTC")
-  fim_utc    <- lubridate::with_tz(fim_local, "UTC")
+  start_utc <- lubridate::with_tz(start_local, "UTC")
+  end_utc    <- lubridate::with_tz(end_local, "UTC")
 
   # Filter records that overlap with the day
   filtered_df <- df[
-    (df$start_time <= fim_utc & df$end_time >= inicio_utc),
+    (df$start_time <= end_utc & df$end_time >= start_utc),
   ]
 
   if (nrow(filtered_df) == 0) return(NULL)
@@ -283,35 +283,35 @@ filter_location_history_by_date <- function(df, target_date, local_tz = Sys.time
 CACHE_DIR <- "location_history/cache"
 
 # Check if cache exists for a person
-cache_exists <- function(pessoa_id) {
-  indice_file <- file.path(CACHE_DIR, pessoa_id, "_indice.rds")
-  file.exists(indice_file)
+cache_exists <- function(person_id) {
+  index_file <- file.path(CACHE_DIR, person_id, "_indice.rds")
+  file.exists(index_file)
 }
 
 # Load data for a person on a specific date (via RDS cache)
-load_lh_by_date <- function(pessoa_id, target_date, local_tz = Sys.timezone()) {
-  pessoa_dir <- file.path(CACHE_DIR, pessoa_id)
-  indice_file <- file.path(pessoa_dir, "_indice.rds")
+load_lh_by_date <- function(person_id, target_date, local_tz = Sys.timezone()) {
+  person_dir <- file.path(CACHE_DIR, person_id)
+  index_file <- file.path(person_dir, "_indice.rds")
 
-  if (!file.exists(indice_file)) return(NULL)
+  if (!file.exists(index_file)) return(NULL)
 
   # Determine which month(s) to load
   # The date may be in a different UTC month than the local month
-  inicio_local <- lubridate::ymd_hms(paste(target_date, "00:00:00"), tz = local_tz)
-  fim_local    <- lubridate::ymd_hms(paste(target_date, "23:59:59"), tz = local_tz)
+  start_local <- lubridate::ymd_hms(paste(target_date, "00:00:00"), tz = local_tz)
+  end_local    <- lubridate::ymd_hms(paste(target_date, "23:59:59"), tz = local_tz)
 
-  inicio_utc <- lubridate::with_tz(inicio_local, "UTC")
-  fim_utc    <- lubridate::with_tz(fim_local, "UTC")
+  start_utc <- lubridate::with_tz(start_local, "UTC")
+  end_utc    <- lubridate::with_tz(end_local, "UTC")
 
   # Months that may contain data for the day (considering timezone)
-  meses_necessarios <- unique(c(
-    format(inicio_utc, "%Y-%m"),
-    format(fim_utc, "%Y-%m")
+  required_months <- unique(c(
+    format(start_utc, "%Y-%m"),
+    format(end_utc, "%Y-%m")
   ))
 
   # Load only the necessary RDS files
-  dfs <- lapply(meses_necessarios, function(mes) {
-    rds_file <- file.path(pessoa_dir, paste0(mes, ".rds"))
+  dfs <- lapply(required_months, function(month) {
+    rds_file <- file.path(person_dir, paste0(month, ".rds"))
     if (file.exists(rds_file)) {
       readRDS(rds_file)
     } else {
@@ -326,7 +326,7 @@ load_lh_by_date <- function(pessoa_id, target_date, local_tz = Sys.timezone()) {
 
   # Filter for the specific day
   filtered_df <- df[
-    (df$start_time <= fim_utc & df$end_time >= inicio_utc),
+    (df$start_time <= end_utc & df$end_time >= start_utc),
   ]
 
   if (nrow(filtered_df) == 0) return(NULL)
@@ -338,12 +338,12 @@ load_lh_by_date <- function(pessoa_id, target_date, local_tz = Sys.timezone()) {
 format_datetime_lh <- function(timestamp, local_tz = Sys.timezone()) {
   ts_local <- lubridate::with_tz(timestamp, local_tz)
 
-  meses <- c("jan.", "fev.", "mar.", "abr.", "mai.", "jun.",
-             "jul.", "ago.", "set.", "out.", "nov.", "dez.")
+  months_abbr <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
-  dia <- format(ts_local, "%d")
-  mes <- meses[as.integer(format(ts_local, "%m"))]
+  day_str <- format(ts_local, "%d")
+  month_str <- months_abbr[as.integer(format(ts_local, "%m"))]
   time_str <- format(ts_local, "%H:%M")
 
-  paste0(dia, "/", mes, " ", time_str)
+  paste0(day_str, "/", month_str, " ", time_str)
 }
