@@ -152,7 +152,8 @@ calcular_rota_osrm <- function(pontos, perfil = c("car", "foot", "bike", "bus"))
 # Recalculate a route segment between two points via OSRM
 # Returns: list(coords, distance_m)
 recalcular_segmento <- function(from_lat, from_lng, to_lat, to_lng,
-                                perfil = c("car", "foot", "bike", "bus")) {
+                                perfil = c("car", "foot", "bike", "bus",
+                                           "metro", "train", "tram")) {
   perfil <- match.arg(perfil)
 
   pts <- data.frame(
@@ -160,7 +161,13 @@ recalcular_segmento <- function(from_lat, from_lng, to_lat, to_lng,
     lng = c(from_lng, to_lng)
   )
 
-  rota <- calcular_rota_osrm(pts, perfil = perfil)
+  # Perfis de transit usam Google Maps API
+  if (perfil %in% GOOGLE_TRANSIT_MODES) {
+    transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[perfil]]
+    rota <- calcular_rota_google_transit(pts, transit_mode = transit_mode)
+  } else {
+    rota <- calcular_rota_osrm(pts, perfil = perfil)
+  }
 
   if (is.null(rota) || is.null(rota$coords)) {
     # Fallback: straight line between points

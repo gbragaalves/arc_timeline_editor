@@ -691,17 +691,40 @@ server <- function(input, output, session) {
     }
 
     perfil <- input$osrm_perfil
-    base_url <- OSRM_SERVERS[[perfil]]
 
-    if (is.null(base_url) || !check_osrm_server(base_url)) {
-      mostrar_modal_osrm_offline(base_url %||% "nao configurado")
-      return()
-    }
+    # Perfis de transit usam Google Maps API ao invés de OSRM
+    if (perfil %in% GOOGLE_TRANSIT_MODES) {
+      if (!check_google_api()) {
+        shiny::showNotification(
+          "Google Maps API key não configurada ou inválida. Defina GOOGLE_MAPS_API_KEY no .Renviron.",
+          type = "error", duration = 8
+        )
+        return()
+      }
+      transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[perfil]]
+      rota <- calcular_rota_google_transit(pts, transit_mode = transit_mode)
+      if (is.null(rota)) {
+        shiny::showNotification(
+          sprintf("Nenhuma rota de %s encontrada entre esses pontos. A API não retornou rotas com esse modo de transporte.", perfil),
+          type = "error", duration = 8
+        )
+        return()
+      }
+      # Aplicar suavização igual ao OSRM
+      rota$coords <- suavizar_rota_osrm(rota$coords, tolerancia_m = 5, angulo_min = 2)
+    } else {
+      base_url <- OSRM_SERVERS[[perfil]]
 
-    rota <- calcular_rota_osrm(pts, perfil = perfil)
-    if (is.null(rota)) {
-      shiny::showNotification("Failed to calculate OSRM route.", type = "error")
-      return()
+      if (is.null(base_url) || !check_osrm_server(base_url)) {
+        mostrar_modal_osrm_offline(base_url %||% "nao configurado")
+        return()
+      }
+
+      rota <- calcular_rota_osrm(pts, perfil = perfil)
+      if (is.null(rota)) {
+        shiny::showNotification("Failed to calculate OSRM route.", type = "error")
+        return()
+      }
     }
 
     # Suggest time based on the last activity (if any)
@@ -908,10 +931,13 @@ server <- function(input, output, session) {
         # Map OSRM profile to activityType
         perfil <- session$userData$ultima_rota_perfil %||% "car"
         activity_map <- c(
-          car  = "car",
-          foot = "walking",
-          bike = "cycling",
-          bus  = "bus"
+          car   = "car",
+          foot  = "walking",
+          bike  = "cycling",
+          bus   = "bus",
+          metro = "metro",
+          train = "train",
+          tram  = "tram"
         )
         activity_type <- activity_map[[perfil]] %||% "car"
 
@@ -1888,20 +1914,33 @@ server <- function(input, output, session) {
       }
 
       perfil <- input$edit_osrm_perfil
-      base_url <- OSRM_SERVERS[[perfil]]
+      usa_google <- perfil %in% GOOGLE_TRANSIT_MODES
 
-      if (is.null(base_url)) {
-        shiny::removeNotification("snap_progress")
-        shiny::showNotification(sprintf("OSRM profile '%s' not configured.", perfil), type = "error")
-        return()
-      }
+      if (usa_google) {
+        if (!check_google_api()) {
+          shiny::removeNotification("snap_progress")
+          shiny::showNotification(
+            "Google Maps API key não configurada ou inválida. Defina GOOGLE_MAPS_API_KEY no .Renviron.",
+            type = "error", duration = 8
+          )
+          return()
+        }
+      } else {
+        base_url <- OSRM_SERVERS[[perfil]]
 
-      shiny::showNotification("3/7 Checking OSRM...", id = "snap_progress", duration = NULL, type = "message")
+        if (is.null(base_url)) {
+          shiny::removeNotification("snap_progress")
+          shiny::showNotification(sprintf("OSRM profile '%s' not configured.", perfil), type = "error")
+          return()
+        }
 
-      if (!check_osrm_server(base_url)) {
-        shiny::removeNotification("snap_progress")
-        mostrar_modal_osrm_offline(base_url)
-        return()
+        shiny::showNotification("3/7 Checking OSRM...", id = "snap_progress", duration = NULL, type = "message")
+
+        if (!check_osrm_server(base_url)) {
+          shiny::removeNotification("snap_progress")
+          mostrar_modal_osrm_offline(base_url)
+          return()
+        }
       }
 
       shiny::showNotification("4/7 Extracting coordinates...", id = "snap_progress", duration = NULL, type = "message")
@@ -1923,7 +1962,7 @@ server <- function(input, output, session) {
       n <- length(samples_ativos)
       if (n > 100) {
         shiny::showNotification(
-          sprintf("Too many samples (%d). Using only the first 100 for OSRM.", n),
+          sprintf("Too many samples (%d). Using only the first 100.", n),
           type = "warning"
         )
         lats <- lats[1:100]
@@ -1932,16 +1971,24 @@ server <- function(input, output, session) {
         n <- 100
       }
 
-      shiny::showNotification(sprintf("5/7 Calling OSRM with %d points...", n), id = "snap_progress", duration = NULL, type = "message")
+      shiny::showNotification(sprintf("5/7 Calculating route with %d points...", n), id = "snap_progress", duration = NULL, type = "message")
 
-      # Call OSRM
       pts <- data.frame(lat = lats, lng = lngs)
-      rota <- calcular_rota_osrm(pts, perfil = perfil)
+
+      if (usa_google) {
+        transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[perfil]]
+        rota <- calcular_rota_google_transit(pts, transit_mode = transit_mode)
+        if (!is.null(rota)) {
+          rota$coords <- suavizar_rota_osrm(rota$coords, tolerancia_m = 5, angulo_min = 2)
+        }
+      } else {
+        rota <- calcular_rota_osrm(pts, perfil = perfil)
+      }
 
       if (is.null(rota)) {
         shiny::removeNotification("snap_progress")
         shiny::showNotification(
-          "Failed to calculate OSRM route. The server may not have been able to route between the points.",
+          "Failed to calculate route. The server may not have been able to route between the points.",
           type = "error"
         )
         return()

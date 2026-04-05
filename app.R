@@ -35,6 +35,7 @@ if (file.exists("R/config_pessoas.R")) {
 source("R/utils_time.R", local = FALSE)
 source("R/utils_geo.R", local = FALSE)
 source("R/utils_osrm.R", local = FALSE)
+source("R/utils_google.R", local = FALSE)
 source("R/utils_arc.R", local = FALSE)
 source("R/utils_semanas.R", local = FALSE)
 source("R/export_arc.R", local = FALSE)

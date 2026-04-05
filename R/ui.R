@@ -156,7 +156,7 @@ ui <- shiny::fluidPage(
       shiny::radioButtons(
         "modo",
         "Edit mode",
-        choices = c("OSRM", "Visit" = "Visita", "Manual Route" = "Rota Manual", "Import File" = "Importar Arquivo", "Edit Samples" = "Editar Samples", "Edit Route" = "Editar Rota"),
+        choices = c("Route" = "OSRM", "Visit" = "Visita", "Manual Route" = "Rota Manual", "Import File" = "Importar Arquivo", "Edit Samples" = "Editar Samples", "Edit Route" = "Editar Rota"),
         selected = "OSRM"
       ),
       shiny::hr(),
@@ -164,12 +164,13 @@ ui <- shiny::fluidPage(
       shiny::conditionalPanel(
         "input.modo == 'OSRM'",
         shiny::tags$div(
-          shiny::tags$strong("OSRM"),
-          help_icon("Click waypoints on the map, then calculate a snap-to-road route via a local OSRM server. Requires Docker containers on ports 5000-5003.")
+          shiny::tags$strong("Route"),
+          help_icon("Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).")
         ),
         shiny::selectInput(
           "osrm_perfil", "Profile:",
-          choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus"),
+          choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
+                      "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"),
           selected = "car", width = "100%"
         ),
         shiny::splitLayout(
@@ -178,7 +179,7 @@ ui <- shiny::fluidPage(
           shiny::actionButton("limpar_pontos_osrm", "Clear", class = "btn-sm")
         ),
         shiny::br(),
-        shiny::actionButton("calcular_osrm", "Calculate OSRM route", class = "btn-primary btn-sm btn-block")
+        shiny::actionButton("calcular_osrm", "Calculate route", class = "btn-primary btn-sm btn-block")
       ),
       # Visit
       shiny::conditionalPanel(
@@ -308,7 +309,8 @@ ui <- shiny::fluidPage(
           cellWidths = c("60%", "40%"),
           shiny::selectInput(
             "edit_osrm_perfil", NULL,
-            choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus"),
+            choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
+                        "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"),
             selected = "car", width = "100%"
           ),
           shiny::actionButton("snap_to_road", "Snap", class = "btn-warning btn-sm", style = "margin-top: 0;",
