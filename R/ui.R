@@ -1,5 +1,12 @@
 # ---- UI ----
 
+help_icon <- function(text) {
+  shiny::span(
+    class = "help-tip", "?",
+    shiny::span(class = "help-text", text)
+  )
+}
+
 ui <- shiny::fluidPage(
   shiny::tags$head(
     shiny::tags$style(shiny::HTML("
@@ -93,6 +100,48 @@ ui <- shiny::fluidPage(
       .col-sm-2 .form-group {
         margin-bottom: 8px !important;
       }
+
+      /* Help tooltip icons */
+      .help-tip {
+        display: inline-block;
+        width: 15px;
+        height: 15px;
+        line-height: 15px;
+        text-align: center;
+        font-size: 10px;
+        font-weight: bold;
+        color: #fff;
+        background: #999;
+        border-radius: 50%;
+        cursor: help;
+        margin-left: 4px;
+        vertical-align: middle;
+        position: relative;
+      }
+      .help-tip:hover {
+        background: #666;
+      }
+      .help-tip .help-text {
+        display: none;
+        position: absolute;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 22px;
+        width: 220px;
+        padding: 8px 10px;
+        background: #333;
+        color: #fff;
+        font-size: 11px;
+        font-weight: normal;
+        line-height: 1.4;
+        border-radius: 4px;
+        z-index: 10001;
+        text-align: left;
+        white-space: normal;
+      }
+      .help-tip:hover .help-text {
+        display: block;
+      }
     "))
   ),
 
@@ -114,6 +163,10 @@ ui <- shiny::fluidPage(
       # OSRM
       shiny::conditionalPanel(
         "input.modo == 'OSRM'",
+        shiny::tags$div(
+          shiny::tags$strong("OSRM"),
+          help_icon("Click waypoints on the map, then calculate a snap-to-road route via a local OSRM server. Requires Docker containers on ports 5000-5003.")
+        ),
         shiny::selectInput(
           "osrm_perfil", "Profile:",
           choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus"),
@@ -130,6 +183,10 @@ ui <- shiny::fluidPage(
       # Visit
       shiny::conditionalPanel(
         "input.modo == 'Visita'",
+        shiny::tags$div(
+          shiny::tags$strong("Visit"),
+          help_icon("Mark a stationary visit. Type a name from your frequent places (config_local.R) to auto-fill coordinates. Entry/exit define the stay duration.")
+        ),
         shiny::textInput("visita_nome", "Visit name", "", width = "100%"),
         shiny::tags$small("Click the map to set the location."),
         shiny::tags$label("Entry:"),
@@ -149,6 +206,10 @@ ui <- shiny::fluidPage(
       # Manual route
       shiny::conditionalPanel(
         "input.modo == 'Rota Manual'",
+        shiny::tags$div(
+          shiny::tags$strong("Manual Route"),
+          help_icon("Click points on the map to draw a freeform polyline route. Timestamps are evenly interpolated between start and end times.")
+        ),
         shiny::tags$small("Click the map to set the points."),
         shiny::selectInput(
           "manual_activity_type", "Activity type:",
@@ -184,6 +245,10 @@ ui <- shiny::fluidPage(
       # Import file
       shiny::conditionalPanel(
         "input.modo == 'Importar Arquivo'",
+        shiny::tags$div(
+          shiny::tags$strong("Import File"),
+          help_icon("Import a route from GeoJSON, GPX, KML, or GPKG. FlightRadar24 KML files are detected automatically and timestamps are extracted from the track.")
+        ),
         shiny::fileInput(
           "arquivo_geo", NULL,
           accept = c(".geojson", ".json", ".gpx", ".kml", ".gpkg"),
@@ -223,6 +288,10 @@ ui <- shiny::fluidPage(
       # Edit Samples
       shiny::conditionalPanel(
         "input.modo == 'Editar Samples'",
+        shiny::tags$div(
+          shiny::tags$strong("Edit Samples"),
+          help_icon("Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options.")
+        ),
         shiny::tags$small("Load samples:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
@@ -242,9 +311,14 @@ ui <- shiny::fluidPage(
             choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus"),
             selected = "car", width = "100%"
           ),
-          shiny::actionButton("snap_to_road", "Snap", class = "btn-warning btn-sm", style = "margin-top: 0;")
+          shiny::actionButton("snap_to_road", "Snap", class = "btn-warning btn-sm", style = "margin-top: 0;",
+                              title = "Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route")
         ),
-        shiny::checkboxInput("modo_selecao", "Selection mode", FALSE),
+        shiny::tags$div(
+          shiny::checkboxInput("modo_selecao", "Selection mode", FALSE),
+          style = "display: inline-block; margin-bottom: 0;"
+        ),
+        help_icon("Draw a lasso on the map to select multiple samples at once for bulk ignore or discard."),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
           shiny::actionButton("ignorar_selecionados", "Ignore", class = "btn-xs"),
@@ -256,6 +330,10 @@ ui <- shiny::fluidPage(
       # Edit Route
       shiny::conditionalPanel(
         "input.modo == 'Editar Rota'",
+        shiny::tags$div(
+          shiny::tags$strong("Edit Route"),
+          help_icon("Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes.")
+        ),
         shiny::tags$small("Select a route from the timeline:"),
         shiny::selectInput(
           "rota_editar_selecionada", "Route:",
@@ -296,12 +374,17 @@ ui <- shiny::fluidPage(
     # Right column - timeline (width = 2)
     shiny::column(
       width = 2,
-      shiny::h4("Day timeline"),
+      shiny::h4(
+        "Day timeline",
+        help_icon("Timeline items for the current working date. Click Edit to change times, Delete to remove. Items are sorted by start time.")
+      ),
       shiny::uiOutput("timeline_list"),
       shiny::hr(),
       shiny::downloadButton("download_arc", "Download Arc package (zip)", class = "btn-block"),
+      help_icon("Export as a LocoKit2 JSON zip (items + samples + metadata), ready for Arc Editor import."),
       shiny::br(),
-      shiny::downloadButton("download_gpx", "Download GPX (all samples)", class = "btn-block")
+      shiny::downloadButton("download_gpx", "Download GPX (all samples)", class = "btn-block"),
+      help_icon("Export all samples as a GPX track for use with other mapping tools.")
     )
   ),
 
