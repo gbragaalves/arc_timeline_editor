@@ -1,19 +1,19 @@
-# ---- Helpers: time / timezone ----
+# ---- Helpers: time parsing, timezone detection, interval validation ----
 
-formatar_hora <- function(hora_str) {
-  if (is.null(hora_str) || is.na(hora_str)) return(NA_character_)
-  hora_str <- trimws(hora_str)
-  if (hora_str == "") return(NA_character_)
+format_time <- function(time_str) {
+  if (is.null(time_str) || is.na(time_str)) return(NA_character_)
+  time_str <- trimws(time_str)
+  if (time_str == "") return(NA_character_)
 
   # If already in H:M, HH:MM, HH:MM:SS format etc.
-  if (grepl("^\\d{1,2}:\\d{2}(:\\d{2})?$", hora_str)) {
-    parts <- strsplit(hora_str, ":", fixed = TRUE)[[1]]
+  if (grepl("^\\d{1,2}:\\d{2}(:\\d{2})?$", time_str)) {
+    parts <- strsplit(time_str, ":", fixed = TRUE)[[1]]
     h <- as.integer(parts[1])
     m <- as.integer(parts[2])
     s <- if (length(parts) >= 3) as.integer(parts[3]) else 0L
   } else {
     # Extract digits only
-    d <- gsub("\\D", "", hora_str)
+    d <- gsub("\\D", "", time_str)
     if (nchar(d) == 0) return(NA_character_)
 
     if (nchar(d) <= 2) {
@@ -101,29 +101,29 @@ seconds_from_gmt <- function(ts_utc, tz) {
 }
 
 # Validate interval (local date/time) in a timezone
-validar_intervalo <- function(data_ini, hora_ini, data_fim, hora_fim, tz) {
-  hora_ini_fmt <- formatar_hora(hora_ini)
-  hora_fim_fmt <- formatar_hora(hora_fim)
-  if (is.na(hora_ini_fmt) || is.na(hora_fim_fmt)) return(NULL)
+validate_interval <- function(date_start, time_start, date_end, time_end, tz) {
+  start_time_fmt <- format_time(time_start)
+  end_time_fmt <- format_time(time_end)
+  if (is.na(start_time_fmt) || is.na(end_time_fmt)) return(NULL)
 
-  inicio <- suppressWarnings(
+  start_ts <- suppressWarnings(
     lubridate::ymd_hms(
-      paste(data_ini, hora_ini_fmt),
+      paste(date_start, start_time_fmt),
       tz = tz,
       quiet = TRUE
     )
   )
 
-  fim <- suppressWarnings(
+  end_ts <- suppressWarnings(
     lubridate::ymd_hms(
-      paste(data_fim, hora_fim_fmt),
+      paste(date_end, end_time_fmt),
       tz = tz,
       quiet = TRUE
     )
   )
 
 
-  if (is.na(inicio) || is.na(fim) || fim <= inicio) return(NULL)
+  if (is.na(start_ts) || is.na(end_ts) || end_ts <= start_ts) return(NULL)
 
-  list(inicio = inicio, fim = fim)
+  list(start = start_ts, end = end_ts)
 }

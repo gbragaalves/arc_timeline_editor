@@ -1,4 +1,5 @@
 # Private data folders
+weeks/
 semanas/
 voos/
 import/
@@ -8,6 +9,7 @@ location_history/cache/
 
 # Local configuration (private data)
 config_local.R
+R/config_people.R
 R/config_pessoas.R
 ver_historico_google.R
 

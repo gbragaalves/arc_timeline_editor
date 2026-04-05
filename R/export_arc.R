@@ -1,7 +1,7 @@
 # ---- Arc Editor JSON Exporter (LocoKit2 format) ----
 # Structure: items/{YYYY-MM}.json, samples/{YYYY-Www}.json.gz, metadata.json
 
-exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho) {
+export_arc_json <- function(timeline_items, samples, output_dir, work_date) {
   if (!dir.exists(output_dir)) {
     dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
   }

@@ -4,13 +4,13 @@ server <- function(input, output, session) {
 
   # Helper: modal for OSRM offline with instructions
 
-  mostrar_modal_osrm_offline <- function(url_tentada) {
+  show_osrm_offline_modal <- function(attempted_url) {
     shiny::showModal(
       shiny::modalDialog(
         title = "OSRM server is not running",
         shiny::tags$p(
           shiny::tags$strong("The OSRM server did not respond at:"),
-          shiny::tags$code(url_tentada)
+          shiny::tags$code(attempted_url)
         ),
         shiny::tags$hr(),
         shiny::tags$p(shiny::tags$strong("To start OSRM, run in terminal:")),
@@ -41,13 +41,13 @@ server <- function(input, output, session) {
   }
 
   # Reactive state
-  pontos_temp <- shiny::reactiveVal(data.frame(lat = numeric(0), lng = numeric(0)))
+  temp_points <- shiny::reactiveVal(data.frame(lat = numeric(0), lng = numeric(0)))
   timeline <- shiny::reactiveVal(list())
   all_samples <- shiny::reactiveVal(list())
   edit_samples <- shiny::reactiveVal(list())  # Samples loaded for editing
   ignored_samples <- shiny::reactiveVal(character(0))  # IDs of ignored samples
-  rota_osrm <- shiny::reactiveVal(NULL)  # OSRM route geometry (lon/lat matrix)
-  samples_virtuais <- shiny::reactiveVal(list())  # Samples created from OSRM route (intermediate points)
+  osrm_route <- shiny::reactiveVal(NULL)  # OSRM route geometry (lon/lat matrix)
+  virtual_samples <- shiny::reactiveVal(list())  # Samples created from OSRM route (intermediate points)
   original_samples <- shiny::reactiveVal(list())  # Original samples before editing
   original_timeline_item_id <- shiny::reactiveVal(NULL)  # Original timelineItemId of samples
 
@@ -58,24 +58,24 @@ server <- function(input, output, session) {
   route_avg_speed <- shiny::reactiveVal(NULL)        # Average speed (m/s)
 
   # ---- Location History of other people ----
-  # PESSOAS_CONFIG is loaded in app.R (global variable)
-  pessoas_config <- tryCatch(
-    get("PESSOAS_CONFIG", envir = globalenv()),
+  # PEOPLE_CONFIG is loaded in app.R (global variable)
+  people_config <- tryCatch(
+    get("PEOPLE_CONFIG", envir = globalenv()),
     error = function(e) list()
   )
   location_history_cache <- shiny::reactiveVal(list())  # Cache of loaded data
 
   # Dynamically generates toggles based on configuration
-  output$toggles_pessoas <- shiny::renderUI({
-    if (length(pessoas_config) == 0) return(NULL)
+  output$toggles_people <- shiny::renderUI({
+    if (length(people_config) == 0) return(NULL)
 
-    checkboxes <- lapply(pessoas_config, function(p) {
+    checkboxes <- lapply(people_config, function(p) {
       shiny::checkboxInput(
         inputId = paste0("lh_", p$id),
         label   = shiny::span(
           shiny::icon("map-marker-alt"),
           p$label,
-          style = paste0("color:", p$cor, "; font-weight: 500;")
+          style = paste0("color:", p$color, "; font-weight: 500;")
         ),
         value   = FALSE
       )
@@ -92,16 +92,16 @@ server <- function(input, output, session) {
   })
 
   # Loads Location History data when needed
-  carregar_lh_pessoa <- function(pessoa_id) {
+  load_lh_person <- function(person_id) {
     cache <- location_history_cache()
-    if (!is.null(cache[[pessoa_id]])) {
-      return(cache[[pessoa_id]])
+    if (!is.null(cache[[person_id]])) {
+      return(cache[[person_id]])
     }
 
     # Find person's config
     cfg <- NULL
-    for (p in pessoas_config) {
-      if (p$id == pessoa_id) {
+    for (p in people_config) {
+      if (p$id == person_id) {
         cfg <- p
         break
       }
@@ -115,15 +115,15 @@ server <- function(input, output, session) {
     )
 
     # Load the file
-    dados <- carregar_location_history(cfg$arquivo)
+    lh_data <- load_location_history(cfg$file)
 
     shiny::removeNotification("lh_loading")
 
-    if (!is.null(dados)) {
-      cache[[pessoa_id]] <- dados
+    if (!is.null(lh_data)) {
+      cache[[person_id]] <- lh_data
       location_history_cache(cache)
       shiny::showNotification(
-        paste0(cfg$label, ": ", nrow(dados), " records loaded"),
+        paste0(cfg$label, ": ", nrow(lh_data), " records loaded"),
         type = "message", duration = 3
       )
     } else {
@@ -133,32 +133,32 @@ server <- function(input, output, session) {
       )
     }
 
-    dados
+    lh_data
   }
 
   # Update map when date or toggles change
   shiny::observe({
-    data_atual <- input$data_trabalho
-    if (is.null(data_atual)) return()
+    current_date <- input$work_date
+    if (is.null(current_date)) return()
 
     # Clear previous layers
     proxy <- leaflet::leafletProxy("map")
-    for (p in pessoas_config) {
+    for (p in people_config) {
       proxy <- proxy %>% leaflet::clearGroup(paste0("lh_", p$id))
     }
 
     # Draw each enabled person
-    for (p in pessoas_config) {
+    for (p in people_config) {
       toggle_id <- paste0("lh_", p$id)
       if (!isTRUE(input[[toggle_id]])) next
 
       # Use RDS cache if available, otherwise load full JSON
-      if (cache_existe(p$id)) {
-        df <- carregar_lh_por_data(p$id, data_atual)
+      if (cache_exists(p$id)) {
+        df <- load_lh_by_date(p$id, current_date)
       } else {
-        dados <- carregar_lh_pessoa(p$id)
-        if (is.null(dados)) next
-        df <- filtrar_location_history_por_data(dados, data_atual)
+        lh_data <- load_lh_person(p$id)
+        if (is.null(lh_data)) next
+        df <- filter_location_history_by_date(lh_data, current_date)
       }
 
       if (is.null(df) || nrow(df) == 0) next
@@ -166,42 +166,42 @@ server <- function(input, output, session) {
       group_name <- paste0("lh_", p$id)
 
       # Draw visits as circles
-      visitas <- df[df$tipo == "visit", ]
-      if (nrow(visitas) > 0) {
-        for (i in seq_len(nrow(visitas))) {
-          v <- visitas[i, ]
-          data_hora_ini <- formatar_data_hora_lh(v$start_time)
-          data_hora_fim <- formatar_data_hora_lh(v$end_time)
+      visits <- df[df$type == "visit", ]
+      if (nrow(visits) > 0) {
+        for (i in seq_len(nrow(visits))) {
+          v <- visits[i, ]
+          datetime_start <- format_datetime_lh(v$start_time)
+          datetime_end <- format_datetime_lh(v$end_time)
 
           proxy <- proxy %>%
             leaflet::addCircleMarkers(
               lng = v$lon, lat = v$lat,
               radius = 10,
-              color = p$cor, fillColor = p$cor, fillOpacity = 0.6,
+              color = p$color, fillColor = p$color, fillOpacity = 0.6,
               stroke = TRUE, weight = 2,
               group = group_name,
-              label = paste0(p$label, ": ", data_hora_ini, " - ", data_hora_fim)
+              label = paste0(p$label, ": ", datetime_start, " - ", datetime_end)
             )
         }
       }
 
       # Draw activities as lines with direction indicators
-      atividades <- df[df$tipo == "activity", ]
-      if (nrow(atividades) > 0) {
-        for (i in seq_len(nrow(atividades))) {
-          a <- atividades[i, ]
-          data_hora_ini <- formatar_data_hora_lh(a$start_time)
-          data_hora_fim <- formatar_data_hora_lh(a$end_time)
-          label_texto <- paste0(p$label, ": ", data_hora_ini, " -> ", data_hora_fim)
+      activities <- df[df$type == "activity", ]
+      if (nrow(activities) > 0) {
+        for (i in seq_len(nrow(activities))) {
+          a <- activities[i, ]
+          datetime_start <- format_datetime_lh(a$start_time)
+          datetime_end <- format_datetime_lh(a$end_time)
+          label_text <- paste0(p$label, ": ", datetime_start, " -> ", datetime_end)
 
           # Route line
           proxy <- proxy %>%
             leaflet::addPolylines(
               lng = c(a$lon, a$lon_end),
               lat = c(a$lat, a$lat_end),
-              color = p$cor, weight = 3, opacity = 0.7,
+              color = p$color, weight = 3, opacity = 0.7,
               group = group_name,
-              label = label_texto
+              label = label_text
             )
 
           # Start marker (small green circle)
@@ -212,7 +212,7 @@ server <- function(input, output, session) {
               color = "green", fillColor = "green", fillOpacity = 1,
               stroke = FALSE,
               group = group_name,
-              label = paste0("Start: ", data_hora_ini)
+              label = paste0("Start: ", datetime_start)
             )
 
           # End marker (small red circle)
@@ -223,14 +223,14 @@ server <- function(input, output, session) {
               color = "red", fillColor = "red", fillOpacity = 1,
               stroke = FALSE,
               group = group_name,
-              label = paste0("End: ", data_hora_fim)
+              label = paste0("End: ", datetime_end)
             )
         }
       }
 
       # Check if any point is already visible on the current screen
-      all_lats <- c(visitas$lat, atividades$lat, atividades$lat_end)
-      all_lons <- c(visitas$lon, atividades$lon, atividades$lon_end)
+      all_lats <- c(visits$lat, activities$lat, activities$lat_end)
+      all_lons <- c(visits$lon, activities$lon, activities$lon_end)
 
       if (length(all_lats) > 0 && length(all_lons) > 0) {
         # Get current map bounds (isolate to avoid reactive loop with fitBounds)
@@ -276,7 +276,7 @@ server <- function(input, output, session) {
       # ONLY FORMAT if at least 3 characters typed (avoids formatting while typing)
       if (nchar(gsub("\\D", "", val)) < 3) return()
 
-      fmt <- formatar_hora(val)
+      fmt <- format_time(val)
       if (!is.na(fmt) && !identical(fmt, val)) {
         shiny::updateTextInput(session, id, value = fmt)
       }
@@ -284,18 +284,18 @@ server <- function(input, output, session) {
   }
 
   # Time fields that should be auto-formatted
-  auto_format_time("visita_hora_inicio")
-  auto_format_time("visita_hora_fim")
-  auto_format_time("manual_hora_inicio")
-  auto_format_time("manual_hora_fim")
-  auto_format_time("import_hora_inicio")
-  auto_format_time("import_hora_fim")
-  auto_format_time("osrm_hora_inicio")
-  auto_format_time("osrm_hora_fim")
-  auto_format_time("edit_hora_inicio")
-  auto_format_time("edit_hora_fim")
-  auto_format_time("edit_samples_hora_inicio")
-  auto_format_time("edit_samples_hora_fim")
+  auto_format_time("visit_time_start")
+  auto_format_time("visit_time_end")
+  auto_format_time("manual_time_start")
+  auto_format_time("manual_time_end")
+  auto_format_time("import_time_start")
+  auto_format_time("import_time_end")
+  auto_format_time("osrm_time_start")
+  auto_format_time("osrm_time_end")
+  auto_format_time("edit_time_start")
+  auto_format_time("edit_time_end")
+  auto_format_time("edit_samples_time_start")
+  auto_format_time("edit_samples_time_end")
 
 
   # Returns the local end of the LAST timeline activity (or NULL if it can't be calculated)
@@ -338,38 +338,38 @@ server <- function(input, output, session) {
 
     next_local <- last_local + 60  # +1 minute
 
-    data_next <- as.Date(next_local)
-    hora_next <- format(next_local, "%H:%M:%S")
+    next_date <- as.Date(next_local)
+    next_time <- format(next_local, "%H:%M:%S")
 
     # visit
-    shiny::updateDateInput(session, "visita_data_inicio", value = data_next)
-    shiny::updateTextInput(session, "visita_hora_inicio", value = hora_next)
+    shiny::updateDateInput(session, "visit_date_start", value = next_date)
+    shiny::updateTextInput(session, "visit_time_start", value = next_time)
 
     # manual route
-    shiny::updateDateInput(session, "manual_data_inicio", value = data_next)
-    shiny::updateTextInput(session, "manual_hora_inicio", value = hora_next)
+    shiny::updateDateInput(session, "manual_date_start", value = next_date)
+    shiny::updateTextInput(session, "manual_time_start", value = next_time)
 
     # import
-    shiny::updateDateInput(session, "import_data_inicio", value = data_next)
-    shiny::updateTextInput(session, "import_hora_inicio", value = hora_next)
+    shiny::updateDateInput(session, "import_date_start", value = next_date)
+    shiny::updateTextInput(session, "import_time_start", value = next_time)
   })
 
 
   # When the main date changes, replicate to other date fields
-  shiny::observeEvent(input$data_trabalho, {
-    d <- input$data_trabalho
+  shiny::observeEvent(input$work_date, {
+    d <- input$work_date
 
-    shiny::updateDateInput(session, "visita_data_inicio", value = d)
-    shiny::updateDateInput(session, "visita_data_fim",    value = d)
+    shiny::updateDateInput(session, "visit_date_start", value = d)
+    shiny::updateDateInput(session, "visit_date_end",    value = d)
 
-    shiny::updateDateInput(session, "manual_data_inicio", value = d)
-    shiny::updateDateInput(session, "manual_data_fim",    value = d)
+    shiny::updateDateInput(session, "manual_date_start", value = d)
+    shiny::updateDateInput(session, "manual_date_end",    value = d)
 
-    shiny::updateDateInput(session, "import_data_inicio", value = d)
-    shiny::updateDateInput(session, "import_data_fim",    value = d)
+    shiny::updateDateInput(session, "import_date_start", value = d)
+    shiny::updateDateInput(session, "import_date_end",    value = d)
 
-    shiny::updateDateInput(session, "edit_samples_data_inicio", value = d)
-    shiny::updateDateInput(session, "edit_samples_data_fim",    value = d)
+    shiny::updateDateInput(session, "edit_samples_date_start", value = d)
+    shiny::updateDateInput(session, "edit_samples_date_end",    value = d)
   })
 
 
@@ -403,8 +403,8 @@ server <- function(input, output, session) {
   })
 
   # Helper: update points on the map
-  atualizar_pontos_mapa <- function(auto_zoom = TRUE) {
-    pts <- pontos_temp()
+  update_map_points <- function(auto_zoom = TRUE) {
+    pts <- temp_points()
     proxy <- leaflet::leafletProxy("map")
     proxy <- proxy %>% leaflet::clearGroup("waypoints")
     if (nrow(pts) > 0) {
@@ -436,77 +436,77 @@ server <- function(input, output, session) {
     click <- input$map_click
     if (is.null(click)) return()
 
-    modo <- input$modo
+    current_mode <- input$mode
 
     # Ignore clicks in Edit Samples mode (uses draggable markers)
-    if (modo == "Editar Samples") return()
+    if (current_mode == "EditSamples") return()
 
     # Ignore clicks in Import File mode (uses uploaded file)
-    if (modo == "Importar Arquivo") return()
+    if (current_mode == "Import") return()
 
-    pts <- pontos_temp()
+    pts <- temp_points()
 
-    if (modo == "Visita") {
+    if (current_mode == "Visit") {
       # visit uses only 1 point: replace
       pts <- data.frame(lat = click$lat, lng = click$lng)
-      pontos_temp(pts)
-      atualizar_pontos_mapa(auto_zoom = TRUE)
+      temp_points(pts)
+      update_map_points(auto_zoom = TRUE)
     } else {
       # OSRM or Manual Route: add point
       pts <- rbind(pts, data.frame(lat = click$lat, lng = click$lng))
-      pontos_temp(pts)
-      atualizar_pontos_mapa(auto_zoom = FALSE)
+      temp_points(pts)
+      update_map_points(auto_zoom = FALSE)
     }
   })
 
   # Clear points (OSRM / manual) - WITHOUT auto_zoom
-  shiny::observeEvent(input$limpar_pontos_osrm, {
-    pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
-    atualizar_pontos_mapa(auto_zoom = FALSE)
+  shiny::observeEvent(input$clear_points_osrm, {
+    temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
+    update_map_points(auto_zoom = FALSE)
   })
-  shiny::observeEvent(input$limpar_pontos_manual, {
-    pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
-    atualizar_pontos_mapa(auto_zoom = FALSE)
+  shiny::observeEvent(input$clear_points_manual, {
+    temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
+    update_map_points(auto_zoom = FALSE)
   })
 
   # Undo last point - WITHOUT auto_zoom
-  shiny::observeEvent(input$desfazer_ponto_osrm, {
-    pts <- pontos_temp()
+  shiny::observeEvent(input$undo_point_osrm, {
+    pts <- temp_points()
     if (nrow(pts) > 0) {
       pts <- pts[-nrow(pts), , drop = FALSE]
-      pontos_temp(pts)
-      atualizar_pontos_mapa(auto_zoom = FALSE)
+      temp_points(pts)
+      update_map_points(auto_zoom = FALSE)
     }
   })
-  shiny::observeEvent(input$desfazer_ponto_manual, {
-    pts <- pontos_temp()
+  shiny::observeEvent(input$undo_point_manual, {
+    pts <- temp_points()
     if (nrow(pts) > 0) {
       pts <- pts[-nrow(pts), , drop = FALSE]
-      pontos_temp(pts)
-      atualizar_pontos_mapa(auto_zoom = FALSE)
+      temp_points(pts)
+      update_map_points(auto_zoom = FALSE)
     }
   })
 
   # ---- Visit: auto-fill coordinates from frequent place name ----
 
-  shiny::observeEvent(input$visita_nome, {
-    nome <- input$visita_nome
-    if (nome %in% names(LOCAIS_FREQUENTES)) {
-      loc <- LOCAIS_FREQUENTES[[nome]]
+  shiny::observeEvent(input$visit_name, {
+    label <- input$visit_name
+    if (label %in% names(FREQUENT_PLACES)) {
+      loc <- FREQUENT_PLACES[[label]]
       pts <- data.frame(lat = loc$lat, lng = loc$lon)
-      pontos_temp(pts)
-      atualizar_pontos_mapa(auto_zoom = TRUE)
+      temp_points(pts)
+      update_map_points(auto_zoom = TRUE)
       leaflet::leafletProxy("map") %>%
-        leaflet::addPopups(loc$lon, loc$lat, paste0("Place: ", nome), layerId = "visita_popup")
+        leaflet::addPopups(loc$lon, loc$lat, paste0("Place: ", label), layerId = "visit_popup")
     } else {
-      leaflet::leafletProxy("map") %>% leaflet::removePopup("visita_popup")
+      leaflet::leafletProxy("map") %>% leaflet::removePopup("visit_popup")
     }
   })
 
   # ---- Add visit ----
 
-  shiny::observeEvent(input$adicionar_visita, {
-    pts <- pontos_temp()
+  shiny::observeEvent(input$add_visit, {
+    pts <- temp_points()
     if (nrow(pts) != 1) {
       shiny::showNotification("Select exactly 1 point on the map for the visit.", type = "error")
       return()
@@ -516,11 +516,11 @@ server <- function(input, output, session) {
 
     tz <- tz_from_coords(lat, lng)
 
-    val <- validar_intervalo(
-      data_ini = input$visita_data_inicio,
-      hora_ini = input$visita_hora_inicio,
-      data_fim = input$visita_data_fim,
-      hora_fim = input$visita_hora_fim,
+    val <- validate_interval(
+      date_start = input$visit_date_start,
+      time_start = input$visit_time_start,
+      date_end = input$visit_date_end,
+      time_end = input$visit_time_end,
       tz = tz
     )
     if (is.null(val)) {
@@ -529,32 +529,32 @@ server <- function(input, output, session) {
     }
 
     # convert visit interval to UTC to check overlap
-    inicio_utc <- lubridate::with_tz(val$inicio, "UTC")
-    fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
+    start_utc <- lubridate::with_tz(val$start, "UTC")
+    end_utc    <- lubridate::with_tz(val$end,    "UTC")
 
-    if (has_overlap(timeline(), inicio_utc, fim_utc)) {
+    if (has_overlap(timeline(), start_utc, end_utc)) {
       shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
 
-    visita <- criar_timeline_item_visit(
+    visit_result <- create_timeline_item_visit(
       lat = lat,
       lon = lng,
-      inicio_local = val$inicio,
-      fim_local = val$fim,
-      nome = if (nzchar(input$visita_nome)) input$visita_nome else NULL
+      start_local = val$start,
+      end_local = val$end,
+      name = if (nzchar(input$visit_name)) input$visit_name else NULL
     )
 
 
-    item <- visita$item
-    samples_novos <- visita$samples
+    item <- visit_result$item
+    new_samples <- visit_result$samples
 
     # description
-    hora_ini_local <- format(val$inicio, "%H:%M")
-    hora_fim_local <- format(val$fim, "%H:%M")
-    nome_visita <- item$.place$name %||% item$visit$customTitle %||% "Visit"
-    item$tipo <- "visita"
-    item$descricao <- sprintf("📍 %s (%s - %s)", nome_visita, hora_ini_local, hora_fim_local)
+    start_time_local <- format(val$start, "%H:%M")
+    end_time_local <- format(val$end, "%H:%M")
+    visit_label <- item$.place$name %||% item$visit$customTitle %||% "Visit"
+    item$type <- "visit"
+    item$description <- sprintf("📍 %s (%s - %s)", visit_label, start_time_local, end_time_local)
 
     # Update timeline and samples
     tl <- timeline()
@@ -562,7 +562,7 @@ server <- function(input, output, session) {
     timeline(tl)
 
     s <- all_samples()
-    all_samples(c(s, samples_novos))
+    all_samples(c(s, new_samples))
 
     # fitBounds on the visit point
     leaflet::leafletProxy("map") %>%
@@ -573,8 +573,8 @@ server <- function(input, output, session) {
 
   # ---- Manual route ----
 
-  shiny::observeEvent(input$adicionar_manual, {
-    pts <- pontos_temp()
+  shiny::observeEvent(input$add_manual, {
+    pts <- temp_points()
     if (nrow(pts) < 2) {
       shiny::showNotification("Set at least 2 points on the map for the manual route.", type = "error")
       return()
@@ -584,11 +584,11 @@ server <- function(input, output, session) {
     lng1 <- pts$lng[1]
     tz <- tz_from_coords(lat1, lng1)
 
-    val <- validar_intervalo(
-      data_ini = input$manual_data_inicio,
-      hora_ini = input$manual_hora_inicio,
-      data_fim = input$manual_data_fim,
-      hora_fim = input$manual_hora_fim,
+    val <- validate_interval(
+      date_start = input$manual_date_start,
+      time_start = input$manual_time_start,
+      date_end = input$manual_date_end,
+      time_end = input$manual_time_end,
       tz = tz
     )
     if (is.null(val)) {
@@ -597,10 +597,10 @@ server <- function(input, output, session) {
     }
 
     # Generate equally spaced UTC timestamps
-    inicio_utc <- lubridate::with_tz(val$inicio, "UTC")
-    fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
+    start_utc <- lubridate::with_tz(val$start, "UTC")
+    end_utc    <- lubridate::with_tz(val$end,    "UTC")
 
-    if (has_overlap(timeline(), inicio_utc, fim_utc)) {
+    if (has_overlap(timeline(), start_utc, end_utc)) {
       shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
@@ -610,7 +610,7 @@ server <- function(input, output, session) {
     coords <- as.matrix(pts[, c("lng", "lat")])
     n0 <- nrow(coords)
     n_target <- max(n0, 100L)
-    ts_seq <- seq(inicio_utc, fim_utc, length.out = n_target)
+    ts_seq <- seq(start_utc, end_utc, length.out = n_target)
 
     t_interp <- seq(0, 1, length.out = n0)
     t_new <- seq(0, 1, length.out = n_target)
@@ -634,7 +634,7 @@ server <- function(input, output, session) {
 
     manual_at <- input$manual_activity_type %||% "car"
 
-    samples_novos <- criar_locomotion_samples(
+    new_samples <- create_locomotion_samples(
       coords         = coords_new,
       timestamps_utc = ts_seq,
       accuracy       = 10,
@@ -642,14 +642,14 @@ server <- function(input, output, session) {
       moving_state   = "moving",
       activity_type  = manual_at
     )
-    sample_ids <- vapply(samples_novos, `[[`, "", "id")
+    sample_ids <- vapply(new_samples, `[[`, "", "id")
 
-    item <- criar_timeline_item_path(
+    item <- create_timeline_item_path(
       timestamps_utc = ts_seq,
       coords = coords_new,
       sample_ids = sample_ids,
-      tipo = "rota_manual",
-      descricao = sprintf("Manual route (%.1f km)",
+      type = "manual_route",
+      description = sprintf("Manual route (%.1f km)",
                           geosphere::distVincentyEllipsoid(
                             coords_new[1, 2:1], coords_new[n_target, 2:1]
                           ) / 1000),
@@ -661,18 +661,18 @@ server <- function(input, output, session) {
     timeline(tl)
 
     s <- all_samples()
-    all_samples(c(s, samples_novos))
+    all_samples(c(s, new_samples))
 
     # Draw route and zoom
     leaflet::leafletProxy("map") %>%
-      leaflet::clearGroup("rota_atual") %>%
+      leaflet::clearGroup("current_route") %>%
       leaflet::addPolylines(
         lng = coords_new[, 1],
         lat = coords_new[, 2],
         color = "red",
         weight = 4,
         opacity = 0.8,
-        group = "rota_atual"
+        group = "current_route"
       ) %>%
       leaflet::fitBounds(
         lng1 = min(coords_new[, 1]),
@@ -686,45 +686,45 @@ server <- function(input, output, session) {
 
   # ---- OSRM: calculate route ----
 
-  shiny::observeEvent(input$calcular_osrm, {
-    pts <- pontos_temp()
+  shiny::observeEvent(input$calculate_osrm, {
+    pts <- temp_points()
     if (nrow(pts) < 2) {
       shiny::showNotification("Set at least 2 points on the map for the OSRM route.", type = "error")
       return()
     }
 
-    perfil <- input$osrm_perfil
+    profile <- input$osrm_profile
 
-    # Perfis de transit usam Google Maps API ao invés de OSRM
-    if (perfil %in% GOOGLE_TRANSIT_MODES) {
+    # Transit profiles use Google Maps API instead of OSRM
+    if (profile %in% GOOGLE_TRANSIT_MODES) {
       if (!check_google_api()) {
         shiny::showNotification(
-          "Google Maps API key não configurada ou inválida. Defina GOOGLE_MAPS_API_KEY no .Renviron.",
+          "Google Maps API key not configured or invalid. Set GOOGLE_MAPS_API_KEY in your .Renviron.",
           type = "error", duration = 8
         )
         return()
       }
-      transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[perfil]]
-      rota <- calcular_rota_google_transit(pts, transit_mode = transit_mode)
-      if (is.null(rota)) {
+      transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[profile]]
+      route <- calculate_google_transit_route(pts, transit_mode = transit_mode)
+      if (is.null(route)) {
         shiny::showNotification(
-          sprintf("Nenhuma rota de %s encontrada entre esses pontos. A API não retornou rotas com esse modo de transporte.", perfil),
+          sprintf("No %s route found between these points. The API did not return routes with this transport mode.", profile),
           type = "error", duration = 8
         )
         return()
       }
-      # Aplicar suavização igual ao OSRM
-      rota$coords <- suavizar_rota_osrm(rota$coords, tolerancia_m = 5, angulo_min = 2)
+      # Apply same smoothing as OSRM
+      route$coords <- smooth_osrm_route(route$coords, tolerance_m = 5, angle_min = 2)
     } else {
-      base_url <- OSRM_SERVERS[[perfil]]
+      base_url <- OSRM_SERVERS[[profile]]
 
       if (is.null(base_url) || !check_osrm_server(base_url)) {
-        mostrar_modal_osrm_offline(base_url %||% "nao configurado")
+        show_osrm_offline_modal(base_url %||% "not configured")
         return()
       }
 
-      rota <- calcular_rota_osrm(pts, perfil = perfil)
-      if (is.null(rota)) {
+      route <- calculate_osrm_route(pts, profile = profile)
+      if (is.null(route)) {
         shiny::showNotification("Failed to calculate OSRM route.", type = "error")
         return()
       }
@@ -734,49 +734,49 @@ server <- function(input, output, session) {
     last_utc <- get_last_end_local()  # returns in UTC
     if (!is.null(last_utc)) {
       last_local <- lubridate::with_tz(last_utc, tzone = Sys.timezone())
-      inicia_sugerido <- last_local + 60  # +1 minuto
+      suggested_start <- last_local + 60  # +1 minute
     } else {
-      data_ref <- input$data_trabalho
-      inicia_sugerido <- lubridate::ymd_hms(
+      data_ref <- input$work_date
+      suggested_start <- lubridate::ymd_hms(
         paste(data_ref, "08:00:00"),
         tz = Sys.timezone()
       )
     }
-    fim_sugerido <- inicia_sugerido + rota$duration_s
+    suggested_end <- suggested_start + route$duration_s
 
 
     shiny::showModal(
       shiny::modalDialog(
         title = "OSRM route times",
-        shiny::dateInput("osrm_data_inicio", "Start date", as.Date(inicia_sugerido)),
-        shiny::textInput("osrm_hora_inicio", "Start time", format(inicia_sugerido, "%H:%M:%S")),
-        shiny::dateInput("osrm_data_fim", "End date", as.Date(fim_sugerido)),
-        shiny::textInput("osrm_hora_fim", "End time", format(fim_sugerido, "%H:%M:%S")),
+        shiny::dateInput("osrm_date_start", "Start date", as.Date(suggested_start)),
+        shiny::textInput("osrm_time_start", "Start time", format(suggested_start, "%H:%M:%S")),
+        shiny::dateInput("osrm_date_end", "End date", as.Date(suggested_end)),
+        shiny::textInput("osrm_time_end", "End time", format(suggested_end, "%H:%M:%S")),
         footer = shiny::tagList(
           shiny::modalButton("Cancel"),
-          shiny::actionButton("recalcular_osrm_fim", "Recalculate arrival"),
-          shiny::actionButton("confirmar_rota_osrm", "Confirm", class = "btn-primary")
+          shiny::actionButton("recalculate_osrm_end", "Recalculate arrival"),
+          shiny::actionButton("confirm_osrm_route", "Confirm", class = "btn-primary")
         )
       )
     )
 
-    auto_format_time("osrm_hora_inicio")
-    auto_format_time("osrm_hora_fim")
+    auto_format_time("osrm_time_start")
+    auto_format_time("osrm_time_end")
 
     # Store route in session attribute
-    session$userData$ultima_rota_osrm <- rota
-    session$userData$ultima_rota_pts <- pts
-    session$userData$ultima_rota_perfil <- perfil
+    session$userData$last_osrm_route <- route
+    session$userData$last_route_pts <- pts
+    session$userData$last_route_profile <- profile
   })
 
-  shiny::observeEvent(input$recalcular_osrm_fim, {
-    rota <- session$userData$ultima_rota_osrm
-    if (is.null(rota)) {
+  shiny::observeEvent(input$recalculate_osrm_end, {
+    route <- session$userData$last_osrm_route
+    if (is.null(route)) {
       shiny::showNotification("No OSRM route calculated to recalculate the arrival time.", type = "error")
       return()
     }
 
-    coords <- rota$coords
+    coords <- route$coords
     if (is.data.frame(coords)) coords <- as.matrix(coords)
     if (!is.matrix(coords) || nrow(coords) < 1 || ncol(coords) < 2) {
       shiny::showNotification("OSRM route coordinates are in an unexpected format.", type = "error")
@@ -793,49 +793,49 @@ server <- function(input, output, session) {
     tz <- tz_from_coords(lat1, lng1)
 
     # departure time (format again to be safe)
-    hora_ini_fmt <- formatar_hora(input$osrm_hora_inicio)
-    if (is.na(hora_ini_fmt)) {
+    start_time_fmt <- format_time(input$osrm_time_start)
+    if (is.na(start_time_fmt)) {
       shiny::showNotification("Invalid departure time.", type = "error")
       return()
     }
 
-    inicio_local <- suppressWarnings(
+    start_local <- suppressWarnings(
       lubridate::ymd_hms(
-        paste(input$osrm_data_inicio, hora_ini_fmt),
+        paste(input$osrm_date_start, start_time_fmt),
         tz = tz
       )
     )
-    if (is.na(inicio_local)) {
+    if (is.na(start_local)) {
       shiny::showNotification("Could not parse the departure date/time.", type = "error")
       return()
     }
 
     # duration in seconds from OSRM
-    dur_s <- as.numeric(rota$duration_s)
+    dur_s <- as.numeric(route$duration_s)
     if (is.na(dur_s)) {
       shiny::showNotification("Invalid OSRM route duration.", type = "error")
       return()
     }
 
-    fim_local <- inicio_local + dur_s
+    end_local <- start_local + dur_s
 
-    shiny::updateDateInput(session, "osrm_data_fim", value = as.Date(fim_local))
-    shiny::updateTextInput(session, "osrm_hora_fim", value = format(fim_local, "%H:%M:%S"))
+    shiny::updateDateInput(session, "osrm_date_end", value = as.Date(end_local))
+    shiny::updateTextInput(session, "osrm_time_end", value = format(end_local, "%H:%M:%S"))
   })
 
 
-  shiny::observeEvent(input$confirmar_rota_osrm, {
+  shiny::observeEvent(input$confirm_osrm_route, {
     tryCatch(
       {
         shiny::removeModal()
 
-        rota <- session$userData$ultima_rota_osrm
-        if (is.null(rota)) {
+        route <- session$userData$last_osrm_route
+        if (is.null(route)) {
           shiny::showNotification("No OSRM route calculated.", type = "error")
           return()
         }
 
-        coords <- rota$coords
+        coords <- route$coords
         if (is.data.frame(coords)) {
           coords <- as.matrix(coords)
         }
@@ -864,19 +864,19 @@ server <- function(input, output, session) {
 
         tz <- tz_from_coords(lat1, lng1)
 
-        hora_ini_fmt <- formatar_hora(input$osrm_hora_inicio)
-        hora_fim_fmt <- formatar_hora(input$osrm_hora_fim)
+        start_time_fmt <- format_time(input$osrm_time_start)
+        end_time_fmt <- format_time(input$osrm_time_end)
 
-        if (is.na(hora_ini_fmt) || is.na(hora_fim_fmt)) {
+        if (is.na(start_time_fmt) || is.na(end_time_fmt)) {
           shiny::showNotification("Invalid times for OSRM route.", type = "error")
           return()
         }
 
-        val <- validar_intervalo(
-          data_ini = input$osrm_data_inicio,
-          hora_ini = hora_ini_fmt,
-          data_fim = input$osrm_data_fim,
-          hora_fim = hora_fim_fmt,
+        val <- validate_interval(
+          date_start = input$osrm_date_start,
+          time_start = start_time_fmt,
+          date_end = input$osrm_date_end,
+          time_end = end_time_fmt,
           tz = tz
         )
         if (is.null(val)) {
@@ -884,26 +884,26 @@ server <- function(input, output, session) {
           return()
         }
 
-        if (!inherits(val$inicio, "POSIXt") || !inherits(val$fim, "POSIXt")) {
+        if (!inherits(val$start, "POSIXt") || !inherits(val$end, "POSIXt")) {
           shiny::showNotification("OSRM route time interval could not be parsed.", type = "error")
           return()
         }
 
-        inicio_utc <- lubridate::with_tz(val$inicio, "UTC")
-        fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
+        start_utc <- lubridate::with_tz(val$start, "UTC")
+        end_utc    <- lubridate::with_tz(val$end,    "UTC")
 
-        if (is.na(inicio_utc) || is.na(fim_utc) || fim_utc <= inicio_utc) {
+        if (is.na(start_utc) || is.na(end_utc) || end_utc <= start_utc) {
           shiny::showNotification("Invalid OSRM route interval (end before or equal to start).", type = "error")
           return()
         }
 
-        if (has_overlap(timeline(), inicio_utc, fim_utc)) {
+        if (has_overlap(timeline(), start_utc, end_utc)) {
           shiny::showNotification("This interval overlaps an existing activity.", type = "error")
           return()
         }
 
         n_target <- max(n0, 100L)
-        ts_seq <- seq(from = inicio_utc, to = fim_utc, length.out = n_target)
+        ts_seq <- seq(from = start_utc, to = end_utc, length.out = n_target)
         if (any(is.na(ts_seq))) {
           shiny::showNotification("Failed to generate time sequence for OSRM route.", type = "error")
           return()
@@ -932,7 +932,7 @@ server <- function(input, output, session) {
         }
 
         # Map OSRM profile to activityType
-        perfil <- session$userData$ultima_rota_perfil %||% "car"
+        profile <- session$userData$last_route_profile %||% "car"
         activity_map <- c(
           car   = "car",
           foot  = "walking",
@@ -942,11 +942,11 @@ server <- function(input, output, session) {
           train = "train",
           tram  = "tram"
         )
-        activity_type <- activity_map[[perfil]] %||% "car"
+        activity_type <- activity_map[[profile]] %||% "car"
 
         coords_new <- cbind(lon_new, lat_new)
 
-        samples_novos <- criar_locomotion_samples(
+        new_samples <- create_locomotion_samples(
           coords         = coords_new,
           timestamps_utc = ts_seq,
           accuracy       = 10,
@@ -954,14 +954,14 @@ server <- function(input, output, session) {
           moving_state   = "moving",
           activity_type  = activity_type
         )
-        sample_ids <- vapply(samples_novos, `[[`, "", "id")
+        sample_ids <- vapply(new_samples, `[[`, "", "id")
 
-        item <- criar_timeline_item_path(
+        item <- create_timeline_item_path(
           timestamps_utc = ts_seq,
           coords         = coords_new,
           sample_ids     = sample_ids,
-          tipo           = "rota_osrm",
-          descricao      = sprintf("OSRM route (%s)", perfil),
+          type           = "osrm_route",
+          description    = sprintf("OSRM route (%s)", profile),
           activity_type  = activity_type
         )
 
@@ -970,17 +970,17 @@ server <- function(input, output, session) {
         timeline(tl)
 
         s <- all_samples()
-        all_samples(c(s, samples_novos))
+        all_samples(c(s, new_samples))
 
         leaflet::leafletProxy("map") %>%
-          leaflet::clearGroup("rota_atual") %>%
+          leaflet::clearGroup("current_route") %>%
           leaflet::clearGroup("waypoints") %>%
           leaflet::addPolylines(
             lng   = coords_new[, 1],
             lat   = coords_new[, 2],
             color = "blue",
             weight = 4,
-            group = "rota_atual"
+            group = "current_route"
           ) %>%
           leaflet::fitBounds(
             lng1 = min(coords_new[, 1]),
@@ -990,7 +990,7 @@ server <- function(input, output, session) {
           )
 
         # Clear temporary points after adding route
-        pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
+        temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
 
         shiny::showNotification("OSRM route added.", type = "message")
       },
@@ -1008,22 +1008,22 @@ server <- function(input, output, session) {
 
   # ---- Import file (GeoJSON/GPX/KML/GPKG) ----
 
-  geometria_importada <- shiny::reactiveVal(NULL)
-  fr24_enriquecido <- shiny::reactiveVal(FALSE)
+  imported_geometry <- shiny::reactiveVal(NULL)
+  fr24_enriched <- shiny::reactiveVal(FALSE)
 
-  shiny::observeEvent(input$arquivo_geo, {
-    shiny::req(input$arquivo_geo)
-    arquivo <- input$arquivo_geo$datapath
-    ext <- tools::file_ext(arquivo)
+  shiny::observeEvent(input$geo_file, {
+    shiny::req(input$geo_file)
+    file_path <- input$geo_file$datapath
+    ext <- tools::file_ext(file_path)
     ext <- tolower(ext)
 
-    leaflet::leafletProxy("map") %>% leaflet::clearGroup("importado")
+    leaflet::leafletProxy("map") %>% leaflet::clearGroup("imported")
 
     if (ext == "kml") {
-      geo_rich <- parse_kml_rich(arquivo)
+      geo_rich <- parse_kml_rich(file_path)
       if (!is.null(geo_rich) && "timestamp" %in% names(geo_rich)) {
-        geometria_importada(geo_rich)
-        fr24_enriquecido(TRUE)
+        imported_geometry(geo_rich)
+        fr24_enriched(TRUE)
 
         ts_gmt <- parse_timestamp_utc(geo_rich$timestamp)
         ord <- order(ts_gmt)
@@ -1037,12 +1037,12 @@ server <- function(input, output, session) {
 
 
         if (!is.null(ts_gmt) && !all(is.na(ts_gmt))) {
-          ini <- ts_gmt[1]
-          fim <- ts_gmt[length(ts_gmt)]
-          shiny::updateDateInput(session, "import_data_inicio", value = as.Date(ini))
-          shiny::updateTextInput(session, "import_hora_inicio", value = format(lubridate::with_tz(ini, Sys.timezone()), "%H:%M"))
-          shiny::updateDateInput(session, "import_data_fim", value = as.Date(fim))
-          shiny::updateTextInput(session, "import_hora_fim", value = format(lubridate::with_tz(fim, Sys.timezone()), "%H:%M"))
+          start_ts <- ts_gmt[1]
+          end_ts <- ts_gmt[length(ts_gmt)]
+          shiny::updateDateInput(session, "import_date_start", value = as.Date(start_ts))
+          shiny::updateTextInput(session, "import_time_start", value = format(lubridate::with_tz(start_ts, Sys.timezone()), "%H:%M"))
+          shiny::updateDateInput(session, "import_date_end", value = as.Date(end_ts))
+          shiny::updateTextInput(session, "import_time_end", value = format(lubridate::with_tz(end_ts, Sys.timezone()), "%H:%M"))
           shiny::showNotification("Times filled from KML file (UTC -> system local time).", type = "message")
         }
 
@@ -1052,17 +1052,17 @@ server <- function(input, output, session) {
             lat = coords[, 2],
             color = "darkblue",
             weight = 3,
-            group = "importado"
+            group = "imported"
           ) %>%
           leaflet::addCircleMarkers(
             lng = coords[1, 1], lat = coords[1, 2],
             radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-            group = "importado", label = "Start"
+            group = "imported", label = "Start"
           ) %>%
           leaflet::addCircleMarkers(
             lng = coords[nrow(coords), 1], lat = coords[nrow(coords), 2],
             radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-            group = "importado", label = "End"
+            group = "imported", label = "End"
           ) %>%
           leaflet::fitBounds(
             lng1 = min(coords[, 1]), lat1 = min(coords[, 2]),
@@ -1076,7 +1076,7 @@ server <- function(input, output, session) {
 
     # Normal case: read with sf
     geo <- tryCatch(
-      sf::st_read(arquivo, quiet = TRUE),
+      sf::st_read(file_path, quiet = TRUE),
       error = function(e) NULL
     )
     if (is.null(geo)) {
@@ -1084,7 +1084,7 @@ server <- function(input, output, session) {
       return()
     }
 
-    fr24_enriquecido(FALSE)
+    fr24_enriched(FALSE)
 
     if (!sf::st_is_longlat(geo)) {
       geo <- sf::st_transform(geo, 4326)
@@ -1094,31 +1094,31 @@ server <- function(input, output, session) {
       geo <- sf::st_cast(geo, "LINESTRING")
     }
 
-    geometria_importada(geo)
+    imported_geometry(geo)
 
     bbox <- sf::st_bbox(geo)
 
     # Extract first and last point for direction markers
     coords_all <- sf::st_coordinates(geo)
-    pt_inicio <- coords_all[1, c("X", "Y")]
-    pt_fim <- coords_all[nrow(coords_all), c("X", "Y")]
+    pt_start <- coords_all[1, c("X", "Y")]
+    pt_end <- coords_all[nrow(coords_all), c("X", "Y")]
 
     leaflet::leafletProxy("map") %>%
       leaflet::addPolylines(
         data = geo,
         color = "purple",
         weight = 3,
-        group = "importado"
+        group = "imported"
       ) %>%
       leaflet::addCircleMarkers(
-        lng = pt_inicio["X"], lat = pt_inicio["Y"],
+        lng = pt_start["X"], lat = pt_start["Y"],
         radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-        group = "importado", label = "Start"
+        group = "imported", label = "Start"
       ) %>%
       leaflet::addCircleMarkers(
-        lng = pt_fim["X"], lat = pt_fim["Y"],
+        lng = pt_end["X"], lat = pt_end["Y"],
         radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-        group = "importado", label = "End"
+        group = "imported", label = "End"
       ) %>%
       leaflet::fitBounds(
         lng1 = bbox["xmin"], lat1 = bbox["ymin"],
@@ -1128,15 +1128,15 @@ server <- function(input, output, session) {
     shiny::showNotification("Geographic file imported. Green = start, Red = end.", type = "message")
   })
 
-  shiny::observeEvent(input$direcao_arquivo, {
-    geo <- geometria_importada()
+  shiny::observeEvent(input$file_direction, {
+    geo <- imported_geometry()
     if (is.null(geo)) return()
 
-    leaflet::leafletProxy("map") %>% leaflet::clearGroup("importado")
+    leaflet::leafletProxy("map") %>% leaflet::clearGroup("imported")
 
-    if (isTRUE(fr24_enriquecido())) {
+    if (isTRUE(fr24_enriched())) {
       coords <- cbind(geo$lon, geo$lat)
-      if (input$direcao_arquivo == "inverter") {
+      if (input$file_direction == "reverse") {
         coords <- coords[nrow(coords):1, , drop = FALSE]
       }
       leaflet::leafletProxy("map") %>%
@@ -1145,17 +1145,17 @@ server <- function(input, output, session) {
           lat = coords[, 2],
           color = "darkblue",
           weight = 3,
-          group = "importado"
+          group = "imported"
         ) %>%
         leaflet::addCircleMarkers(
           lng = coords[1, 1], lat = coords[1, 2],
           radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-          group = "importado", label = "Start"
+          group = "imported", label = "Start"
         ) %>%
         leaflet::addCircleMarkers(
           lng = coords[nrow(coords), 1], lat = coords[nrow(coords), 2],
           radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-          group = "importado", label = "End"
+          group = "imported", label = "End"
         ) %>%
         leaflet::fitBounds(
           lng1 = min(coords[, 1]), lat1 = min(coords[, 2]),
@@ -1166,12 +1166,12 @@ server <- function(input, output, session) {
       coords_all <- sf::st_coordinates(geo)
 
       # Consider inversion for markers
-      if (input$direcao_arquivo == "inverter") {
-        pt_inicio <- coords_all[nrow(coords_all), c("X", "Y")]
-        pt_fim <- coords_all[1, c("X", "Y")]
+      if (input$file_direction == "reverse") {
+        pt_start <- coords_all[nrow(coords_all), c("X", "Y")]
+        pt_end <- coords_all[1, c("X", "Y")]
       } else {
-        pt_inicio <- coords_all[1, c("X", "Y")]
-        pt_fim <- coords_all[nrow(coords_all), c("X", "Y")]
+        pt_start <- coords_all[1, c("X", "Y")]
+        pt_end <- coords_all[nrow(coords_all), c("X", "Y")]
       }
 
       leaflet::leafletProxy("map") %>%
@@ -1179,17 +1179,17 @@ server <- function(input, output, session) {
           data = geo,
           color = "purple",
           weight = 3,
-          group = "importado"
+          group = "imported"
         ) %>%
         leaflet::addCircleMarkers(
-          lng = pt_inicio["X"], lat = pt_inicio["Y"],
+          lng = pt_start["X"], lat = pt_start["Y"],
           radius = 8, color = "green", fillColor = "green", fillOpacity = 1,
-          group = "importado", label = "Start"
+          group = "imported", label = "Start"
         ) %>%
         leaflet::addCircleMarkers(
-          lng = pt_fim["X"], lat = pt_fim["Y"],
+          lng = pt_end["X"], lat = pt_end["Y"],
           radius = 8, color = "red", fillColor = "red", fillOpacity = 1,
-          group = "importado", label = "End"
+          group = "imported", label = "End"
         ) %>%
         leaflet::fitBounds(
           lng1 = bbox["xmin"], lat1 = bbox["ymin"],
@@ -1198,8 +1198,8 @@ server <- function(input, output, session) {
     }
   })
 
-  shiny::observeEvent(input$adicionar_import, {
-    geo <- geometria_importada()
+  shiny::observeEvent(input$add_import, {
+    geo <- imported_geometry()
     if (is.null(geo)) {
       shiny::showNotification("No file imported.", type = "error")
       return()
@@ -1208,9 +1208,9 @@ server <- function(input, output, session) {
     # -------------------------------------------------------------------
     # SPECIAL IMPORT: FR24 flight track already enriched
     # -------------------------------------------------------------------
-    if (isTRUE(fr24_enriquecido())) {
+    if (isTRUE(fr24_enriched())) {
       traj <- tryCatch(
-        limpar_trajeto_fr24(
+        clean_fr24_track(
           df      = geo,
           ts_col  = "timestamp",
           lon_col = "lon",
@@ -1231,7 +1231,7 @@ server <- function(input, output, session) {
       ts_utc <- traj$ts_utc
       coords <- traj$coords
 
-      distancia_km <- trajeto_distancia_km(coords)
+      distancia_km <- track_distance_km(coords)
 
       if (distancia_km <= 0 || distancia_km > 30000) {
         shiny::showNotification(
@@ -1294,7 +1294,7 @@ server <- function(input, output, session) {
         NULL
       }
 
-      samples_novos <- criar_locomotion_samples(
+      new_samples <- create_locomotion_samples(
         coords          = coords,
         timestamps_utc  = ts_utc,
         accuracy        = 5,
@@ -1305,14 +1305,14 @@ server <- function(input, output, session) {
         moving_state    = "moving"
       )
 
-      sample_ids <- vapply(samples_novos, `[[`, "", "id")
+      sample_ids <- vapply(new_samples, `[[`, "", "id")
 
-      item <- criar_timeline_item_path(
+      item <- create_timeline_item_path(
         timestamps_utc = ts_utc,
         coords         = coords,
         sample_ids     = sample_ids,
-        tipo           = "voo_fr24",
-        descricao      = sprintf("FR24 flight (%.1f km)", distancia_km),
+        type           = "voo_fr24",
+        description    = sprintf("FR24 flight (%.1f km)", distancia_km),
         activity_type  = "airplane"
       )
 
@@ -1321,7 +1321,7 @@ server <- function(input, output, session) {
       timeline(tl)
 
       s <- all_samples()
-      all_samples(c(s, samples_novos))
+      all_samples(c(s, new_samples))
 
       leaflet::leafletProxy("map") %>%
         leaflet::addPolylines(
@@ -1329,7 +1329,7 @@ server <- function(input, output, session) {
           lat   = coords[, "lat"],
           color = "purple",
           weight = 4,
-          group = "rota_atual"
+          group = "current_route"
         ) %>%
         leaflet::fitBounds(
           lng1 = min(coords[, "lon"], na.rm = TRUE),
@@ -1355,35 +1355,35 @@ server <- function(input, output, session) {
       return()
     }
 
-    if (input$direcao_arquivo == "inverter") {
+    if (input$file_direction == "reverse") {
       coords_list <- coords_list[nrow(coords_list):1, , drop = FALSE]
     }
 
     lat1 <- coords_list[1, "Y"]
     lng1 <- coords_list[1, "X"]
-    tz_origem <- tz_from_coords(lat1, lng1)
+    tz_origin <- tz_from_coords(lat1, lng1)
 
     latn <- coords_list[nrow(coords_list), "Y"]
     lngn <- coords_list[nrow(coords_list), "X"]
-    tz_destino <- tz_from_coords(latn, lngn)
-    if (is.na(tz_destino)) tz_destino <- tz_origem
+    tz_dest <- tz_from_coords(latn, lngn)
+    if (is.na(tz_dest)) tz_dest <- tz_origin
 
-    val <- validar_intervalo(
-      data_ini = input$import_data_inicio,
-      hora_ini = input$import_hora_inicio,
-      data_fim = input$import_data_fim,
-      hora_fim = input$import_hora_fim,
-      tz = tz_origem
+    val <- validate_interval(
+      date_start = input$import_date_start,
+      time_start = input$import_time_start,
+      date_end = input$import_date_end,
+      time_end = input$import_time_end,
+      tz = tz_origin
     )
     if (is.null(val)) {
       shiny::showNotification("Invalid time for imported route.", type = "error")
       return()
     }
 
-    inicio_utc <- lubridate::with_tz(val$inicio, "UTC")
-    fim_utc    <- lubridate::with_tz(val$fim,    "UTC")
+    start_utc <- lubridate::with_tz(val$start, "UTC")
+    end_utc    <- lubridate::with_tz(val$end,    "UTC")
 
-    if (has_overlap(timeline(), inicio_utc, fim_utc)) {
+    if (has_overlap(timeline(), start_utc, end_utc)) {
       shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
@@ -1391,7 +1391,7 @@ server <- function(input, output, session) {
     n0 <- nrow(coords_list)
     n_target <- max(n0, 100L)
 
-    ts_seq <- seq(inicio_utc, fim_utc, length.out = n_target)
+    ts_seq <- seq(start_utc, end_utc, length.out = n_target)
 
     t0 <- seq(0, 1, length.out = n0)
     t_new <- seq(0, 1, length.out = n_target)
@@ -1403,7 +1403,7 @@ server <- function(input, output, session) {
 
     import_at <- input$import_activity_type %||% "car"
 
-    samples_novos <- criar_locomotion_samples(
+    new_samples <- create_locomotion_samples(
       coords         = coords_new,
       timestamps_utc = ts_seq,
       accuracy       = 10,
@@ -1411,14 +1411,14 @@ server <- function(input, output, session) {
       moving_state   = "moving",
       activity_type  = import_at
     )
-    sample_ids <- vapply(samples_novos, `[[`, "", "id")
+    sample_ids <- vapply(new_samples, `[[`, "", "id")
 
-    item <- criar_timeline_item_path(
+    item <- create_timeline_item_path(
       timestamps_utc = ts_seq,
       coords = coords_new,
       sample_ids = sample_ids,
-      tipo = "rota_importada",
-      descricao = "Route imported from file",
+      type = "imported_route",
+      description = "Route imported from file",
       activity_type = import_at
     )
 
@@ -1427,16 +1427,16 @@ server <- function(input, output, session) {
     timeline(tl)
 
     s <- all_samples()
-    all_samples(c(s, samples_novos))
+    all_samples(c(s, new_samples))
 
     leaflet::leafletProxy("map") %>%
-      leaflet::clearGroup("rota_atual") %>%
+      leaflet::clearGroup("current_route") %>%
       leaflet::addPolylines(
         lng = coords_new[, 1],
         lat = coords_new[, 2],
         color = "purple",
         weight = 3,
-        group = "rota_atual"
+        group = "current_route"
       ) %>%
       leaflet::fitBounds(
         lng1 = min(coords_new[, 1]), lat1 = min(coords_new[, 2]),
@@ -1460,28 +1460,28 @@ server <- function(input, output, session) {
     shiny::tagList(
       lapply(seq_along(tl_ord), function(i) {
         it   <- tl_ord[[i]]
-        tipo <- it$tipo %||% if (isTRUE(it$.isVisit)) "visita" else "rota"
-        desc <- it$descricao %||% tipo
+        item_type <- it$type %||% if (isTRUE(it$.isVisit)) "visit" else "route"
+        desc <- it$description %||% item_type
 
-        ts_ini_utc <- parse_timestamp_utc(item_start_date(it))
-        sec_ini    <- item_start_offset(it) %||% 0
-        ts_ini_loc <- ts_ini_utc + sec_ini
+        ts_start_utc <- parse_timestamp_utc(item_start_date(it))
+        sec_start    <- item_start_offset(it) %||% 0
+        ts_start_loc <- ts_start_utc + sec_start
 
-        ts_fim_utc <- parse_timestamp_utc(item_end_date(it))
-        sec_fim    <- item_end_offset(it) %||% sec_ini
-        ts_fim_loc <- ts_fim_utc + sec_fim
+        ts_end_utc <- parse_timestamp_utc(item_end_date(it))
+        sec_end    <- item_end_offset(it) %||% sec_start
+        ts_end_loc <- ts_end_utc + sec_end
 
-        ini_str <- format(ts_ini_loc, "%Y-%m-%d %H:%M")
-        fim_str <- format(ts_fim_loc, "%Y-%m-%d %H:%M")
+        start_str <- format(ts_start_loc, "%Y-%m-%d %H:%M")
+        end_str <- format(ts_end_loc, "%Y-%m-%d %H:%M")
 
         shiny::div(
           class = "card mb-2 p-2",
-          shiny::strong(sprintf("[%s] %s", tipo, desc)),
+          shiny::strong(sprintf("[%s] %s", item_type, desc)),
           shiny::br(),
-          shiny::tags$small(paste0(ini_str, " -> ", fim_str)),
+          shiny::tags$small(paste0(start_str, " -> ", end_str)),
           shiny::br(),
           shiny::actionButton(
-            paste0("editar_", it$.internalId),
+            paste0("edit_", it$.internalId),
             "Edit",
             class = "btn-sm btn-warning"
           ),
@@ -1507,11 +1507,11 @@ server <- function(input, output, session) {
 
     lapply(ids, function(id) {
       shiny::observeEvent(input[[paste0("deletar_", id)]], {
-        tl_atual <- timeline()
-        idx <- which(vapply(tl_atual, `[[`, "", ".internalId") == id)
+        tl_current <- timeline()
+        idx <- which(vapply(tl_current, `[[`, "", ".internalId") == id)
         if (length(idx)) {
-          it <- tl_atual[[idx]]
-          tl_atual <- tl_atual[-idx]
+          it <- tl_current[[idx]]
+          tl_current <- tl_current[-idx]
 
           if (!is.null(it$samples)) {
             s <- all_samples()
@@ -1519,14 +1519,14 @@ server <- function(input, output, session) {
             all_samples(s[keep])
           }
 
-          timeline(tl_atual)
+          timeline(tl_current)
 
           leaflet::leafletProxy("map") %>%
-            leaflet::clearGroup("rota_atual") %>%
-            leaflet::clearGroup("importado") %>%
+            leaflet::clearGroup("current_route") %>%
+            leaflet::clearGroup("imported") %>%
             leaflet::clearGroup("waypoints")
 
-          pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
+          temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
 
           shiny::showNotification("Item removed from timeline.", type = "message")
         }
@@ -1543,11 +1543,11 @@ server <- function(input, output, session) {
     ids <- vapply(tl, `[[`, "", ".internalId")
 
     lapply(ids, function(id) {
-      shiny::observeEvent(input[[paste0("editar_", id)]], {
-        tl_atual <- timeline()
-        idx <- which(vapply(tl_atual, `[[`, "", ".internalId") == id)
+      shiny::observeEvent(input[[paste0("edit_", id)]], {
+        tl_current <- timeline()
+        idx <- which(vapply(tl_current, `[[`, "", ".internalId") == id)
         if (!length(idx)) return()
-        it <- tl_atual[[idx]]
+        it <- tl_current[[idx]]
 
         ts_utc <- parse_timestamp_utc(item_start_date(it))
         sec <- item_start_offset(it) %||% 0
@@ -1560,13 +1560,13 @@ server <- function(input, output, session) {
         shiny::showModal(
           shiny::modalDialog(
             title = "Edit item",
-            shiny::dateInput("edit_data_inicio", "Start date", as.Date(ts_local)),
-            shiny::textInput("edit_hora_inicio", "Start time", format(ts_local, "%H:%M")),
-            shiny::dateInput("edit_data_fim", "End date", as.Date(tsf_local)),
-            shiny::textInput("edit_hora_fim", "End time", format(tsf_local, "%H:%M")),
+            shiny::dateInput("edit_date_start", "Start date", as.Date(ts_local)),
+            shiny::textInput("edit_time_start", "Start time", format(ts_local, "%H:%M")),
+            shiny::dateInput("edit_date_end", "End date", as.Date(tsf_local)),
+            shiny::textInput("edit_time_end", "End time", format(tsf_local, "%H:%M")),
             footer = shiny::tagList(
               shiny::modalButton("Cancel"),
-              shiny::actionButton("salvar_edicao", "Save", class = "btn-primary")
+              shiny::actionButton("save_edit", "Save", class = "btn-primary")
             )
           )
         )
@@ -1576,7 +1576,7 @@ server <- function(input, output, session) {
     })
   })
 
-  shiny::observeEvent(input$salvar_edicao, {
+  shiny::observeEvent(input$save_edit, {
     shiny::removeModal()
     id <- session$userData$item_editando
     if (is.null(id)) return()
@@ -1589,45 +1589,45 @@ server <- function(input, output, session) {
     start_sec <- item_start_offset(it) %||% 0
     end_sec   <- item_end_offset(it) %||% start_sec
 
-    hora_ini_fmt <- formatar_hora(input$edit_hora_inicio)
-    hora_fim_fmt <- formatar_hora(input$edit_hora_fim)
+    start_time_fmt <- format_time(input$edit_time_start)
+    end_time_fmt <- format_time(input$edit_time_end)
 
-    local_ini <- lubridate::ymd_hms(paste(input$edit_data_inicio, hora_ini_fmt), tz = "UTC")
-    local_fim <- lubridate::ymd_hms(paste(input$edit_data_fim, hora_fim_fmt), tz = "UTC")
+    local_start <- lubridate::ymd_hms(paste(input$edit_date_start, start_time_fmt), tz = "UTC")
+    local_end <- lubridate::ymd_hms(paste(input$edit_date_end, end_time_fmt), tz = "UTC")
 
-    if (is.na(local_ini) || is.na(local_fim)) {
+    if (is.na(local_start) || is.na(local_end)) {
       shiny::showNotification("Invalid times.", type = "error")
       return()
     }
 
-    novo_ini_utc <- local_ini - start_sec
-    novo_fim_utc <- local_fim  - end_sec
+    new_start_utc <- local_start - start_sec
+    new_end_utc <- local_end  - end_sec
 
-    if (novo_fim_utc <= novo_ini_utc) {
+    if (new_end_utc <= new_start_utc) {
       shiny::showNotification("End must be after start.", type = "error")
       return()
     }
 
-    if (has_overlap(tl, novo_ini_utc, novo_fim_utc, ignore_id = id)) {
+    if (has_overlap(tl, new_start_utc, new_end_utc, ignore_id = id)) {
       shiny::showNotification("This interval overlaps an existing activity.", type = "error")
       return()
     }
 
 
-    it <- set_item_start_date(it, format(novo_ini_utc, "%Y-%m-%dT%H:%M:%SZ"))
-    it <- set_item_end_date(it, format(novo_fim_utc, "%Y-%m-%dT%H:%M:%SZ"))
+    it <- set_item_start_date(it, format(new_start_utc, "%Y-%m-%dT%H:%M:%SZ"))
+    it <- set_item_end_date(it, format(new_end_utc, "%Y-%m-%dT%H:%M:%SZ"))
 
     if (!is.null(it$samples) && length(it$samples)) {
       s <- all_samples()
       sample_ids <- it$samples
       n <- length(sample_ids)
-      novos_ts <- seq(novo_ini_utc, novo_fim_utc, length.out = n)
+      new_ids_ts <- seq(new_start_utc, new_end_utc, length.out = n)
 
       for (i in seq_len(n)) {
         sid <- sample_ids[i]
         idx_s <- which(vapply(s, `[[`, "", "id") == sid)
         if (length(idx_s)) {
-          ts_utc <- novos_ts[i]
+          ts_utc <- new_ids_ts[i]
           lat <- s[[idx_s]]$latitude
           lon <- s[[idx_s]]$longitude
           tz <- tz_from_coords(lat, lon)
@@ -1650,15 +1650,15 @@ server <- function(input, output, session) {
   # ---- Edit Samples mode ----
 
   # Helper: render samples on the map as draggable markers
-  renderizar_edit_samples <- function() {
+  render_edit_samples <- function() {
     samples <- edit_samples()
-    virtuais <- samples_virtuais()
+    virtual <- virtual_samples()
     ignored <- ignored_samples()
     proxy <- leaflet::leafletProxy("map")
     proxy <- proxy %>%
       leaflet::clearGroup("edit_samples") %>%
-      leaflet::clearGroup("edit_virtuais") %>%
-      leaflet::clearGroup("edit_rota")
+      leaflet::clearGroup("edit_virtual") %>%
+      leaflet::clearGroup("edit_path")
 
     if (length(samples) == 0) return()
 
@@ -1679,17 +1679,17 @@ server <- function(input, output, session) {
     }, character(1))
 
     # Check if there is a stored OSRM route
-    rota <- rota_osrm()
-    if (!is.null(rota) && is.matrix(rota) && nrow(rota) >= 2) {
+    route <- osrm_route()
+    if (!is.null(route) && is.matrix(route) && nrow(route) >= 2) {
       # Draw the complete OSRM route (green)
       proxy <- proxy %>%
         leaflet::addPolylines(
-          lng = rota[, 1],  # lon
-          lat = rota[, 2],  # lat
+          lng = route[, 1],  # lon
+          lat = route[, 2],  # lat
           color = "#28a745",
           weight = 4,
           opacity = 0.8,
-          group = "edit_rota"
+          group = "edit_path"
         )
     } else {
       # No OSRM route: draw line connecting the samples
@@ -1700,31 +1700,31 @@ server <- function(input, output, session) {
           color = "blue",
           weight = 2,
           opacity = 0.6,
-          group = "edit_rota"
+          group = "edit_path"
         )
     }
 
     # ---- VIRTUAL SAMPLES (smaller orange dots) ----
-    if (length(virtuais) > 0) {
+    if (length(virtual) > 0) {
       # Filter virtual samples with valid location
-      virtuais <- Filter(function(s) {
+      virtual <- Filter(function(s) {
         sample_has_coords(s)
-      }, virtuais)
+      }, virtual)
     }
-    if (length(virtuais) > 0) {
-      lats_v <- vapply(virtuais, function(s) as.numeric(s$latitude)[1], numeric(1))
-      lngs_v <- vapply(virtuais, function(s) as.numeric(s$longitude)[1], numeric(1))
+    if (length(virtual) > 0) {
+      lats_v <- vapply(virtual, function(s) as.numeric(s$latitude)[1], numeric(1))
+      lngs_v <- vapply(virtual, function(s) as.numeric(s$longitude)[1], numeric(1))
 
       proxy <- proxy %>%
         leaflet::addCircleMarkers(
           lng = lngs_v,
           lat = lats_v,
           radius = 4,
-          color = "#ff8c00",  # laranja
+          color = "#ff8c00",  # orange
           fillColor = "#ff8c00",
           fillOpacity = 0.8,
           stroke = FALSE,
-          group = "edit_virtuais"
+          group = "edit_virtual"
         )
     }
 
@@ -1758,9 +1758,9 @@ server <- function(input, output, session) {
     # Zoom to samples (includes virtual samples if they exist)
     all_lats <- lats
     all_lngs <- lngs
-    if (length(virtuais) > 0) {
-      all_lats <- c(all_lats, vapply(virtuais, function(s) as.numeric(s$latitude)[1], numeric(1)))
-      all_lngs <- c(all_lngs, vapply(virtuais, function(s) as.numeric(s$longitude)[1], numeric(1)))
+    if (length(virtual) > 0) {
+      all_lats <- c(all_lats, vapply(virtual, function(s) as.numeric(s$latitude)[1], numeric(1)))
+      all_lngs <- c(all_lngs, vapply(virtual, function(s) as.numeric(s$longitude)[1], numeric(1)))
     }
 
     proxy %>%
@@ -1774,34 +1774,34 @@ server <- function(input, output, session) {
   }
 
   # Load existing samples
-  shiny::observeEvent(input$carregar_samples, {
-    hora_ini_fmt <- formatar_hora(input$edit_samples_hora_inicio)
-    hora_fim_fmt <- formatar_hora(input$edit_samples_hora_fim)
+  shiny::observeEvent(input$load_samples, {
+    start_time_fmt <- format_time(input$edit_samples_time_start)
+    end_time_fmt <- format_time(input$edit_samples_time_end)
 
-    if (is.na(hora_ini_fmt) || is.na(hora_fim_fmt)) {
+    if (is.na(start_time_fmt) || is.na(end_time_fmt)) {
       shiny::showNotification("Invalid times.", type = "error")
       return()
     }
 
     # Convert to UTC (assumes system local timezone)
-    inicio_local <- lubridate::ymd_hms(
-      paste(input$edit_samples_data_inicio, hora_ini_fmt),
+    start_local <- lubridate::ymd_hms(
+      paste(input$edit_samples_date_start, start_time_fmt),
       tz = Sys.timezone()
     )
-    fim_local <- lubridate::ymd_hms(
-      paste(input$edit_samples_data_fim, hora_fim_fmt),
+    end_local <- lubridate::ymd_hms(
+      paste(input$edit_samples_date_end, end_time_fmt),
       tz = Sys.timezone()
     )
 
-    if (is.na(inicio_local) || is.na(fim_local)) {
+    if (is.na(start_local) || is.na(end_local)) {
       shiny::showNotification("Invalid date/time.", type = "error")
       return()
     }
 
-    inicio_utc <- lubridate::with_tz(inicio_local, "UTC")
-    fim_utc <- lubridate::with_tz(fim_local, "UTC")
+    start_utc <- lubridate::with_tz(start_local, "UTC")
+    end_utc <- lubridate::with_tz(end_local, "UTC")
 
-    samples_raw <- carregar_samples_intervalo(inicio_utc, fim_utc)
+    samples_raw <- load_samples_interval(start_utc, end_utc)
 
     if (length(samples_raw) == 0) {
       shiny::showNotification("No samples found in the interval.", type = "warning")
@@ -1834,9 +1834,9 @@ server <- function(input, output, session) {
       original_timeline_item_id(NULL)
     }
     edit_samples(samples)
-    rota_osrm(NULL)  # Clear OSRM route when loading new samples
-    samples_virtuais(list())  # Clear virtual samples
-    renderizar_edit_samples()
+    osrm_route(NULL)  # Clear OSRM route when loading new samples
+    virtual_samples(list())  # Clear virtual samples
+    render_edit_samples()
 
     shiny::showNotification(
       sprintf("%d samples loaded.", length(samples)),
@@ -1869,8 +1869,8 @@ server <- function(input, output, session) {
     samples[[idx]]$longitude <- new_lng
 
     edit_samples(samples)
-    rota_osrm(NULL)  # Clear OSRM route when manually moving marker
-    samples_virtuais(list())  # Clear virtual samples
+    osrm_route(NULL)  # Clear OSRM route when manually moving marker
+    virtual_samples(list())  # Clear virtual samples
 
     # Redraw the line (without redrawing markers to keep drag)
     # Filter samples with valid location
@@ -1883,15 +1883,15 @@ server <- function(input, output, session) {
     lngs <- vapply(samples_validos, function(s) as.numeric(s$longitude)[1], numeric(1))
 
     leaflet::leafletProxy("map") %>%
-      leaflet::clearGroup("edit_rota") %>%
-      leaflet::clearGroup("edit_virtuais") %>%
+      leaflet::clearGroup("edit_path") %>%
+      leaflet::clearGroup("edit_virtual") %>%
       leaflet::addPolylines(
         lng = lngs,
         lat = lats,
         color = "blue",
         weight = 2,
         opacity = 0.6,
-        group = "edit_rota"
+        group = "edit_path"
       )
   })
 
@@ -1930,24 +1930,24 @@ server <- function(input, output, session) {
         return()
       }
 
-      perfil <- input$edit_osrm_perfil
-      usa_google <- perfil %in% GOOGLE_TRANSIT_MODES
+      profile <- input$edit_osrm_profile
+      usa_google <- profile %in% GOOGLE_TRANSIT_MODES
 
       if (usa_google) {
         if (!check_google_api()) {
           shiny::removeNotification("snap_progress")
           shiny::showNotification(
-            "Google Maps API key não configurada ou inválida. Defina GOOGLE_MAPS_API_KEY no .Renviron.",
+            "Google Maps API key not configured or invalid. Set GOOGLE_MAPS_API_KEY in your .Renviron.",
             type = "error", duration = 8
           )
           return()
         }
       } else {
-        base_url <- OSRM_SERVERS[[perfil]]
+        base_url <- OSRM_SERVERS[[profile]]
 
         if (is.null(base_url)) {
           shiny::removeNotification("snap_progress")
-          shiny::showNotification(sprintf("OSRM profile '%s' not configured.", perfil), type = "error")
+          shiny::showNotification(sprintf("OSRM profile '%s' not configured.", profile), type = "error")
           return()
         }
 
@@ -1955,7 +1955,7 @@ server <- function(input, output, session) {
 
         if (!check_osrm_server(base_url)) {
           shiny::removeNotification("snap_progress")
-          mostrar_modal_osrm_offline(base_url)
+          show_osrm_offline_modal(base_url)
           return()
         }
       }
@@ -1993,16 +1993,16 @@ server <- function(input, output, session) {
       pts <- data.frame(lat = lats, lng = lngs)
 
       if (usa_google) {
-        transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[perfil]]
-        rota <- calcular_rota_google_transit(pts, transit_mode = transit_mode)
-        if (!is.null(rota)) {
-          rota$coords <- suavizar_rota_osrm(rota$coords, tolerancia_m = 5, angulo_min = 2)
+        transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[profile]]
+        route <- calculate_google_transit_route(pts, transit_mode = transit_mode)
+        if (!is.null(route)) {
+          route$coords <- smooth_osrm_route(route$coords, tolerance_m = 5, angle_min = 2)
         }
       } else {
-        rota <- calcular_rota_osrm(pts, perfil = perfil)
+        route <- calculate_osrm_route(pts, profile = profile)
       }
 
-      if (is.null(rota)) {
+      if (is.null(route)) {
         shiny::removeNotification("snap_progress")
         shiny::showNotification(
           "Failed to calculate route. The server may not have been able to route between the points.",
@@ -2011,7 +2011,7 @@ server <- function(input, output, session) {
         return()
       }
 
-      if (is.null(rota$coords) || nrow(rota$coords) < 2) {
+      if (is.null(route$coords) || nrow(route$coords) < 2) {
         shiny::removeNotification("snap_progress")
         shiny::showNotification("OSRM route returned no valid coordinates.", type = "error")
         return()
@@ -2019,21 +2019,21 @@ server <- function(input, output, session) {
 
       shiny::showNotification("6/7 Interpolating samples...", id = "snap_progress", duration = NULL, type = "message")
 
-      coords_osrm <- rota$coords
+      osrm_coords <- route$coords
 
       # Defensively convert to numeric matrix
-      if (is.data.frame(coords_osrm)) {
-        coords_osrm <- as.matrix(coords_osrm)
+      if (is.data.frame(osrm_coords)) {
+        osrm_coords <- as.matrix(osrm_coords)
       }
-      if (is.list(coords_osrm) && !is.matrix(coords_osrm)) {
+      if (is.list(osrm_coords) && !is.matrix(osrm_coords)) {
         # If still a list, convert manually
-        coords_osrm <- do.call(rbind, lapply(coords_osrm, function(x) as.numeric(unlist(x))))
+        osrm_coords <- do.call(rbind, lapply(osrm_coords, function(x) as.numeric(unlist(x))))
       }
       # Ensure it is a numeric matrix
-      storage.mode(coords_osrm) <- "double"
+      storage.mode(osrm_coords) <- "double"
 
       # Calculate accumulated distance on the OSRM route
-      n_osrm <- nrow(coords_osrm)
+      n_osrm <- nrow(osrm_coords)
       if (is.null(n_osrm) || n_osrm < 2) {
         shiny::removeNotification("snap_progress")
         shiny::showNotification("OSRM route too short or invalid.", type = "error")
@@ -2041,60 +2041,60 @@ server <- function(input, output, session) {
       }
 
       # Store the OSRM route geometry for display
-      rota_osrm(coords_osrm)
+      osrm_route(osrm_coords)
 
       # Filter points with direction change (>2 degrees) or significant distance
       # Criteria: angular change OR distance > 50m from last included point
-      pontos_relevantes <- 1L  # always include the first
-      ultimo_incluido <- 1L
+      relevant_points <- 1L  # always include the first
+      last_included <- 1L
 
       for (i in 2:(n_osrm - 1)) {
-        incluir <- FALSE
+        should_include <- FALSE
 
         # Criterion 1: direction change > 2 degrees
         b1 <- geosphere::bearing(
-          c(coords_osrm[i - 1, 1], coords_osrm[i - 1, 2]),
-          c(coords_osrm[i, 1], coords_osrm[i, 2])
+          c(osrm_coords[i - 1, 1], osrm_coords[i - 1, 2]),
+          c(osrm_coords[i, 1], osrm_coords[i, 2])
         )
         b2 <- geosphere::bearing(
-          c(coords_osrm[i, 1], coords_osrm[i, 2]),
-          c(coords_osrm[i + 1, 1], coords_osrm[i + 1, 2])
+          c(osrm_coords[i, 1], osrm_coords[i, 2]),
+          c(osrm_coords[i + 1, 1], osrm_coords[i + 1, 2])
         )
         diff_ang <- abs((b2 - b1 + 180) %% 360 - 180)
         if (diff_ang > 2) {
-          incluir <- TRUE
+          should_include <- TRUE
         }
 
         # Criterion 2: distance > 50m from last included point
-        if (!incluir) {
-          dist_ultimo <- geosphere::distHaversine(
-            c(coords_osrm[ultimo_incluido, 1], coords_osrm[ultimo_incluido, 2]),
-            c(coords_osrm[i, 1], coords_osrm[i, 2])
+        if (!should_include) {
+          dist_last <- geosphere::distHaversine(
+            c(osrm_coords[last_included, 1], osrm_coords[last_included, 2]),
+            c(osrm_coords[i, 1], osrm_coords[i, 2])
           )
-          if (dist_ultimo > 50) {
-            incluir <- TRUE
+          if (dist_last > 50) {
+            should_include <- TRUE
           }
         }
 
-        if (incluir) {
-          pontos_relevantes <- c(pontos_relevantes, i)
-          ultimo_incluido <- i
+        if (should_include) {
+          relevant_points <- c(relevant_points, i)
+          last_included <- i
         }
       }
-      pontos_relevantes <- c(pontos_relevantes, n_osrm)  # always include the last
+      relevant_points <- c(relevant_points, n_osrm)  # always include the last
 
       # Filtered coordinates for virtual samples
-      coords_filtradas <- coords_osrm[pontos_relevantes, , drop = FALSE]
-      n_filtrados <- nrow(coords_filtradas)
+      filtered_coords <- osrm_coords[relevant_points, , drop = FALSE]
+      n_filtered <- nrow(filtered_coords)
 
-      dist_acum <- numeric(n_osrm)
-      dist_acum[1] <- 0
+      cumulative_dist <- numeric(n_osrm)
+      cumulative_dist[1] <- 0
       for (i in 2:n_osrm) {
-        p1 <- c(coords_osrm[i - 1, 1], coords_osrm[i - 1, 2])
-        p2 <- c(coords_osrm[i, 1], coords_osrm[i, 2])
-        dist_acum[i] <- dist_acum[i - 1] + geosphere::distHaversine(p1, p2)
+        p1 <- c(osrm_coords[i - 1, 1], osrm_coords[i - 1, 2])
+        p2 <- c(osrm_coords[i, 1], osrm_coords[i, 2])
+        cumulative_dist[i] <- cumulative_dist[i - 1] + geosphere::distHaversine(p1, p2)
       }
-      dist_total <- dist_acum[n_osrm]
+      dist_total <- cumulative_dist[n_osrm]
 
       # For each active sample, interpolate position on the OSRM route
       # using time proportion - extract timestamps with for loop
@@ -2118,20 +2118,20 @@ server <- function(input, output, session) {
         dist_alvo <- prop * dist_total
 
         # Find segment on the OSRM route
-        seg_idx <- max(1, sum(dist_acum <= dist_alvo))
+        seg_idx <- max(1, sum(cumulative_dist <= dist_alvo))
         if (seg_idx >= n_osrm) seg_idx <- n_osrm - 1
 
         # Interpolate within the segment
-        d1 <- dist_acum[seg_idx]
-        d2 <- dist_acum[seg_idx + 1]
+        d1 <- cumulative_dist[seg_idx]
+        d2 <- cumulative_dist[seg_idx + 1]
         seg_len <- d2 - d1
         if (seg_len <= 0) seg_len <- 1
 
         frac <- (dist_alvo - d1) / seg_len
         frac <- max(0, min(1, frac))
 
-        new_lon <- coords_osrm[seg_idx, 1] + frac * (coords_osrm[seg_idx + 1, 1] - coords_osrm[seg_idx, 1])
-        new_lat <- coords_osrm[seg_idx, 2] + frac * (coords_osrm[seg_idx + 1, 2] - coords_osrm[seg_idx, 2])
+        new_lon <- osrm_coords[seg_idx, 1] + frac * (osrm_coords[seg_idx + 1, 1] - osrm_coords[seg_idx, 1])
+        new_lat <- osrm_coords[seg_idx, 2] + frac * (osrm_coords[seg_idx + 1, 2] - osrm_coords[seg_idx, 2])
 
         samples_ativos[[i]]$longitude <- new_lon
         samples_ativos[[i]]$latitude <- new_lat
@@ -2145,7 +2145,7 @@ server <- function(input, output, session) {
         coords_new[j, 1] <- as.numeric(samples_ativos[[j]]$longitude)
         coords_new[j, 2] <- as.numeric(samples_ativos[[j]]$latitude)
       }
-      bearings <- calcular_bearings(coords_new)
+      bearings <- calculate_bearings(coords_new)
 
       for (i in seq_along(samples_ativos)) {
         samples_ativos[[i]]$course <- bearings[i]
@@ -2173,12 +2173,12 @@ server <- function(input, output, session) {
 
       # ---- CREATE VIRTUAL SAMPLES from OSRM route ----
       # Calculate accumulated distance for filtered points
-      dist_acum_filtrados <- numeric(n_filtrados)
-      dist_acum_filtrados[1] <- 0
-      for (i in 2:n_filtrados) {
+      cumulative_dist_filtered <- numeric(n_filtered)
+      cumulative_dist_filtered[1] <- 0
+      for (i in 2:n_filtered) {
         # Use original point indices to calculate distance
-        idx_orig <- pontos_relevantes[i]
-        dist_acum_filtrados[i] <- dist_acum[idx_orig]
+        idx_orig <- relevant_points[i]
+        cumulative_dist_filtered[i] <- cumulative_dist[idx_orig]
       }
 
       # Get timelineItemId from the first sample (for virtual samples)
@@ -2188,10 +2188,10 @@ server <- function(input, output, session) {
       }
 
       # Create virtual samples interpolating timestamps
-      novos_virtuais <- list()
-      for (i in seq_len(n_filtrados)) {
+      new_virtual_samples <- list()
+      for (i in seq_len(n_filtered)) {
         # Distance-based proportion
-        prop <- if (dist_total > 0) dist_acum_filtrados[i] / dist_total else 0
+        prop <- if (dist_total > 0) cumulative_dist_filtered[i] / dist_total else 0
 
         # Interpolate timestamp
         ts_virtual <- t_min + prop * t_range
@@ -2199,23 +2199,23 @@ server <- function(input, output, session) {
         date_str <- format(ts_utc, "%Y-%m-%dT%H:%M:%SZ")
 
         # Coordinates
-        lon_v <- coords_filtradas[i, 1]
-        lat_v <- coords_filtradas[i, 2]
+        lon_v <- filtered_coords[i, 1]
+        lat_v <- filtered_coords[i, 2]
 
         # Calculate bearing to the next point
         course_v <- 0
-        if (i < n_filtrados) {
+        if (i < n_filtered) {
           course_v <- geosphere::bearing(
-            c(coords_filtradas[i, 1], coords_filtradas[i, 2]),
-            c(coords_filtradas[i + 1, 1], coords_filtradas[i + 1, 2])
+            c(filtered_coords[i, 1], filtered_coords[i, 2]),
+            c(filtered_coords[i + 1, 1], filtered_coords[i + 1, 2])
           )
           if (is.na(course_v)) course_v <- 0
           if (course_v < 0) course_v <- course_v + 360
         } else if (i > 1) {
           # Last point: use bearing from previous
           course_v <- geosphere::bearing(
-            c(coords_filtradas[i - 1, 1], coords_filtradas[i - 1, 2]),
-            c(coords_filtradas[i, 1], coords_filtradas[i, 2])
+            c(filtered_coords[i - 1, 1], filtered_coords[i - 1, 2]),
+            c(filtered_coords[i, 1], filtered_coords[i, 2])
           )
           if (is.na(course_v)) course_v <- 0
           if (course_v < 0) course_v <- course_v + 360
@@ -2254,19 +2254,19 @@ server <- function(input, output, session) {
           sample_v$timelineItemId <- ti_id_virtual
         }
 
-        novos_virtuais[[length(novos_virtuais) + 1L]] <- sample_v
+        new_virtual_samples[[length(new_virtual_samples) + 1L]] <- sample_v
       }
 
       # Store virtual samples
-      samples_virtuais(novos_virtuais)
+      virtual_samples(new_virtual_samples)
 
       edit_samples(samples)
-      renderizar_edit_samples()
+      render_edit_samples()
 
       shiny::removeNotification("snap_progress")
       shiny::showNotification(
         sprintf("Snap-to-road complete! %d Arc samples + %d virtual (%.1f km).",
-                n, length(novos_virtuais), dist_total / 1000),
+                n, length(new_virtual_samples), dist_total / 1000),
         type = "message"
       )
     }, error = function(e) {
@@ -2337,7 +2337,7 @@ server <- function(input, output, session) {
     }
 
     ignored_samples(ignored)
-    renderizar_edit_samples()
+    render_edit_samples()
   })
 
   # Discard: remove sample from list
@@ -2357,7 +2357,7 @@ server <- function(input, output, session) {
     ignored <- ignored[ignored != sample_id]
     ignored_samples(ignored)
 
-    renderizar_edit_samples()
+    render_edit_samples()
     shiny::showNotification("Sample discarded.", type = "message")
   })
 
@@ -2376,42 +2376,42 @@ server <- function(input, output, session) {
       return()
     }
 
-    s_atual <- samples[[idx]]
-    s_prox <- samples[[idx + 1]]
+    s_current <- samples[[idx]]
+    s_next <- samples[[idx + 1]]
 
     # Calculate average position and timestamp
-    lat_novo <- (s_atual$latitude + s_prox$latitude) / 2
-    lon_novo <- (s_atual$longitude + s_prox$longitude) / 2
+    lat_new <- (s_current$latitude + s_next$latitude) / 2
+    lon_new <- (s_current$longitude + s_next$longitude) / 2
 
-    ts_atual <- as.POSIXct(s_atual$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
-    ts_prox <- as.POSIXct(s_prox$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
-    ts_novo <- ts_atual + as.numeric(difftime(ts_prox, ts_atual, units = "secs")) / 2
+    ts_current <- as.POSIXct(s_current$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    ts_next <- as.POSIXct(s_next$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    ts_new <- ts_current + as.numeric(difftime(ts_next, ts_current, units = "secs")) / 2
 
     # Create new sample copying structure from current
-    novo_sample <- s_atual
-    novo_sample$id <- uuid::UUIDgenerate(use.time = TRUE)
-    novo_sample$date <- format(ts_novo, "%Y-%m-%dT%H:%M:%SZ")
-    novo_sample$latitude <- lat_novo
-    novo_sample$longitude <- lon_novo
-    novo_sample$date <- novo_sample$date
-    novo_sample$lastSaved <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    new_sample <- s_current
+    new_sample$id <- uuid::UUIDgenerate(use.time = TRUE)
+    new_sample$date <- format(ts_new, "%Y-%m-%dT%H:%M:%SZ")
+    new_sample$latitude <- lat_new
+    new_sample$longitude <- lon_new
+    new_sample$date <- new_sample$date
+    new_sample$lastSaved <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
     # Insert at the correct position
     if (idx == length(samples)) {
-      samples <- c(samples, list(novo_sample))
+      samples <- c(samples, list(new_sample))
     } else {
-      samples <- c(samples[1:idx], list(novo_sample), samples[(idx + 1):length(samples)])
+      samples <- c(samples[1:idx], list(new_sample), samples[(idx + 1):length(samples)])
     }
 
     edit_samples(samples)
-    renderizar_edit_samples()
+    render_edit_samples()
     shiny::showNotification("New sample inserted.", type = "message")
   })
 
   # ---- Bulk actions (selection) ----
 
   # Ignore selected
-  shiny::observeEvent(input$ignorar_selecionados, {
+  shiny::observeEvent(input$ignore_selected, {
     selected <- input$selected_samples
     if (is.null(selected) || length(selected) == 0) {
       shiny::showNotification("No samples selected.", type = "warning")
@@ -2419,19 +2419,19 @@ server <- function(input, output, session) {
     }
 
     ignored <- ignored_samples()
-    novos <- setdiff(selected, ignored)
-    ignored <- c(ignored, novos)
+    new_ids <- setdiff(selected, ignored)
+    ignored <- c(ignored, new_ids)
     ignored_samples(ignored)
 
     # Clear selection
     session$sendCustomMessage("clear_selection", list())
 
-    renderizar_edit_samples()
-    shiny::showNotification(sprintf("%d samples ignored.", length(novos)), type = "message")
+    render_edit_samples()
+    shiny::showNotification(sprintf("%d samples ignored.", length(new_ids)), type = "message")
   })
 
   # Discard selected
-  shiny::observeEvent(input$descartar_selecionados, {
+  shiny::observeEvent(input$discard_selected, {
     selected <- input$selected_samples
     if (is.null(selected) || length(selected) == 0) {
       shiny::showNotification("No samples selected.", type = "warning")
@@ -2451,11 +2451,21 @@ server <- function(input, output, session) {
     # Clear selection
     session$sendCustomMessage("clear_selection", list())
 
-    renderizar_edit_samples()
+    render_edit_samples()
     shiny::showNotification(sprintf("%d samples discarded.", length(selected)), type = "message")
   })
 
-  # Download corrected samples
+  # ---- Download corrected samples as LocoKit2 zip ----
+  # Exports edited/snapped samples as a LocoKit2 import package.
+  #
+  # Reuses the original timeline item ID (from original_timeline_item_id())
+  # so that Arc sees an item with an existing ID.
+  #
+  # Known limitation (LocoKit2 ImportManager):
+  # The ImportManager uses INSERT OR IGNORE for all data types.
+  # Items/samples with existing IDs are silently skipped, never updated.
+  # The corrected route is added as a NEW item alongside the original.
+  # There is no way to replace or remove existing data via import.
   output$download_edit_arc <- shiny::downloadHandler(
     filename = function() {
       "Import.zip"
@@ -2492,36 +2502,36 @@ server <- function(input, output, session) {
       current_timestamp <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
 
       ti_id <- original_timeline_item_id()
-      virtuais <- samples_virtuais()
+      virtual <- virtual_samples()
 
       # ---- NEW SAMPLES ----
-      samples_novos <- list()
+      new_samples <- list()
 
-      if (length(virtuais) > 0) {
-        for (i in seq_along(virtuais)) {
-          s <- virtuais[[i]]
+      if (length(virtual) > 0) {
+        for (i in seq_along(virtual)) {
+          s <- virtual[[i]]
           s$.virtual <- NULL
           s$lastSaved <- current_timestamp
-          samples_novos[[length(samples_novos) + 1L]] <- s
+          new_samples[[length(new_samples) + 1L]] <- s
         }
       } else {
         for (i in seq_along(samples)) {
           s <- samples[[i]]
           s$id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
           s$lastSaved <- current_timestamp
-          samples_novos[[length(samples_novos) + 1L]] <- s
+          new_samples[[length(new_samples) + 1L]] <- s
         }
       }
 
       # Reuse original item ID (so Arc updates in-place) or generate new
       item_id <- if (!is.null(ti_id) && nzchar(ti_id)) ti_id else toupper(uuid::UUIDgenerate(use.time = TRUE))
-      for (i in seq_along(samples_novos)) {
-        samples_novos[[i]]$timelineItemId <- item_id
+      for (i in seq_along(new_samples)) {
+        new_samples[[i]]$timelineItemId <- item_id
       }
 
       # Group by ISO week
       samples_by_week <- list()
-      for (s in samples_novos) {
+      for (s in new_samples) {
         ts <- tryCatch(
           as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
           error = function(e) NULL
@@ -2547,11 +2557,11 @@ server <- function(input, output, session) {
 
       # ---- TIMELINE ITEMS ----
       # Determine start/end from new samples
-      ts_novos <- vapply(samples_novos, function(s) {
+      ts_new_ids <- vapply(new_samples, function(s) {
         as.numeric(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
       }, numeric(1))
-      start_date_str <- format(as.POSIXct(min(ts_novos), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
-      end_date_str   <- format(as.POSIXct(max(ts_novos), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
+      start_date_str <- format(as.POSIXct(min(ts_new_ids), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
+      end_date_str   <- format(as.POSIXct(max(ts_new_ids), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
 
       # Activity type from original samples
       at_code <- originais[[1]]$confirmedActivityType %||%
@@ -2606,7 +2616,7 @@ server <- function(input, output, session) {
         schemaVersion = "2.2.0",
         stats = list(
           itemCount   = length(items_export),
-          sampleCount = length(samples_novos),
+          sampleCount = length(new_samples),
           placeCount  = 0L
         ),
         itemsCompleted = TRUE,
@@ -2624,8 +2634,8 @@ server <- function(input, output, session) {
       zip::zipr(zipfile = file, files = files_to_zip)
 
       msg <- sprintf("%d new samples exported, %d items",
-                     length(samples_novos), length(items_export))
-      if (length(virtuais) > 0) {
+                     length(new_samples), length(items_export))
+      if (length(virtual) > 0) {
         msg <- paste0(msg, " (OSRM route virtual samples)")
       }
       shiny::showNotification(msg, type = "message")
@@ -2634,23 +2644,23 @@ server <- function(input, output, session) {
 
   # ---- Clear all ----
 
-  shiny::observeEvent(input$limpar_tudo, {
+  shiny::observeEvent(input$clear_all, {
     timeline(list())
     all_samples(list())
     edit_samples(list())
     original_samples(list())
     original_timeline_item_id(NULL)
     ignored_samples(character(0))
-    rota_osrm(NULL)
-    samples_virtuais(list())
-    pontos_temp(data.frame(lat = numeric(0), lng = numeric(0)))
+    osrm_route(NULL)
+    virtual_samples(list())
+    temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
     leaflet::leafletProxy("map") %>%
       leaflet::clearGroup("waypoints") %>%
-      leaflet::clearGroup("rota_atual") %>%
-      leaflet::clearGroup("importado") %>%
+      leaflet::clearGroup("current_route") %>%
+      leaflet::clearGroup("imported") %>%
       leaflet::clearGroup("edit_samples") %>%
-      leaflet::clearGroup("edit_virtuais") %>%
-      leaflet::clearGroup("edit_rota")
+      leaflet::clearGroup("edit_virtual") %>%
+      leaflet::clearGroup("edit_path")
     shiny::showNotification("Timeline, samples and map cleared.", type = "message")
   })
 
@@ -2671,8 +2681,8 @@ server <- function(input, output, session) {
         return()
       }
 
-      exportar_arc_json(tl, s, tmpdir,
-                        data_trabalho = input$data_trabalho)
+      export_arc_json(tl, s, tmpdir,
+                        work_date = input$work_date)
 
       owd <- setwd(tmpdir)
       on.exit(setwd(owd), add = TRUE)
@@ -2715,52 +2725,52 @@ server <- function(input, output, session) {
 
   # ---- Route Editing ----
 
-  # Update route selector when entering "Editar Rota" mode
+  # Update route selector when entering "EditRoute" mode
   shiny::observe({
-    if (input$modo != "Editar Rota") return()
+    if (input$mode != "EditRoute") return()
 
     tl <- timeline()
     if (length(tl) == 0) {
-      shiny::updateSelectInput(session, "rota_editar_selecionada",
+      shiny::updateSelectInput(session, "selected_route",
                                choices = c("No routes" = ""),
                                selected = "")
       return()
     }
 
     # Filter routes only (not visits)
-    rotas <- Filter(function(x) !isTRUE(x$.isVisit), tl)
-    if (length(rotas) == 0) {
-      shiny::updateSelectInput(session, "rota_editar_selecionada",
+    routes <- Filter(function(x) !isTRUE(x$.isVisit), tl)
+    if (length(routes) == 0) {
+      shiny::updateSelectInput(session, "selected_route",
                                choices = c("No routes" = ""),
                                selected = "")
       return()
     }
 
     # Create options with name, mode and local time
-    opcoes <- vapply(rotas, function(x) {
-      nome <- x$descricao %||% "Route"
-      modo <- x$activityType %||% "transport"
-      hora <- tryCatch({
+    options_list <- vapply(routes, function(x) {
+      label <- x$description %||% "Route"
+      current_mode <- x$activityType %||% "transport"
+      time_str <- tryCatch({
         # Parse UTC timestamp
         ts_utc <- lubridate::ymd_hms(item_start_date(x), tz = "UTC")
         # Convert to system local timezone
         ts_local <- lubridate::with_tz(ts_utc, Sys.timezone())
         format(ts_local, "%H:%M")
       }, error = function(e) "")
-      paste0(hora, " [", modo, "] - ", nome)
+      paste0(time_str, " [", current_mode, "] - ", label)
     }, character(1))
-    names(opcoes) <- vapply(rotas, `[[`, "", ".internalId")
+    names(options_list) <- vapply(routes, `[[`, "", ".internalId")
 
     # Invert to have ID as value
-    choices <- stats::setNames(names(opcoes), opcoes)
+    choices <- stats::setNames(names(options_list), options_list)
 
-    shiny::updateSelectInput(session, "rota_editar_selecionada",
+    shiny::updateSelectInput(session, "selected_route",
                              choices = choices,
                              selected = choices[1])
   })
 
   # Helper function to render editable route
-  renderizar_rota_editavel <- function() {
+  render_editable_route <- function() {
     nodes <- route_edit_nodes()
     proxy <- leaflet::leafletProxy("map")
 
@@ -2832,8 +2842,8 @@ server <- function(input, output, session) {
   }
 
   # Handler: Load route for editing
-  shiny::observeEvent(input$carregar_rota_edit, {
-    item_id <- input$rota_editar_selecionada
+  shiny::observeEvent(input$load_route, {
+    item_id <- input$selected_route
     if (is.null(item_id) || item_id == "") {
       shiny::showNotification("Select a route.", type = "warning")
       return()
@@ -2865,7 +2875,7 @@ server <- function(input, output, session) {
 
     # Calculate original metrics
     coords <- extract_coords_from_samples(route_samples)
-    total_dist <- trajeto_distancia_km(coords) * 1000  # metros
+    total_dist <- track_distance_km(coords) * 1000  # metros
 
     ts_start <- as.POSIXct(gsub("Z$", "", item_start_date(item)), tz = "UTC")
     ts_end <- as.POSIXct(gsub("Z$", "", item_end_date(item)), tz = "UTC")
@@ -2901,7 +2911,7 @@ server <- function(input, output, session) {
     })
     route_edit_nodes(nodes)
 
-    renderizar_rota_editavel()
+    render_editable_route()
 
     shiny::showNotification(
       sprintf("Route loaded: %d nodes, %.1f km, avg speed %.1f km/h",
@@ -2931,7 +2941,7 @@ server <- function(input, output, session) {
     route_edit_nodes(nodes)
 
     # Re-render the route (straight line between nodes)
-    renderizar_rota_editavel()
+    render_editable_route()
   })
 
   # Handler: Delete node (context menu)
@@ -2955,13 +2965,13 @@ server <- function(input, output, session) {
     nodes <- nodes[-node_idx]
     route_edit_nodes(nodes)
 
-    renderizar_rota_editavel()
+    render_editable_route()
     shiny::showNotification("Node deleted.", type = "message")
   })
 
   # Handler: Insert waypoint (map click)
   shiny::observeEvent(input$insert_waypoint_click, {
-    if (!isTRUE(input$modo_inserir_waypoint)) return()
+    if (!isTRUE(input$insert_waypoint_mode)) return()
 
     event <- input$insert_waypoint_click
     if (is.null(event)) return()
@@ -3008,12 +3018,12 @@ server <- function(input, output, session) {
     nodes <- append(nodes, list(new_node), after = insert_after)
     route_edit_nodes(nodes)
 
-    renderizar_rota_editavel()
+    render_editable_route()
     shiny::showNotification("Waypoint inserted.", type = "message")
   })
 
   # Handler: Apply edits
-  shiny::observeEvent(input$aplicar_edicoes_rota, {
+  shiny::observeEvent(input$apply_route_edits, {
     nodes <- route_edit_nodes()
     original_item <- route_original_item()
     avg_speed <- route_avg_speed()
@@ -3035,7 +3045,7 @@ server <- function(input, output, session) {
     start_utc <- as.POSIXct(gsub("Z$", "", item_start_date(original_item)), tz = "UTC")
 
     # Recalculate times keeping average speed
-    time_result <- recalcular_tempos_rota(all_coords, start_utc, avg_speed)
+    time_result <- recalculate_route_times(all_coords, start_utc, avg_speed)
 
     # Use nodes directly as samples (we already have all points)
     n_target <- n_route
@@ -3047,7 +3057,7 @@ server <- function(input, output, session) {
 
     # Create new samples (preserve activity type from original route)
     edit_at <- original_item$activityType %||% "car"
-    samples_novos <- criar_locomotion_samples(
+    new_samples <- create_locomotion_samples(
       coords = coords_new,
       timestamps_utc = ts_seq,
       accuracy       = 10,
@@ -3055,7 +3065,7 @@ server <- function(input, output, session) {
       moving_state = "moving",
       activity_type = edit_at
     )
-    sample_ids <- vapply(samples_novos, `[[`, "", "id")
+    sample_ids <- vapply(new_samples, `[[`, "", "id")
 
     # Update timeline
     tl <- timeline()
@@ -3075,25 +3085,25 @@ server <- function(input, output, session) {
 
       # Update description
       new_dist_km <- time_result$total_distance_m / 1000
-      item$descricao <- sprintf("Edited route (%.1f km)", new_dist_km)
+      item$description <- sprintf("Edited route (%.1f km)", new_dist_km)
 
       tl[[idx]] <- item
       timeline(tl)
 
       # Add new samples
-      all_samples(c(s, samples_novos))
+      all_samples(c(s, new_samples))
 
       # Draw updated route
       leaflet::leafletProxy("map") %>%
         leaflet::clearGroup("edit_route") %>%
         leaflet::clearGroup("edit_route_nodes") %>%
-        leaflet::clearGroup("rota_atual") %>%
+        leaflet::clearGroup("current_route") %>%
         leaflet::addPolylines(
           lng = lon_new,
           lat = lat_new,
           color = "blue",
           weight = 4,
-          group = "rota_atual"
+          group = "current_route"
         )
 
       # Clear editing state
@@ -3103,7 +3113,7 @@ server <- function(input, output, session) {
       route_avg_speed(NULL)
 
       # Deactivate insert waypoint mode
-      shiny::updateCheckboxInput(session, "modo_inserir_waypoint", value = FALSE)
+      shiny::updateCheckboxInput(session, "insert_waypoint_mode", value = FALSE)
       session$sendCustomMessage("clear_route_edit", list())
 
       # Calculate actual average speed of the edited route
@@ -3124,7 +3134,7 @@ server <- function(input, output, session) {
   })
 
   # Handler: Cancel edits
-  shiny::observeEvent(input$cancelar_edicoes_rota, {
+  shiny::observeEvent(input$cancel_route_edits, {
     # Clear editing state
     route_edit_nodes(list())
     route_original_item(NULL)
@@ -3137,14 +3147,14 @@ server <- function(input, output, session) {
       leaflet::clearGroup("edit_route_nodes")
 
     # Deactivate insert waypoint mode
-    shiny::updateCheckboxInput(session, "modo_inserir_waypoint", value = FALSE)
+    shiny::updateCheckboxInput(session, "insert_waypoint_mode", value = FALSE)
     session$sendCustomMessage("clear_route_edit", list())
 
     shiny::showNotification("Edit cancelled.", type = "message")
   })
 
   # Handler: Delete selected nodes (via lasso)
-  shiny::observeEvent(input$deletar_nodes_selecionados, {
+  shiny::observeEvent(input$delete_selected_nodes, {
     selected <- input$selected_route_nodes
     if (is.null(selected) || length(selected) == 0) {
       shiny::showNotification("No nodes selected.", type = "warning")
@@ -3181,13 +3191,13 @@ server <- function(input, output, session) {
     nodes <- Filter(function(n) !n$id %in% to_delete, nodes)
     route_edit_nodes(nodes)
 
-    renderizar_rota_editavel()
+    render_editable_route()
     session$sendCustomMessage("clear_node_selection", list())
     shiny::showNotification(sprintf("%d node(s) deleted.", length(to_delete)), type = "message")
   })
 
   # Handler: Clear node selection
-  shiny::observeEvent(input$limpar_selecao_nodes, {
+  shiny::observeEvent(input$clear_node_selection, {
     session$sendCustomMessage("clear_node_selection", list())
     shiny::showNotification("Selection cleared.", type = "message")
   })

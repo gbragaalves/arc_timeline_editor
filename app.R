@@ -1,9 +1,8 @@
 #############################
 # Arc Timeline Builder 2.0
-# Versão modular
 #############################
 
-# ---- Pacotes ----
+# ---- Packages ----
 library(shiny)
 library(leaflet)
 library(httr)
@@ -19,28 +18,28 @@ library(purrr)
 library(geosphere)
 library(zip)
 
-# ---- Configurações locais (dados privados) ----
+# ---- Local config (private data, not tracked) ----
 source("config_local.R", local = FALSE)
 
-# Configuração de pessoas para Location History (se existir)
-if (file.exists("R/config_pessoas.R")) {
-  source("R/config_pessoas.R", local = FALSE)
+# People config for Location History overlay (optional)
+if (file.exists("R/config_people.R")) {
+  source("R/config_people.R", local = FALSE)
 } else {
-  PESSOAS_CONFIG <- list()
+  PEOPLE_CONFIG <- list()
 }
 
-# ---- Carregar módulos ----
-# Ordem importante: módulos base primeiro, depois os que dependem deles
+# ---- Load modules ----
+# Order matters: base modules first, then dependents
 
 source("R/utils_time.R", local = FALSE)
 source("R/utils_geo.R", local = FALSE)
 source("R/utils_osrm.R", local = FALSE)
 source("R/utils_google.R", local = FALSE)
 source("R/utils_arc.R", local = FALSE)
-source("R/utils_semanas.R", local = FALSE)
+source("R/utils_weeks.R", local = FALSE)
 source("R/export_arc.R", local = FALSE)
 source("R/ui.R", local = FALSE)
 source("R/server.R", local = FALSE)
 
-# ---- Iniciar aplicação ----
+# ---- Launch app ----
 shinyApp(ui, server)

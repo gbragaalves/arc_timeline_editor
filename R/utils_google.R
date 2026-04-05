@@ -1,24 +1,24 @@
 # ---- Helpers: Google Maps Directions API (transit) ----
 
-# API key lida de variável de ambiente (nunca hardcoded)
+# API key from environment variable (never hardcoded)
 GOOGLE_MAPS_API_KEY <- Sys.getenv("GOOGLE_MAPS_API_KEY")
 
-# Perfis de transit que usam Google ao invés de OSRM
+# Transit profiles that use Google instead of OSRM
 GOOGLE_TRANSIT_MODES <- c("metro", "train", "tram")
 
-# Mapeamento de perfil do app para transit_mode da Google API
+# Mapping app profile to Google API transit_mode
 GOOGLE_TRANSIT_MODE_MAP <- list(
   metro = "subway",
   train = "train",
   tram   = "tram"
 )
 
-# Verificar se a API key está configurada e funcional
+# Check if the API key is configured and functional
 check_google_api <- function() {
   key <- Sys.getenv("GOOGLE_MAPS_API_KEY")
   if (is.null(key) || !nzchar(key)) return(FALSE)
 
-  # Chamada mínima para validar a key
+  # Minimal request to validate the key
   url <- paste0(
     "https://maps.googleapis.com/maps/api/directions/json",
     "?origin=0,0&destination=0,0&mode=transit&key=", key
@@ -26,8 +26,8 @@ check_google_api <- function() {
   res <- tryCatch(httr::GET(url, httr::timeout(5)), error = function(e) NULL)
   if (is.null(res) || res$status_code >= 500) return(FALSE)
 
-  # Se retornar 200 (mesmo sem rota), a key é válida
-  # REQUEST_DENIED indica key inválida
+  # If it returns 200 (even without a route), the key is valid
+  # REQUEST_DENIED indicates an invalid key
   js <- tryCatch(httr::content(res, as = "parsed", encoding = "UTF-8"), error = function(e) NULL)
   if (is.null(js)) return(FALSE)
   if (identical(js$status, "REQUEST_DENIED")) return(FALSE)
@@ -35,8 +35,8 @@ check_google_api <- function() {
   TRUE
 }
 
-# Decodificar encoded polyline do Google Maps
-# Retorna matrix n x 2 (lon, lat)
+# Decode Google Maps encoded polyline
+# Returns n x 2 matrix (lon, lat)
 decode_google_polyline <- function(encoded) {
   if (!nzchar(encoded)) return(matrix(numeric(0), ncol = 2))
 
@@ -49,7 +49,7 @@ decode_google_polyline <- function(encoded) {
 
 
   while (i <= n) {
-    # Decodificar latitude
+    # Decode latitude
     shift <- 0
     result <- 0
     repeat {
@@ -62,7 +62,7 @@ decode_google_polyline <- function(encoded) {
     dlat <- if (bitwAnd(result, 1) != 0) -bitwShiftR(result + 1, 1) else bitwShiftR(result, 1)
     lat <- lat + dlat
 
-    # Decodificar longitude
+    # Decode longitude
     shift <- 0
     result <- 0
     repeat {
@@ -83,17 +83,17 @@ decode_google_polyline <- function(encoded) {
   mat
 }
 
-# Mapeamento: transit_mode da API -> vehicle.type esperados na resposta
-# A API retorna vehicle.type em MAIÚSCULAS (RAIL, SUBWAY, TRAM, BUS, etc.)
-GOOGLE_VEHICLE_TYPES_ACEITOS <- list(
+# Mapping: API transit_mode -> expected vehicle.type in the response
+# The API returns vehicle.type in UPPERCASE (RAIL, SUBWAY, TRAM, BUS, etc.)
+GOOGLE_ACCEPTED_VEHICLE_TYPES <- list(
   subway = c("SUBWAY", "METRO_RAIL"),
   train  = c("RAIL", "HEAVY_RAIL", "COMMUTER_TRAIN", "HIGH_SPEED_TRAIN",
              "LONG_DISTANCE_TRAIN"),
   tram   = c("TRAM", "LIGHT_RAIL")
 )
 
-# Extrair os vehicle.type de todos os steps TRANSIT de uma rota
-extrair_vehicle_types <- function(route) {
+# Extract vehicle.type from all TRANSIT steps of a route
+extract_vehicle_types <- function(route) {
   types <- character(0)
   for (leg in route$legs) {
     for (step in leg$steps) {
@@ -106,26 +106,26 @@ extrair_vehicle_types <- function(route) {
   types
 }
 
-# Calcular rota via Google Maps Directions API com mode=transit
-# pontos: data.frame com colunas lat e lng (mínimo 2 linhas)
-# transit_mode: "subway", "train" ou "tram"
-# Retorna: list(coords = matrix(lon, lat), distance_m, duration_s) ou NULL
-calcular_rota_google_transit <- function(pontos, transit_mode = c("subway", "train", "tram")) {
+# Calculate route via Google Maps Directions API with mode=transit
+# points: data.frame with lat and lng columns (minimum 2 rows)
+# transit_mode: "subway", "train" or "tram"
+# Returns: list(coords = matrix(lon, lat), distance_m, duration_s) or NULL
+calculate_google_transit_route <- function(points, transit_mode = c("subway", "train", "tram")) {
   transit_mode <- match.arg(transit_mode)
 
   key <- Sys.getenv("GOOGLE_MAPS_API_KEY")
   if (is.null(key) || !nzchar(key)) {
-    message("[Google API] GOOGLE_MAPS_API_KEY não configurada.")
+    message("[Google API] GOOGLE_MAPS_API_KEY not configured.")
     return(NULL)
   }
 
-  if (nrow(pontos) < 2) {
-    message("[Google API] Necessários pelo menos 2 pontos.")
+  if (nrow(points) < 2) {
+    message("[Google API] At least 2 points required.")
     return(NULL)
   }
 
-  origin <- paste0(pontos$lat[1], ",", pontos$lng[1])
-  destination <- paste0(pontos$lat[nrow(pontos)], ",", pontos$lng[nrow(pontos)])
+  origin <- paste0(points$lat[1], ",", points$lng[1])
+  destination <- paste0(points$lat[nrow(points)], ",", points$lng[nrow(points)])
 
   params <- list(
     origin       = origin,
@@ -136,10 +136,10 @@ calcular_rota_google_transit <- function(pontos, transit_mode = c("subway", "tra
     key          = key
   )
 
-  # Waypoints intermediários (se houver mais de 2 pontos)
-  if (nrow(pontos) > 2) {
-    wps <- vapply(2:(nrow(pontos) - 1), function(i) {
-      paste0(pontos$lat[i], ",", pontos$lng[i])
+  # Intermediate waypoints (if more than 2 points)
+  if (nrow(points) > 2) {
+    wps <- vapply(2:(nrow(points) - 1), function(i) {
+      paste0(points$lat[i], ",", points$lng[i])
     }, character(1))
     params$waypoints <- paste(wps, collapse = "|")
   }
@@ -148,58 +148,58 @@ calcular_rota_google_transit <- function(pontos, transit_mode = c("subway", "tra
   res <- tryCatch(
     httr::GET(url, query = params, httr::timeout(30)),
     error = function(e) {
-      message("[Google API] Erro na requisição: ", conditionMessage(e))
+      message("[Google API] Request error: ", conditionMessage(e))
       NULL
     }
   )
 
   if (is.null(res) || res$status_code >= 400) {
-    message("[Google API] Requisição falhou (status: ", res$status_code %||% "NULL", ")")
+    message("[Google API] Request failed (status: ", res$status_code %||% "NULL", ")")
     return(NULL)
   }
 
   js <- tryCatch(
     httr::content(res, as = "parsed", encoding = "UTF-8"),
     error = function(e) {
-      message("[Google API] Erro ao parsear resposta: ", conditionMessage(e))
+      message("[Google API] Error parsing response: ", conditionMessage(e))
       NULL
     }
   )
 
   if (is.null(js) || !identical(js$status, "OK")) {
-    msg <- js$status %||% "desconhecido"
+    msg <- js$status %||% "unknown"
     detail <- js$error_message %||% ""
     message("[Google API] Status: ", msg, " ", detail)
     return(NULL)
   }
 
   if (length(js$routes) == 0) {
-    message("[Google API] Nenhuma rota encontrada.")
+    message("[Google API] No route found.")
     return(NULL)
   }
 
-  # Filtrar rotas que realmente usem o modo de transporte solicitado
-  tipos_aceitos <- GOOGLE_VEHICLE_TYPES_ACEITOS[[transit_mode]]
+  # Filter routes that actually use the requested transport mode
+  accepted_types <- GOOGLE_ACCEPTED_VEHICLE_TYPES[[transit_mode]]
   route <- NULL
 
   for (r in js$routes) {
-    vts <- extrair_vehicle_types(r)
-    if (any(vts %in% tipos_aceitos)) {
+    vts <- extract_vehicle_types(r)
+    if (any(vts %in% accepted_types)) {
       route <- r
       break
     }
   }
 
   if (is.null(route)) {
-    modos_encontrados <- unique(unlist(lapply(js$routes, extrair_vehicle_types)))
+    found_modes <- unique(unlist(lapply(js$routes, extract_vehicle_types)))
     message(
-      "[Google API] Nenhuma rota encontrada usando ", transit_mode,
-      ". Modos encontrados: ", paste(modos_encontrados, collapse = ", ")
+      "[Google API] No route found using ", transit_mode,
+      ". Modes found: ", paste(found_modes, collapse = ", ")
     )
     return(NULL)
   }
 
-  # Extrair apenas os steps TRANSIT do modo solicitado (sem trechos a pé)
+  # Extract only TRANSIT steps of the requested mode (no walking segments)
   coords_list <- list()
   total_distance <- 0
   total_duration <- 0
@@ -208,9 +208,9 @@ calcular_rota_google_transit <- function(pontos, transit_mode = c("subway", "tra
     for (step in leg$steps) {
       if (!identical(step$travel_mode, "TRANSIT")) next
       vt <- step$transit_details$line$vehicle$type
-      if (is.null(vt) || !(vt %in% tipos_aceitos)) next
+      if (is.null(vt) || !(vt %in% accepted_types)) next
 
-      # Decodificar polyline do step individual
+      # Decode individual step polyline
       enc <- step$polyline$points
       if (!is.null(enc) && nzchar(enc)) {
         step_coords <- decode_google_polyline(enc)
@@ -224,16 +224,16 @@ calcular_rota_google_transit <- function(pontos, transit_mode = c("subway", "tra
   }
 
   if (length(coords_list) == 0) {
-    message("[Google API] Nenhum step TRANSIT do modo solicitado possui polyline.")
+    message("[Google API] No TRANSIT step of the requested mode has a polyline.")
     return(NULL)
   }
 
-  # Concatenar coordenadas de todos os steps de transit aceitos
+  # Concatenate coordinates from all accepted transit steps
   coords_mat <- do.call(rbind, coords_list)
   colnames(coords_mat) <- c("lon", "lat")
 
   if (nrow(coords_mat) < 2) {
-    message("[Google API] Polyline do transit com menos de 2 pontos.")
+    message("[Google API] Transit polyline with less than 2 points.")
     return(NULL)
   }
 

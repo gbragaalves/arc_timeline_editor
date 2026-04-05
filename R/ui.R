@@ -151,62 +151,62 @@ ui <- shiny::fluidPage(
     # Left column - controls (width = 2)
     shiny::column(
       width = 2,
-      shiny::dateInput("data_trabalho", "Working date", Sys.Date()),
-      shiny::uiOutput("toggles_pessoas"),
+      shiny::dateInput("work_date", "Working date", Sys.Date()),
+      shiny::uiOutput("toggles_people"),
       shiny::radioButtons(
-        "modo",
+        "mode",
         "Edit mode",
-        choices = c("Route" = "OSRM", "Visit" = "Visita", "Manual Route" = "Rota Manual", "Import File" = "Importar Arquivo", "Edit Samples" = "Editar Samples", "Edit Route" = "Editar Rota"),
+        choices = c("Route" = "OSRM", "Visit" = "Visit", "Manual Route" = "Manual", "Import File" = "Import", "Edit Samples" = "EditSamples", "Edit Route" = "EditRoute"),
         selected = "OSRM"
       ),
       shiny::hr(),
       # OSRM
       shiny::conditionalPanel(
-        "input.modo == 'OSRM'",
+        "input.mode == 'OSRM'",
         shiny::tags$div(
           shiny::tags$strong("Route"),
           help_icon("Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).")
         ),
         shiny::selectInput(
-          "osrm_perfil", "Profile:",
+          "osrm_profile", "Profile:",
           choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
                       "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"),
           selected = "car", width = "100%"
         ),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("desfazer_ponto_osrm", "Undo", class = "btn-sm"),
-          shiny::actionButton("limpar_pontos_osrm", "Clear", class = "btn-sm")
+          shiny::actionButton("undo_point_osrm", "Undo", class = "btn-sm"),
+          shiny::actionButton("clear_points_osrm", "Clear", class = "btn-sm")
         ),
         shiny::br(),
-        shiny::actionButton("calcular_osrm", "Calculate route", class = "btn-primary btn-sm btn-block")
+        shiny::actionButton("calculate_osrm", "Calculate route", class = "btn-primary btn-sm btn-block")
       ),
       # Visit
       shiny::conditionalPanel(
-        "input.modo == 'Visita'",
+        "input.mode == 'Visit'",
         shiny::tags$div(
           shiny::tags$strong("Visit"),
           help_icon("Mark a stationary visit. Type a name from your frequent places (config_local.R) to auto-fill coordinates. Entry/exit define the stay duration.")
         ),
-        shiny::textInput("visita_nome", "Visit name", "", width = "100%"),
+        shiny::textInput("visit_name", "Visit name", "", width = "100%"),
         shiny::tags$small("Click the map to set the location."),
         shiny::tags$label("Entry:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("visita_data_inicio", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("visita_hora_inicio", NULL, "08:00", width = "100%")
+          shiny::dateInput("visit_date_start", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("visit_time_start", NULL, "08:00", width = "100%")
         ),
         shiny::tags$label("Exit:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("visita_data_fim", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("visita_hora_fim", NULL, "09:00", width = "100%")
+          shiny::dateInput("visit_date_end", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("visit_time_end", NULL, "09:00", width = "100%")
         ),
-        shiny::actionButton("adicionar_visita", "Add visit", class = "btn-success btn-sm btn-block")
+        shiny::actionButton("add_visit", "Add visit", class = "btn-success btn-sm btn-block")
       ),
       # Manual route
       shiny::conditionalPanel(
-        "input.modo == 'Rota Manual'",
+        "input.mode == 'Manual'",
         shiny::tags$div(
           shiny::tags$strong("Manual Route"),
           help_icon("Click points on the map to draw a freeform polyline route. Timestamps are evenly interpolated between start and end times.")
@@ -237,39 +237,39 @@ ui <- shiny::fluidPage(
         shiny::tags$label("Start:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("manual_data_inicio", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("manual_hora_inicio", NULL, "08:00", width = "100%")
+          shiny::dateInput("manual_date_start", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("manual_time_start", NULL, "08:00", width = "100%")
         ),
         shiny::tags$label("End:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("manual_data_fim", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("manual_hora_fim", NULL, "09:00", width = "100%")
+          shiny::dateInput("manual_date_end", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("manual_time_end", NULL, "09:00", width = "100%")
         ),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("desfazer_ponto_manual", "Undo", class = "btn-sm"),
-          shiny::actionButton("limpar_pontos_manual", "Clear", class = "btn-sm")
+          shiny::actionButton("undo_point_manual", "Undo", class = "btn-sm"),
+          shiny::actionButton("clear_points_manual", "Clear", class = "btn-sm")
         ),
         shiny::br(),
-        shiny::actionButton("adicionar_manual", "Add route", class = "btn-success btn-sm btn-block")
+        shiny::actionButton("add_manual", "Add route", class = "btn-success btn-sm btn-block")
       ),
       # Import file
       shiny::conditionalPanel(
-        "input.modo == 'Importar Arquivo'",
+        "input.mode == 'Import'",
         shiny::tags$div(
           shiny::tags$strong("Import File"),
           help_icon("Import a route from GeoJSON, GPX, KML, or GPKG. FlightRadar24 KML files are detected automatically and timestamps are extracted from the track.")
         ),
         shiny::fileInput(
-          "arquivo_geo", NULL,
+          "geo_file", NULL,
           accept = c(".geojson", ".json", ".gpx", ".kml", ".gpkg"),
           buttonLabel = "Browse...",
           placeholder = "GeoJSON/GPX/KML"
         ),
         shiny::radioButtons(
-          "direcao_arquivo", NULL,
-          choices = c("Normal" = "normal", "Reverse" = "inverter"),
+          "file_direction", NULL,
+          choices = c("Normal" = "normal", "Reverse" = "reverse"),
           selected = "normal", inline = TRUE
         ),
         shiny::selectInput(
@@ -297,20 +297,20 @@ ui <- shiny::fluidPage(
         shiny::tags$label("Start:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("import_data_inicio", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("import_hora_inicio", NULL, "08:00", width = "100%")
+          shiny::dateInput("import_date_start", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("import_time_start", NULL, "08:00", width = "100%")
         ),
         shiny::tags$label("End:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("import_data_fim", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("import_hora_fim", NULL, "09:00", width = "100%")
+          shiny::dateInput("import_date_end", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("import_time_end", NULL, "09:00", width = "100%")
         ),
-        shiny::actionButton("adicionar_import", "Add route", class = "btn-success btn-sm btn-block")
+        shiny::actionButton("add_import", "Add route", class = "btn-success btn-sm btn-block")
       ),
       # Edit Samples
       shiny::conditionalPanel(
-        "input.modo == 'Editar Samples'",
+        "input.mode == 'EditSamples'",
         shiny::tags$div(
           shiny::tags$strong("Edit Samples"),
           help_icon("Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options.")
@@ -318,19 +318,19 @@ ui <- shiny::fluidPage(
         shiny::tags$small("Load samples:"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("edit_samples_data_inicio", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("edit_samples_hora_inicio", NULL, "00:00", width = "100%")
+          shiny::dateInput("edit_samples_date_start", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("edit_samples_time_start", NULL, "00:00", width = "100%")
         ),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
-          shiny::dateInput("edit_samples_data_fim", NULL, Sys.Date(), width = "100%"),
-          shiny::textInput("edit_samples_hora_fim", NULL, "23:59", width = "100%")
+          shiny::dateInput("edit_samples_date_end", NULL, Sys.Date(), width = "100%"),
+          shiny::textInput("edit_samples_time_end", NULL, "23:59", width = "100%")
         ),
-        shiny::actionButton("carregar_samples", "Load", class = "btn-primary btn-sm btn-block"),
+        shiny::actionButton("load_samples", "Load", class = "btn-primary btn-sm btn-block"),
         shiny::splitLayout(
           cellWidths = c("60%", "40%"),
           shiny::selectInput(
-            "edit_osrm_perfil", NULL,
+            "edit_osrm_profile", NULL,
             choices = c("Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
                         "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"),
             selected = "car", width = "100%"
@@ -339,54 +339,54 @@ ui <- shiny::fluidPage(
                               title = "Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route")
         ),
         shiny::tags$div(
-          shiny::checkboxInput("modo_selecao", "Selection mode", FALSE),
+          shiny::checkboxInput("selection_mode", "Selection mode", FALSE),
           style = "display: inline-block; margin-bottom: 0;"
         ),
         help_icon("Draw a lasso on the map to select multiple samples at once for bulk ignore or discard."),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("ignorar_selecionados", "Ignore", class = "btn-xs"),
-          shiny::actionButton("descartar_selecionados", "Discard", class = "btn-xs btn-danger")
+          shiny::actionButton("ignore_selected", "Ignore", class = "btn-xs"),
+          shiny::actionButton("discard_selected", "Discard", class = "btn-xs btn-danger")
         ),
         shiny::br(),
         shiny::downloadButton("download_edit_arc", "Export (zip)", class = "btn-success btn-sm btn-block")
       ),
       # Edit Route
       shiny::conditionalPanel(
-        "input.modo == 'Editar Rota'",
+        "input.mode == 'EditRoute'",
         shiny::tags$div(
           shiny::tags$strong("Edit Route"),
           help_icon("Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes.")
         ),
         shiny::tags$small("Select a route from the timeline:"),
         shiny::selectInput(
-          "rota_editar_selecionada", "Route:",
+          "selected_route", "Route:",
           choices = NULL, width = "100%"
         ),
-        shiny::actionButton("carregar_rota_edit", "Load route", class = "btn-primary btn-sm btn-block"),
+        shiny::actionButton("load_route", "Load route", class = "btn-primary btn-sm btn-block"),
         shiny::hr(),
         shiny::tags$small("Drag: move nodes", style = "color: #666;"),
         shiny::br(),
         shiny::tags$small("Right-click: delete node", style = "color: #666;"),
         shiny::br(),
-        shiny::checkboxInput("modo_inserir_waypoint", "Insert waypoint mode", FALSE),
+        shiny::checkboxInput("insert_waypoint_mode", "Insert waypoint mode", FALSE),
         shiny::tags$small("Click the map to insert", style = "color: #888;"),
         shiny::hr(),
-        shiny::checkboxInput("modo_selecao_nodes", "Selection mode (lasso)", FALSE),
+        shiny::checkboxInput("node_selection_mode", "Selection mode (lasso)", FALSE),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("deletar_nodes_selecionados", "Delete sel.", class = "btn-xs btn-danger"),
-          shiny::actionButton("limpar_selecao_nodes", "Clear sel.", class = "btn-xs")
+          shiny::actionButton("delete_selected_nodes", "Delete sel.", class = "btn-xs btn-danger"),
+          shiny::actionButton("clear_node_selection", "Clear sel.", class = "btn-xs")
         ),
         shiny::hr(),
         shiny::splitLayout(
           cellWidths = c("50%", "50%"),
-          shiny::actionButton("aplicar_edicoes_rota", "Apply", class = "btn-success btn-sm"),
-          shiny::actionButton("cancelar_edicoes_rota", "Cancel", class = "btn-danger btn-sm")
+          shiny::actionButton("apply_route_edits", "Apply", class = "btn-success btn-sm"),
+          shiny::actionButton("cancel_route_edits", "Cancel", class = "btn-danger btn-sm")
         )
       ),
       shiny::hr(),
-      shiny::actionButton("limpar_tudo", "Clear all", class = "btn-danger")
+      shiny::actionButton("clear_all", "Clear all", class = "btn-danger")
     ),
 
     # Center column - map (width = 8)
@@ -546,7 +546,7 @@ ui <- shiny::fluidPage(
 
       // Listen to selection mode checkbox changes
       $(document).on('shiny:inputchanged', function(e) {
-        if (e.name === 'modo_selecao') {
+        if (e.name === 'selection_mode') {
           selectionMode = e.value;
 
           // Get map instance
@@ -772,7 +772,7 @@ ui <- shiny::fluidPage(
 
       // Listen to insert waypoint mode checkbox changes
       $(document).on('shiny:inputchanged', function(e) {
-        if (e.name === 'modo_inserir_waypoint') {
+        if (e.name === 'insert_waypoint_mode') {
           insertWaypointMode = e.value;
 
           var widget = HTMLWidgets.find('#map');
@@ -822,7 +822,7 @@ ui <- shiny::fluidPage(
 
       // Listen to node selection mode checkbox changes
       $(document).on('shiny:inputchanged', function(e) {
-        if (e.name === 'modo_selecao_nodes') {
+        if (e.name === 'node_selection_mode') {
           nodeSelectionMode = e.value;
 
           var widget = HTMLWidgets.find('#map');

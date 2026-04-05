@@ -60,7 +60,7 @@ activity_type_code <- function(name) {
   code
 }
 
-# ---- Moving/Recording state (inteiros no LocoKit2) ----
+# ---- Moving/Recording state (integers in LocoKit2) ----
 # movingState:  -1 = unknown, 0 = stationary, 1 = moving
 # recordingState: 1 = off/sleeping, 2 = recording
 
@@ -124,7 +124,7 @@ set_item_end_date <- function(it, date_str) {
 }
 
 # ---- Create LocomotionSamples (LocoKit2 flat format) ----
-criar_locomotion_samples <- function(coords,
+create_locomotion_samples <- function(coords,
                                      timestamps_utc,
                                      altitude = NULL,
                                      speed = NULL,
@@ -139,7 +139,7 @@ criar_locomotion_samples <- function(coords,
 
   if (is.null(altitude)) altitude <- rep(0, n)
   if (is.null(speed))    speed    <- rep(0, n)
-  if (is.null(heading))  heading  <- calcular_bearings(coords)
+  if (is.null(heading))  heading  <- calculate_bearings(coords)
 
   if (force_single_tz) {
     tz_all <- rep(tz_from_coords(coords[1, 2], coords[1, 1]), n)
@@ -191,12 +191,12 @@ criar_locomotion_samples <- function(coords,
 }
 
 # ---- Create visit TimelineItem (LocoKit2 format: base + visit) ----
-criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = NULL) {
+create_timeline_item_visit <- function(lat, lon, start_local, end_local, name = NULL) {
   tz <- tz_from_coords(lat, lon)
   if (is.na(tz)) tz <- "UTC"
 
-  inicio_utc <- lubridate::with_tz(inicio_local, tzone = "UTC")
-  fim_utc    <- lubridate::with_tz(fim_local,    tzone = "UTC")
+  inicio_utc <- lubridate::with_tz(start_local, tzone = "UTC")
+  fim_utc    <- lubridate::with_tz(end_local,    tzone = "UTC")
 
   sec_ini <- seconds_from_gmt(inicio_utc, tz)
 
@@ -209,7 +209,7 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
   ts_seq <- seq(inicio_utc, fim_utc, length.out = n_samp)
   coords <- cbind(rep(lon, n_samp), rep(lat, n_samp))
 
-  samples <- criar_locomotion_samples(
+  samples <- create_locomotion_samples(
     coords         = coords,
     timestamps_utc = ts_seq,
     altitude       = rep(0, n_samp),
@@ -225,7 +225,7 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
   place_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
   now_utc  <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ")
 
-  place_name <- nome %||% "Visit"
+  place_name <- name %||% "Visit"
 
   # Place object (LocoKit2 format)
   place <- list(
@@ -278,19 +278,19 @@ criar_timeline_item_visit <- function(lat, lon, inicio_local, fim_local, nome = 
     .place = place
   )
 
-  if (!is.null(nome) && nzchar(nome)) {
-    item$visit$customTitle <- nome
+  if (!is.null(name) && nzchar(name)) {
+    item$visit$customTitle <- name
   }
 
   list(item = item, samples = samples, place = place)
 }
 
 # ---- Create trip TimelineItem (LocoKit2 format: base + trip) ----
-criar_timeline_item_path <- function(timestamps_utc,
+create_timeline_item_path <- function(timestamps_utc,
                                      coords,
                                      sample_ids,
-                                     tipo = "rota",
-                                     descricao = NULL,
+                                     type = "route",
+                                     description = NULL,
                                      activity_type = "car") {
 
   n <- length(timestamps_utc)
@@ -348,8 +348,8 @@ criar_timeline_item_path <- function(timestamps_utc,
     # Internal fields used by the Shiny app
     .isVisit = FALSE,
     samples = sample_ids,
-    tipo = tipo,
-    descricao = descricao %||% "Trip",
+    type = type,
+    description = description %||% "Trip",
     activityType = activity_type
   )
 
