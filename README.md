@@ -7,7 +7,7 @@ A [Shiny](https://shiny.posit.co/) web app for manually constructing and editing
 Arc is great at automatic recording, but sometimes you need to fix or build timeline data manually:
 
 - **Snap-to-road** messy GPS paths using a local [OSRM](http://project-osrm.org/) server
-- **Fix metro/subway routes** where GPS was poor underground (see `railway/metro/` for reference geometries)
+- **Fix metro/subway routes** where GPS was poor underground
 - **Fill data gaps** where Arc lost recording
 - **Import flight tracks** from FlightRadar24 KML files
 - **Build timeline entries from scratch** when the phone was off
@@ -126,8 +126,6 @@ R/
   export_arc.R                # LocoKit2 JSON export
   ui.R                        # Shiny UI
   server.R                    # Shiny server
-railway/
-  metro/                       # Reference geometries for metro lines
 ```
 
 ## License
