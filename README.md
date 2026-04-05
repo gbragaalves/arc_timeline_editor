@@ -117,8 +117,6 @@ shiny::runApp()
 
 ```
 app.R                          # Entry point
-arc_timeline.R                 # Standalone timeline processing script
-preprocessar_location_history.R # Location History preprocessor (JSON → RDS cache)
 R/
   utils_time.R                 # Time/timezone helpers
   utils_geo.R                  # Geographic parsers, Location History loader
