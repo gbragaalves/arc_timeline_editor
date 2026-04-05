@@ -1,18 +1,18 @@
-# ---- Helpers de tempo / timezone ----
+# ---- Helpers: time / timezone ----
 
 formatar_hora <- function(hora_str) {
   if (is.null(hora_str) || is.na(hora_str)) return(NA_character_)
   hora_str <- trimws(hora_str)
   if (hora_str == "") return(NA_character_)
 
-  # Se já está no formato H:M, HH:MM, HH:MM:SS etc.
+  # If already in H:M, HH:MM, HH:MM:SS format etc.
   if (grepl("^\\d{1,2}:\\d{2}(:\\d{2})?$", hora_str)) {
     parts <- strsplit(hora_str, ":", fixed = TRUE)[[1]]
     h <- as.integer(parts[1])
     m <- as.integer(parts[2])
     s <- if (length(parts) >= 3) as.integer(parts[3]) else 0L
   } else {
-    # Pega só dígitos
+    # Extract digits only
     d <- gsub("\\D", "", hora_str)
     if (nchar(d) == 0) return(NA_character_)
 
@@ -27,7 +27,7 @@ formatar_hora <- function(hora_str) {
       m <- as.integer(substr(d, 2, 3))
       s <- 0L
     } else {
-      # "0400", "1230", "123045" -> usa só os 4 primeiros
+      # "0400", "1230", "123045" -> use only the first 4 digits
       d <- substr(d, 1, 4)
       h <- as.integer(substr(d, 1, 2))
       m <- as.integer(substr(d, 3, 4))
@@ -37,7 +37,7 @@ formatar_hora <- function(hora_str) {
 
   if (is.na(h) || is.na(m) || is.na(s)) return(NA_character_)
 
-  # Garante faixas válidas
+  # Ensure valid ranges
   h <- max(0L, min(23L, h))
   m <- max(0L, min(59L, m))
   s <- max(0L, min(59L, s))
@@ -45,7 +45,7 @@ formatar_hora <- function(hora_str) {
   sprintf("%02d:%02d:%02d", h, m, s)
 }
 
-# Parse genérico de timestamps ISO 8601 em UTC
+# Generic ISO 8601 timestamp parser in UTC
 parse_timestamp_utc <- function(x) {
   if (is.null(x) || length(x) == 0) return(NULL)
   ts <- suppressWarnings(lubridate::ymd_hms(x, tz = "UTC", quiet = TRUE))
@@ -65,7 +65,7 @@ tz_from_coords <- local({
   cache <- new.env(parent = emptyenv())
 
   function(lat, lon) {
-    # Arredonda pra evitar chaves demais pra pontos quase iguais
+    # Round to avoid too many keys for nearly identical points
     key <- paste0(round(lat, 4), ":", round(lon, 4))
     if (exists(key, envir = cache, inherits = FALSE)) {
       return(get(key, envir = cache))
@@ -88,19 +88,19 @@ tz_from_coords <- local({
 })
 
 
-# Calcula secondsFromGMT para um instante UTC em um timezone
+# Calculate secondsFromGMT for a UTC instant in a timezone
 seconds_from_gmt <- function(ts_utc, tz) {
   local_time <- lubridate::with_tz(ts_utc, tzone = tz)
-  # formato +HHMM / -HHMM
+  # format +HHMM / -HHMM
   off_str <- format(local_time, "%z")
-  # "+0300" -> 3 horas -> 10800 seg
+  # "+0300" -> 3 hours -> 10800 sec
   sign <- ifelse(substr(off_str, 1, 1) == "-", -1L, 1L)
   h <- as.integer(substr(off_str, 2, 3))
   m <- as.integer(substr(off_str, 4, 5))
   sign * (h * 3600L + m * 60L)
 }
 
-# Valida intervalo (data/hora local) num fuso
+# Validate interval (local date/time) in a timezone
 validar_intervalo <- function(data_ini, hora_ini, data_fim, hora_fim, tz) {
   hora_ini_fmt <- formatar_hora(hora_ini)
   hora_fim_fmt <- formatar_hora(hora_fim)

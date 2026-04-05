@@ -1,10 +1,10 @@
-# ---- Helpers: Parsers geográficos e cálculos ----
+# ---- Helpers: Geographic parsers and calculations ----
 
-# Calcula bearing geodésico entre pontos consecutivos
-# coords: matriz n x 2 (lon, lat)
-# Retorna vetor de n bearings (0-360 graus)
+# Calculate geodesic bearing between consecutive points
+# coords: n x 2 matrix (lon, lat)
+# Returns vector of n bearings (0-360 degrees)
 calcular_bearings <- function(coords) {
-  # Converte para matriz numérica se necessário
+  # Convert to numeric matrix if needed
   if (is.data.frame(coords)) coords <- as.matrix(coords)
   if (!is.matrix(coords)) {
     coords <- matrix(as.numeric(unlist(coords)), ncol = 2, byrow = TRUE)
@@ -22,23 +22,23 @@ calcular_bearings <- function(coords) {
     bearings[i] <- geosphere::bearing(p1, p2)
   }
 
-  # Último ponto: mantém o mesmo bearing do penúltimo
+  # Last point: keep the same bearing as the second-to-last
   bearings[n] <- bearings[n - 1]
 
-  # Normaliza para 0-360 (bearing pode retornar negativos)
+  # Normalize to 0-360 (bearing can return negative values)
   bearings <- bearings %% 360
 
   bearings
 }
 
-# Limpa e ordena trilha de voo FR24
+# Clean and sort FR24 flight track
 limpar_trajeto_fr24 <- function(df,
                                 ts_col  = "timestamp",
                                 lon_col = "longitude",
                                 lat_col = "latitude") {
-  # Garante colunas básicas
+  # Ensure required columns exist
   if (!all(c(ts_col, lon_col, lat_col) %in% names(df))) {
-    stop("Data frame do FR24 não tem as colunas esperadas: ",
+    stop("FR24 data frame is missing expected columns: ",
          ts_col, ", ", lon_col, ", ", lat_col)
   }
 
@@ -48,23 +48,23 @@ limpar_trajeto_fr24 <- function(df,
   lon <- suppressWarnings(as.numeric(df[[lon_col]]))
   lat <- suppressWarnings(as.numeric(df[[lat_col]]))
 
-  # remove linhas quebradas
+  # remove broken rows
   ok <- !is.na(ts_utc) & !is.na(lon) & !is.na(lat)
   ts_utc <- ts_utc[ok]
   lon    <- lon[ok]
   lat    <- lat[ok]
 
   if (length(ts_utc) < 2) {
-    stop("Trilha FR24 tem menos de 2 pontos válidos.")
+    stop("FR24 track has fewer than 2 valid points.")
   }
 
-  # ordena por tempo
+  # sort by time
   ord    <- order(ts_utc)
   ts_utc <- ts_utc[ord]
   lon    <- lon[ord]
   lat    <- lat[ord]
 
-  # remove duplicados exatos consecutivos
+  # remove exact consecutive duplicates
   dup <- c(FALSE,
            ts_utc[-1] == ts_utc[-length(ts_utc)] &
              lon[-1]  == lon[-length(lon)] &
@@ -82,7 +82,7 @@ limpar_trajeto_fr24 <- function(df,
   )
 }
 
-# Distância de um trajeto em km (pares consecutivos)
+# Distance of a trajectory in km (consecutive pairs)
 trajeto_distancia_km <- function(coords) {
   n <- nrow(coords)
   if (is.null(n) || n < 2) return(0)
@@ -95,7 +95,7 @@ trajeto_distancia_km <- function(coords) {
 }
 
 
-# Parser KML enriquecido (FlightRadar24)
+# Rich KML parser (FlightRadar24)
 parse_kml_rich <- function(kml_file) {
   kml <- tryCatch(xml2::read_xml(kml_file), error = function(e) NULL)
   if (is.null(kml)) return(NULL)
@@ -127,14 +127,14 @@ parse_kml_rich <- function(kml_file) {
     desc_node <- xml2::xml_find_first(pm, ".//d1:description", ns)
     desc <- if (!inherits(desc_node, "xml_missing")) xml2::xml_text(desc_node) else ""
 
-    # altitude em pés -> metros
+    # altitude in feet -> meters
     alt_ft <- stringr::str_match(desc, "Altitude[: ]+([0-9.,]+) ?ft")[, 2]
     if (!is.na(alt_ft)) {
       alt_ft_num <- as.numeric(gsub(",", "", alt_ft))
       if (!is.na(alt_ft_num)) altitude_m <- alt_ft_num * 0.3048
     }
 
-    # speed em nós -> m/s
+    # speed in knots -> m/s
     speed_mps <- NA_real_
     spd_knots <- stringr::str_match(desc, "Speed[: ]+([0-9.,]+) ?kt")[, 2]
     if (!is.na(spd_knots)) {
@@ -170,10 +170,10 @@ parse_kml_rich <- function(kml_file) {
 }
 
 
-# ---- Location History do Google ----
+# ---- Google Location History ----
 
-# Carrega e parseia arquivo Location History do Google
-# Retorna data.frame com: start_time, end_time, lat, lon, tipo (visit/activity)
+# Load and parse Google Location History file
+# Returns data.frame with: start_time, end_time, lat, lon, tipo (visit/activity)
 carregar_location_history <- function(arquivo) {
   if (!file.exists(arquivo)) return(NULL)
 
@@ -184,7 +184,7 @@ carregar_location_history <- function(arquivo) {
   if (is.null(dados) || length(dados) == 0) return(NULL)
 
   registros <- lapply(dados, function(item) {
-    # Parseia ISO8601 com offset (ex: 2024-09-10T08:33:50.000-03:00)
+    # Parse ISO8601 with offset (e.g.: 2024-09-10T08:33:50.000-03:00)
     start_time <- tryCatch({
       ts <- lubridate::ymd_hms(item$startTime)
       lubridate::with_tz(ts, "UTC")
@@ -197,9 +197,9 @@ carregar_location_history <- function(arquivo) {
 
     if (is.na(start_time) || is.na(end_time)) return(NULL)
 
-    # Extrai coordenadas
+    # Extract coordinates
     if (!is.null(item$visit)) {
-      # É uma visita
+      # It's a visit
       loc_str <- item$visit$topCandidate$placeLocation
       coords <- parse_geo_string(loc_str)
       if (is.null(coords)) return(NULL)
@@ -215,7 +215,7 @@ carregar_location_history <- function(arquivo) {
         stringsAsFactors = FALSE
       )
     } else if (!is.null(item$activity)) {
-      # É uma atividade (trajeto)
+      # It's an activity (trajectory)
       start_coords <- parse_geo_string(item$activity$start)
       end_coords   <- parse_geo_string(item$activity$end)
       if (is.null(start_coords) || is.null(end_coords)) return(NULL)
@@ -241,7 +241,7 @@ carregar_location_history <- function(arquivo) {
   do.call(rbind, registros)
 }
 
-# Parseia string "geo:lat,lon" para lista(lat, lon)
+# Parse "geo:lat,lon" string to list(lat, lon)
 parse_geo_string <- function(geo_str) {
   if (is.null(geo_str) || !grepl("^geo:", geo_str)) return(NULL)
 
@@ -257,18 +257,18 @@ parse_geo_string <- function(geo_str) {
   list(lat = lat, lon = lon)
 }
 
-# Filtra Location History por data (considera timezone local)
+# Filter Location History by date (considering local timezone)
 filtrar_location_history_por_data <- function(df, data_alvo, tz_local = Sys.timezone()) {
   if (is.null(df) || nrow(df) == 0) return(NULL)
 
-  # Converte data_alvo para range de timestamps UTC
+  # Convert data_alvo to UTC timestamp range
   inicio_local <- lubridate::ymd_hms(paste(data_alvo, "00:00:00"), tz = tz_local)
   fim_local    <- lubridate::ymd_hms(paste(data_alvo, "23:59:59"), tz = tz_local)
 
   inicio_utc <- lubridate::with_tz(inicio_local, "UTC")
   fim_utc    <- lubridate::with_tz(fim_local, "UTC")
 
-  # Filtra registros que se sobrepõem ao dia
+  # Filter records that overlap with the day
   df_filtrado <- df[
     (df$start_time <= fim_utc & df$end_time >= inicio_utc),
   ]
@@ -278,38 +278,38 @@ filtrar_location_history_por_data <- function(df, data_alvo, tz_local = Sys.time
   df_filtrado
 }
 
-# ---- Carregamento otimizado via cache RDS ----
+# ---- Optimized loading via RDS cache ----
 
 CACHE_DIR <- "location_history/cache"
 
-# Verifica se cache existe para uma pessoa
+# Check if cache exists for a person
 cache_existe <- function(pessoa_id) {
   indice_file <- file.path(CACHE_DIR, pessoa_id, "_indice.rds")
   file.exists(indice_file)
 }
 
-# Carrega dados de uma pessoa para uma data específica (via cache RDS)
+# Load data for a person on a specific date (via RDS cache)
 carregar_lh_por_data <- function(pessoa_id, data_alvo, tz_local = Sys.timezone()) {
   pessoa_dir <- file.path(CACHE_DIR, pessoa_id)
   indice_file <- file.path(pessoa_dir, "_indice.rds")
 
   if (!file.exists(indice_file)) return(NULL)
 
-  # Determina qual(is) mês(es) carregar
-  # A data pode estar em UTC diferente do mês local
+  # Determine which month(s) to load
+  # The date may be in a different UTC month than the local month
   inicio_local <- lubridate::ymd_hms(paste(data_alvo, "00:00:00"), tz = tz_local)
   fim_local    <- lubridate::ymd_hms(paste(data_alvo, "23:59:59"), tz = tz_local)
 
   inicio_utc <- lubridate::with_tz(inicio_local, "UTC")
   fim_utc    <- lubridate::with_tz(fim_local, "UTC")
 
-  # Meses que podem conter dados do dia (considerando timezone)
+  # Months that may contain data for the day (considering timezone)
   meses_necessarios <- unique(c(
     format(inicio_utc, "%Y-%m"),
     format(fim_utc, "%Y-%m")
   ))
 
-  # Carrega apenas os RDS necessários
+  # Load only the necessary RDS files
   dfs <- lapply(meses_necessarios, function(mes) {
     rds_file <- file.path(pessoa_dir, paste0(mes, ".rds"))
     if (file.exists(rds_file)) {
@@ -324,7 +324,7 @@ carregar_lh_por_data <- function(pessoa_id, data_alvo, tz_local = Sys.timezone()
 
   df <- do.call(rbind, dfs)
 
-  # Filtra para o dia específico
+  # Filter for the specific day
   df_filtrado <- df[
     (df$start_time <= fim_utc & df$end_time >= inicio_utc),
   ]
@@ -334,7 +334,7 @@ carregar_lh_por_data <- function(pessoa_id, data_alvo, tz_local = Sys.timezone()
   df_filtrado
 }
 
-# Formata data/hora para tooltip (ex: "05/jun. 14:30")
+# Format date/time for tooltip (e.g.: "05/jun. 14:30")
 formatar_data_hora_lh <- function(timestamp, tz_local = Sys.timezone()) {
   ts_local <- lubridate::with_tz(timestamp, tz_local)
 

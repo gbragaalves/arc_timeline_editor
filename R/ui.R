@@ -107,7 +107,7 @@ ui <- shiny::fluidPage(
       shiny::radioButtons(
         "modo",
         "Edit mode",
-        choices = c("OSRM", "Visita" = "Visita", "Manual Route" = "Rota Manual", "Import File" = "Importar Arquivo", "Edit Samples" = "Editar Samples", "Edit Route" = "Editar Rota"),
+        choices = c("OSRM", "Visit" = "Visita", "Manual Route" = "Rota Manual", "Import File" = "Importar Arquivo", "Edit Samples" = "Editar Samples", "Edit Route" = "Editar Rota"),
         selected = "OSRM"
       ),
       shiny::hr(),

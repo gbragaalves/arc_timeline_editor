@@ -1,6 +1,6 @@
-# ---- Helpers: semanas + samples_apagar + overlap ----
+# ---- Helpers: weeks + samples_to_delete + overlap ----
 
-# Carrega samples existentes de um intervalo de tempo dos arquivos semanais
+# Load existing samples from a time interval from weekly files
 carregar_samples_intervalo <- function(inicio_utc, fim_utc, semana_dir = SEMANA_DIR) {
   if (is.null(inicio_utc) || is.null(fim_utc) || is.na(inicio_utc) || is.na(fim_utc)) {
     return(list())
@@ -38,7 +38,7 @@ carregar_samples_intervalo <- function(inicio_utc, fim_utc, semana_dir = SEMANA_
     }
   }
 
-  # Ordena por timestamp
+  # Sort by timestamp
   if (length(samples_encontrados) > 0) {
     ts_vec <- vapply(samples_encontrados, function(s) {
       as.numeric(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
@@ -49,20 +49,20 @@ carregar_samples_intervalo <- function(inicio_utc, fim_utc, semana_dir = SEMANA_
   samples_encontrados
 }
 
-# Dado um intervalo [ini_utc, fim_utc], gera nomes de arquivos semanais envolvidos
+# Given an interval [ini_utc, fim_utc], generate the names of involved weekly files
 semanas_para_intervalo <- function(ini_utc, fim_utc) {
   if (ini_utc > fim_utc) return(character(0))
   dias <- seq(lubridate::floor_date(ini_utc, "day"), lubridate::ceiling_date(fim_utc, "day"), by = "1 day")
   unique(strftime(dias, "%G-W%V"))
 }
 
-# Gera lista de samples marcados como deleted com base nos itens novos
+# Generate list of samples marked as deleted based on the new items
 gerar_samples_apagar <- function(timeline_items, semana_dir = SEMANA_DIR) {
   if (length(timeline_items) == 0) return(list())
 
-  # Intervalos de cada item
+  # Intervals of each item
   intervalos <- lapply(timeline_items, function(it) {
-    # Suporta formato LocoKit2 (base$startDate como string) e antigo
+    # Supports LocoKit2 format (base$startDate as string) and legacy
     start_str <- it$base$startDate %||% it$startDate$date %||% it$startDate
     end_str   <- it$base$endDate   %||% it$endDate$date   %||% it$endDate
 
@@ -119,7 +119,7 @@ gerar_samples_apagar <- function(timeline_items, semana_dir = SEMANA_DIR) {
 }
 
 
-# Verifica se [inicio_utc, fim_utc] se sobrepõe a algum item da timeline
+# Check if [inicio_utc, fim_utc] overlaps any item in the timeline
 has_overlap <- function(timeline_items, inicio_utc, fim_utc, ignore_id = NULL) {
   if (length(timeline_items) == 0) return(FALSE)
   if (is.null(inicio_utc) || is.null(fim_utc) || is.na(inicio_utc) || is.na(fim_utc)) return(FALSE)
@@ -127,7 +127,7 @@ has_overlap <- function(timeline_items, inicio_utc, fim_utc, ignore_id = NULL) {
   any(vapply(timeline_items, function(it) {
     if (!is.null(ignore_id) && identical(it$.internalId, ignore_id)) return(FALSE)
 
-    # Suporta formato LocoKit2 (base$startDate) e antigo (startDate$date)
+    # Supports LocoKit2 format (base$startDate) and legacy (startDate$date)
     start_str <- it$base$startDate %||% it$startDate$date %||% it$startDate
     end_str   <- it$base$endDate   %||% it$endDate$date   %||% it$endDate
 
@@ -139,7 +139,7 @@ has_overlap <- function(timeline_items, inicio_utc, fim_utc, ignore_id = NULL) {
   }, logical(1)))
 }
 
-# Carrega TODOS os samples de um timelineItemId específico
+# Load ALL samples for a specific timelineItemId
 carregar_samples_por_timeline_item <- function(timeline_item_id, semana_dir = SEMANA_DIR) {
   if (is.null(timeline_item_id) || !nzchar(timeline_item_id)) return(list())
 

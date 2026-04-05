@@ -20,34 +20,34 @@ suavizar_rota_osrm <- function(coords, tolerancia_m = 5, angulo_min = 1) {
       manter[i] <- FALSE
     }
   }
-  # Sempre mantém primeiro e último
+  # Always keep first and last
   manter[1] <- TRUE
   manter[n] <- TRUE
   coords <- coords[manter, , drop = FALSE]
   n <- nrow(coords)
   if (n < 3) return(coords)
 
-  # Passo 2: Remove pontos em linha reta (sem mudança de direção significativa)
+  # Step 2: Remove collinear points (no significant direction change)
   manter <- rep(FALSE, n)
-  manter[1] <- TRUE  # primeiro
-  manter[n] <- TRUE  # último
+  manter[1] <- TRUE  # first
+  manter[n] <- TRUE  # last
 
   for (i in 2:(n - 1)) {
-    # Bearing do segmento anterior
+    # Bearing of the previous segment
     b1 <- geosphere::bearing(
       c(coords[i - 1, 1], coords[i - 1, 2]),
       c(coords[i, 1], coords[i, 2])
     )
-    # Bearing do segmento seguinte
+    # Bearing of the next segment
     b2 <- geosphere::bearing(
       c(coords[i, 1], coords[i, 2]),
       c(coords[i + 1, 1], coords[i + 1, 2])
     )
 
-    # Diferença angular (considerando wrap-around)
+    # Angular difference (accounting for wrap-around)
     diff_ang <- abs((b2 - b1 + 180) %% 360 - 180)
 
-    # Mantém se mudança de direção > angulo_min
+    # Keep if direction change > angulo_min
     if (diff_ang > angulo_min) {
       manter[i] <- TRUE
     }
@@ -57,8 +57,8 @@ suavizar_rota_osrm <- function(coords, tolerancia_m = 5, angulo_min = 1) {
   n <- nrow(coords)
   if (n < 2) return(coords)
 
-  # Passo 3: Garante espaçamento mínimo entre pontos mantidos
-  # (evita clusters de pontos muito próximos após filtragem por ângulo)
+  # Step 3: Ensure minimum spacing between kept points
+  # (avoids clusters of very close points after angle filtering)
   final <- matrix(coords[1, ], nrow = 1)
   colnames(final) <- colnames(coords)
 
@@ -72,13 +72,13 @@ suavizar_rota_osrm <- function(coords, tolerancia_m = 5, angulo_min = 1) {
     }
   }
 
-  # Sempre inclui o último ponto
+  # Always include the last point
   final <- rbind(final, coords[n, ])
 
   final
 }
 
-# Servidores OSRM locais (ajuste portas se necessário)
+# Local OSRM servers (adjust ports if needed)
 OSRM_SERVERS <- list(
   car  = "http://127.0.0.1:5000",
   foot = "http://127.0.0.1:5001",
@@ -86,16 +86,16 @@ OSRM_SERVERS <- list(
   bus  = "http://127.0.0.1:5003"
 )
 
-# Mapeamento de perfis do app para perfis OSRM
+# Mapping of app profiles to OSRM profiles
 OSRM_PROFILES <- list(
   car  = "driving",
   foot = "foot",
   bike = "bicycle",
-  bus  = "driving"  # perfil customizado baseado em driving
+  bus  = "driving"  # custom profile based on driving
 )
 
 check_osrm_server <- function(base_url, perfil = "car") {
-  # tenta uma request mínima, só pra ver se responde
+  # try a minimal request just to check if the server responds
   osrm_profile <- OSRM_PROFILES[[perfil]] %||% "driving"
   test_url <- paste0(base_url, "/route/v1/", osrm_profile, "/0,0;0,0")
   res <- tryCatch(
@@ -131,7 +131,7 @@ calcular_rota_osrm <- function(pontos, perfil = c("car", "foot", "bike", "bus"))
   route <- js$routes[[1]]
   coords <- route$geometry$coordinates
 
-  # Converte lista de coordenadas para matriz numérica
+  # Convert coordinate list to numeric matrix
   n_coords <- length(coords)
   coords_mat <- matrix(0, nrow = n_coords, ncol = 2)
   for (i in seq_len(n_coords)) {
@@ -149,8 +149,8 @@ calcular_rota_osrm <- function(pontos, perfil = c("car", "foot", "bike", "bus"))
   )
 }
 
-# Recalcula um segmento de rota entre dois pontos via OSRM
-# Retorna: list(coords, distance_m)
+# Recalculate a route segment between two points via OSRM
+# Returns: list(coords, distance_m)
 recalcular_segmento <- function(from_lat, from_lng, to_lat, to_lng,
                                 perfil = c("car", "foot", "bike", "bus")) {
   perfil <- match.arg(perfil)
@@ -163,7 +163,7 @@ recalcular_segmento <- function(from_lat, from_lng, to_lat, to_lng,
   rota <- calcular_rota_osrm(pts, perfil = perfil)
 
   if (is.null(rota) || is.null(rota$coords)) {
-    # Fallback: linha reta entre os pontos
+    # Fallback: straight line between points
     coords <- matrix(c(from_lng, to_lng, from_lat, to_lat), ncol = 2)
     colnames(coords) <- c("lon", "lat")
     distance_m <- geosphere::distHaversine(c(from_lng, from_lat), c(to_lng, to_lat))
@@ -174,7 +174,7 @@ recalcular_segmento <- function(from_lat, from_lng, to_lat, to_lng,
     ))
   }
 
-  # Aplica suavizacao para reduzir pontos redundantes
+  # Apply smoothing to reduce redundant points
   coords_smooth <- suavizar_rota_osrm(rota$coords, tolerancia_m = 5, angulo_min = 2)
 
   list(
@@ -183,23 +183,23 @@ recalcular_segmento <- function(from_lat, from_lng, to_lat, to_lng,
   )
 }
 
-# Recalcula timestamps para uma rota editada mantendo velocidade media original
-# coords: matriz n x 2 (lon, lat)
-# start_time_utc: POSIXct do inicio da rota
-# avg_speed_mps: velocidade media em metros por segundo
-# Retorna: list(timestamps_utc, end_time_utc, total_distance_m, total_duration_s)
+# Recalculate timestamps for an edited route keeping original average speed
+# coords: n x 2 matrix (lon, lat)
+# start_time_utc: POSIXct of the route start
+# avg_speed_mps: average speed in meters per second
+# Returns: list(timestamps_utc, end_time_utc, total_distance_m, total_duration_s)
 recalcular_tempos_rota <- function(coords, start_time_utc, avg_speed_mps) {
   if (!is.matrix(coords)) coords <- as.matrix(coords)
   n <- nrow(coords)
-  if (n < 2) stop("Rota deve ter pelo menos 2 pontos")
+  if (n < 2) stop("Route must have at least 2 points")
 
-  # Valida velocidade media (minimo 1 m/s = 3.6 km/h, maximo 55.5 m/s = 200 km/h)
+  # Validate average speed (minimum 1 m/s = 3.6 km/h, maximum 55.5 m/s = 200 km/h)
   if (is.null(avg_speed_mps) || is.na(avg_speed_mps) || avg_speed_mps <= 0) {
-    avg_speed_mps <- 8.33  # 30 km/h padrao
+    avg_speed_mps <- 8.33  # 30 km/h default
   }
   if (avg_speed_mps > 55.5) avg_speed_mps <- 55.5
 
-  # Calcula distancia acumulada ao longo da rota
+  # Calculate accumulated distance along the route
   dist_acum <- numeric(n)
   dist_acum[1] <- 0
   for (i in 2:n) {
@@ -209,16 +209,16 @@ recalcular_tempos_rota <- function(coords, start_time_utc, avg_speed_mps) {
   }
   total_distance <- dist_acum[n]
 
-  # Se distancia total for 0, assume distancia minima
+  # If total distance is 0, assume minimum distance
   if (total_distance <= 0) total_distance <- 1
 
-  # Calcula duracao baseado na velocidade media
+  # Calculate duration based on average speed
   total_duration_s <- total_distance / avg_speed_mps
 
-  # Duracao minima de 60 segundos
+  # Minimum duration of 60 seconds
   if (total_duration_s < 60) total_duration_s <- 60
 
-  # Distribui timestamps proporcionalmente a distancia
+  # Distribute timestamps proportionally to distance
   timestamps <- start_time_utc + (dist_acum / total_distance) * total_duration_s
   end_time <- start_time_utc + total_duration_s
 
@@ -230,12 +230,12 @@ recalcular_tempos_rota <- function(coords, start_time_utc, avg_speed_mps) {
   )
 }
 
-# Encontra o segmento mais proximo de um ponto clicado
-# Retorna: indice do segmento ou NULL
+# Find the closest segment to a clicked point
+# Returns: segment index or NULL
 find_closest_segment <- function(click_lat, click_lng, nodes, segments) {
   if (length(segments) == 0) return(NULL)
 
-  # Cria lookup de nos por ID
+  # Create node lookup by ID
   node_lookup <- stats::setNames(
     lapply(nodes, function(n) c(lng = n$lng, lat = n$lat)),
     vapply(nodes, `[[`, "", "id")
@@ -248,7 +248,7 @@ find_closest_segment <- function(click_lat, click_lng, nodes, segments) {
     seg <- segments[[i]]
 
     if (!is.null(seg$coords) && nrow(seg$coords) >= 2) {
-      # Verifica distancia a cada sub-segmento da polyline
+      # Check distance to each sub-segment of the polyline
       for (j in 1:(nrow(seg$coords) - 1)) {
         dist <- point_to_segment_distance(
           click_lng, click_lat,
@@ -261,7 +261,7 @@ find_closest_segment <- function(click_lat, click_lng, nodes, segments) {
         }
       }
     } else {
-      # Fallback: linha reta entre nos
+      # Fallback: straight line between nodes
       from <- node_lookup[[seg$from_node]]
       to <- node_lookup[[seg$to_node]]
       if (!is.null(from) && !is.null(to)) {
@@ -281,17 +281,17 @@ find_closest_segment <- function(click_lat, click_lng, nodes, segments) {
   closest_idx
 }
 
-# Distancia de um ponto a um segmento de linha (em metros)
+# Distance from a point to a line segment (in meters)
 point_to_segment_distance <- function(px, py, x1, y1, x2, y2) {
   dx <- x2 - x1
   dy <- y2 - y1
 
   if (dx == 0 && dy == 0) {
-    # Segmento e um ponto
+    # Segment is a single point
     return(geosphere::distHaversine(c(px, py), c(x1, y1)))
   }
 
-  # Projeta ponto no segmento
+  # Project point onto segment
   t <- max(0, min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)))
 
   proj_x <- x1 + t * dx
@@ -300,7 +300,7 @@ point_to_segment_distance <- function(px, py, x1, y1, x2, y2) {
   geosphere::distHaversine(c(px, py), c(proj_x, proj_y))
 }
 
-# Extrai coordenadas de uma lista de samples (compatível LocoKit2)
+# Extract coordinates from a list of samples (LocoKit2 compatible)
 extract_coords_from_samples <- function(samples) {
   n <- length(samples)
   coords <- matrix(0, nrow = n, ncol = 2)
