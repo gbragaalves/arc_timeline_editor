@@ -154,6 +154,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     samples_by_week[[week_key]][[length(samples_by_week[[week_key]]) + 1L]] <- s_export
   }
 
+  # Write all weekly files
   for (week_key in names(samples_by_week)) {
     gz_path <- file.path(sample_dir, paste0(week_key, ".json.gz"))
     json_str <- jsonlite::toJSON(
@@ -165,23 +166,6 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     con <- gzfile(gz_path, "w")
     writeLines(json_str, con)
     close(con)
-  }
-
-  # ---- Samples to delete (based on existing weekly files) ----
-  apagar <- gerar_samples_apagar(timeline_items, semana_dir = SEMANA_DIR)
-
-  if (length(apagar) > 0) {
-    apagar_gz <- file.path(sample_dir, "samples_apagar.json.gz")
-    json_str <- jsonlite::toJSON(
-      apagar,
-      auto_unbox = TRUE,
-      pretty     = TRUE,
-      digits     = NA
-    )
-    con <- gzfile(apagar_gz, "w")
-    writeLines(json_str, con)
-    close(con)
-    message("samples_apagar.json.gz criado com ", length(apagar), " samples para deletar")
   }
 
   # ---- Places: collect from visit items and write to places/{N}.json ----
@@ -217,7 +201,7 @@ exportar_arc_json <- function(timeline_items, samples, output_dir, data_trabalho
     sessionStartDate = now_utc,
     sessionFinishDate = now_utc,
     exportMode       = "bucketed",
-    exportType       = "full",
+    exportType       = "incremental",
     schemaVersion    = "2.2.0",
     stats = list(
       itemCount   = n_items,

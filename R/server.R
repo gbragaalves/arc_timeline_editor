@@ -264,10 +264,13 @@ server <- function(input, output, session) {
     }
   })
 
-  # Auto-format time inputs (only when they look complete)
+  # Auto-format time inputs with debounce (gives time to type seconds)
   auto_format_time <- function(id) {
-    shiny::observeEvent(input[[id]], {
-      val <- input[[id]]
+    val_reactive <- shiny::reactive({ input[[id]] })
+    val_debounced <- shiny::debounce(val_reactive, millis = 1500)
+
+    shiny::observeEvent(val_debounced(), {
+      val <- val_debounced()
       if (is.null(val) || !nzchar(val)) return()
 
       # ONLY FORMAT if at least 3 characters typed (avoids formatting while typing)
@@ -1725,15 +1728,29 @@ server <- function(input, output, session) {
         )
     }
 
-    # ---- ARC SAMPLES (draggable pins) ----
+    # ---- ARC SAMPLES (draggable pins with timestamp popup) ----
     for (i in seq_along(samples)) {
       is_ignored <- ids[i] %in% ignored
+      # Format timestamp for popup (UTC -> local)
+      ts_str <- samples[[i]]$date
+      popup_text <- ""
+      if (!is.null(ts_str) && nzchar(ts_str)) {
+        ts_utc <- tryCatch(
+          as.POSIXct(ts_str, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+          error = function(e) NA
+        )
+        if (!is.na(ts_utc)) {
+          ts_local <- lubridate::with_tz(ts_utc, Sys.timezone())
+          popup_text <- format(ts_local, "%H:%M:%S")
+        }
+      }
       proxy <- proxy %>%
         leaflet::addMarkers(
           lng = lngs[i],
           lat = lats[i],
           layerId = ids[i],
           group = "edit_samples",
+          popup = popup_text,
           options = leaflet::markerOptions(draggable = TRUE)
         )
     }
@@ -2441,7 +2458,7 @@ server <- function(input, output, session) {
   # Download corrected samples
   output$download_edit_arc <- shiny::downloadHandler(
     filename = function() {
-      paste0("arc_edit_", format(Sys.Date(), "%Y%m%d"), ".zip")
+      "Import.zip"
     },
     content = function(file) {
       all_edit_samples <- edit_samples()
@@ -2496,7 +2513,13 @@ server <- function(input, output, session) {
         }
       }
 
-      # Group by ISO week and generate .json.gz
+      # Generate new timeline item ID and link to all new samples
+      new_item_id <- toupper(uuid::UUIDgenerate(use.time = TRUE))
+      for (i in seq_along(samples_novos)) {
+        samples_novos[[i]]$timelineItemId <- new_item_id
+      }
+
+      # Group by ISO week
       samples_by_week <- list()
       for (s in samples_novos) {
         ts <- tryCatch(
@@ -2511,6 +2534,9 @@ server <- function(input, output, session) {
         samples_by_week[[week_key]][[length(samples_by_week[[week_key]]) + 1L]] <- s
       }
 
+      originais <- original_samples()
+
+      # Write all weekly files
       for (week_key in names(samples_by_week)) {
         gz_path <- file.path(sample_dir, paste0(week_key, ".json.gz"))
         json_str <- jsonlite::toJSON(samples_by_week[[week_key]], auto_unbox = TRUE, pretty = TRUE, digits = NA)
@@ -2519,46 +2545,85 @@ server <- function(input, output, session) {
         close(con)
       }
 
-      # ---- SAMPLES TO DELETE ----
-      originais <- original_samples()
-      samples_apagar <- list()
-      for (i in seq_along(originais)) {
-        s <- originais[[i]]
-        if (!(sample_id(s) %in% ignored)) {
-          s$deleted <- TRUE
-          s$lastSaved <- current_timestamp
-          samples_apagar[[length(samples_apagar) + 1L]] <- s
-        }
-      }
+      # ---- TIMELINE ITEMS ----
+      # Determine start/end from new samples
+      ts_novos <- vapply(samples_novos, function(s) {
+        as.numeric(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
+      }, numeric(1))
+      start_date_str <- format(as.POSIXct(min(ts_novos), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
+      end_date_str   <- format(as.POSIXct(max(ts_novos), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ")
 
-      if (length(samples_apagar) > 0) {
-        # Group deletions by week as well
-        apagar_by_week <- list()
-        for (s in samples_apagar) {
-          ts <- tryCatch(
-            as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-            error = function(e) NULL
+      # Activity type from original samples
+      at_code <- originais[[1]]$confirmedActivityType %||%
+                 originais[[1]]$classifiedActivityType %||% 5L
+
+      # New edited item
+      new_item <- list(
+        base = list(
+          id              = new_item_id,
+          source          = "LocoKit2",
+          sourceVersion   = "9.0.0",
+          isVisit         = FALSE,
+          startDate       = start_date_str,
+          endDate         = end_date_str,
+          lastSaved       = current_timestamp,
+          deleted         = FALSE,
+          disabled        = FALSE,
+          locked          = FALSE,
+          samplesChanged  = FALSE,
+          stepCount       = 0L,
+          activeEnergyBurned = 0
+        ),
+        trip = list(
+          itemId                 = new_item_id,
+          classifiedActivityType = at_code,
+          confirmedActivityType  = at_code,
+          uncertainActivityType  = FALSE,
+          distance               = 0,
+          speed                  = 0,
+          lastSaved              = current_timestamp
+        )
+      )
+
+      items_export <- list(new_item)
+
+      # Delete original timeline item (if we know its ID)
+      if (!is.null(ti_id) && nzchar(ti_id)) {
+        deleted_item <- list(
+          base = list(
+            id              = ti_id,
+            source          = "LocoKit2",
+            sourceVersion   = "9.0.0",
+            isVisit         = FALSE,
+            startDate       = start_date_str,
+            endDate         = end_date_str,
+            lastSaved       = current_timestamp,
+            deleted         = TRUE,
+            disabled        = FALSE,
+            locked          = FALSE,
+            samplesChanged  = FALSE,
+            stepCount       = 0L,
+            activeEnergyBurned = 0
+          ),
+          trip = list(
+            itemId                 = ti_id,
+            classifiedActivityType = at_code,
+            confirmedActivityType  = at_code,
+            uncertainActivityType  = FALSE,
+            distance               = 0,
+            speed                  = 0,
+            lastSaved              = current_timestamp
           )
-          if (is.null(ts) || is.na(ts)) next
-          week_key <- strftime(ts, "%G-W%V")
-          wk <- paste0(week_key, "_apagar")
-          if (!wk %in% names(apagar_by_week)) {
-            apagar_by_week[[wk]] <- list()
-          }
-          apagar_by_week[[wk]][[length(apagar_by_week[[wk]]) + 1L]] <- s
-        }
-
-        for (wk in names(apagar_by_week)) {
-          gz_path <- file.path(sample_dir, paste0(wk, ".json.gz"))
-          json_str <- jsonlite::toJSON(apagar_by_week[[wk]], auto_unbox = TRUE, pretty = TRUE, digits = NA)
-          con <- gzfile(gz_path, "w")
-          writeLines(json_str, con)
-          close(con)
-        }
+        )
+        items_export[[length(items_export) + 1L]] <- deleted_item
       }
 
-      # Empty files for dirs without content (iCloud drops empty dirs)
-      jsonlite::write_json(list(), file.path(items_dir, "0.json"), auto_unbox = TRUE)
+      # Write items grouped by month
+      month_key <- substr(start_date_str, 1, 7)
+      items_path <- file.path(items_dir, paste0(month_key, ".json"))
+      jsonlite::write_json(items_export, items_path, auto_unbox = TRUE, pretty = TRUE, digits = NA)
+
+      # Empty places file (iCloud drops empty dirs)
       jsonlite::write_json(list(), file.path(places_dir, "0.json"), auto_unbox = TRUE)
 
       # Metadata
@@ -2568,9 +2633,13 @@ server <- function(input, output, session) {
         sessionStartDate = current_timestamp,
         sessionFinishDate = current_timestamp,
         exportMode = "bucketed",
-        exportType = "full",
+        exportType = "incremental",
         schemaVersion = "2.2.0",
-        stats = list(itemCount = 0L, sampleCount = length(samples_novos), placeCount = 0L),
+        stats = list(
+          itemCount   = length(items_export),
+          sampleCount = length(samples_novos),
+          placeCount  = 0L
+        ),
         itemsCompleted = TRUE,
         samplesCompleted = TRUE,
         placesCompleted = TRUE
@@ -2585,11 +2654,8 @@ server <- function(input, output, session) {
       files_to_zip <- files_to_zip[file.exists(files_to_zip)]
       zip::zipr(zipfile = file, files = files_to_zip)
 
-      n_novos <- length(samples_novos)
-      n_apagar <- length(samples_apagar)
-
-      msg <- sprintf("%d new samples exported, %d marked for deletion",
-                     n_novos, n_apagar)
+      msg <- sprintf("%d new samples exported, %d items",
+                     length(samples_novos), length(items_export))
       if (length(virtuais) > 0) {
         msg <- paste0(msg, " (OSRM route virtual samples)")
       }
@@ -2623,7 +2689,7 @@ server <- function(input, output, session) {
 
   output$download_arc <- shiny::downloadHandler(
     filename = function() {
-      paste0("arc_import_", format(Sys.Date(), "%Y%m%d"), ".zip")
+      "Import.zip"
     },
     content = function(file) {
       tmpdir <- tempfile("arc_import_")
