@@ -124,10 +124,10 @@ ui <- shiny::fluidPage(
       .help-tip .help-text {
         display: none;
         position: absolute;
-        left: 50%;
-        transform: translateX(-50%);
+        left: 0;
         bottom: 22px;
         width: 220px;
+        max-width: calc(100vw - 20px);
         padding: 8px 10px;
         background: #333;
         color: #fff;
