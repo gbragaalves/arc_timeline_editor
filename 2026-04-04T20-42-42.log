@@ -1,0 +1,1016 @@
+[20:42:42.012] [LIFECYCLE] ArcTimelineEditorApp.init() v1.0 build 49 (previous: 47)
+[20:42:42.241] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[20:42:42.249] [TASKS] registered: activityTypeModelUpdates
+[20:42:42.251] [TASKS] registered: placeStatsUpdates
+[20:42:42.286] [TASKS] registered: workoutImportCleanup
+[20:42:42.287] [TASKS] registered: visitCoordinateBackfill
+[20:42:42.288] [TASKS] registered: incrementalBackup
+[20:42:42.291] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[20:42:42.464] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:42:42.707] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:42:53.684] [TASKS] registered: incrementalBackup
+[20:42:55.970] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[20:42:57.236] [EXPORTING] ExportManager: Starting incremental export
+[20:42:57.239] [EXPORTING] ExportManager: Catch-up mode (first run) from 2024-08-08 10:06:00 +0000 to 2025-02-04 10:06:00 +0000
+[20:42:57.314] [EXPORTING] ExportManager: Starting places export
+[20:42:57.421] [EXPORTING] ExportManager: places export completed (561 in 16 buckets)
+[20:42:57.426] [EXPORTING] ExportManager: Starting timeline items export
+[20:42:57.869] [EXPORTING] ExportManager: timeline items export completed (10032 in 14 buckets)
+[20:42:57.874] [EXPORTING] ExportManager: Starting samples export
+[20:42:57.877] [EXPORTING] ExportManager: Catch-up chunk with 10518 samples from 2024-08-08 10:06:00 +0000 to 2025-02-04 10:06:00 +0000
+[20:42:58.089] [EXPORTING] ExportManager: Samples export completed (10518 samples in 3 weeks)
+[20:42:58.095] [EXPORTING] ExportManager: Starting samples export
+[20:42:58.099] [EXPORTING] ExportManager: Catch-up chunk with 25009 samples from 2025-02-04 10:06:00 +0000 to 2025-08-03 10:06:00 +0000
+[20:42:58.670] [EXPORTING] ExportManager: Samples export completed (25009 samples in 5 weeks)
+[20:42:58.675] [EXPORTING] ExportManager: Starting samples export
+[20:42:58.697] [EXPORTING] ExportManager: Catch-up chunk with 389899 samples from 2025-08-03 10:06:00 +0000 to 2026-01-30 10:06:00 +0000
+[20:43:02.197] [EXPORTING] ExportManager: Samples progress - 180028/389899 in 10 weeks
+[20:43:05.650] [EXPORTING] ExportManager: Samples progress - 341005/389899 in 20 weeks
+[20:43:06.912] [EXPORTING] ExportManager: Samples export completed (399223 samples in 24 weeks)
+[20:43:06.919] [EXPORTING] ExportManager: Starting samples export
+[20:43:06.950] [EXPORTING] ExportManager: Catch-up chunk with 264197 samples from 2026-01-30 10:06:00 +0000 to 2026-04-04 23:42:57 +0000
+[20:43:13.424] [EXPORTING] ExportManager: Samples progress - 271044/264197 in 10 weeks
+[20:43:13.424] [EXPORTING] ExportManager: Samples export completed (271044 samples in 10 weeks)
+[20:43:13.426] [EXPORTING] ExportManager: Catch-up complete, switching to normal incremental mode
+[20:43:13.455] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[20:43:13.461] [EXPORTING] ExportManager: incremental export completed in 16.2s
+[20:43:33.973] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[20:43:42.343] [LOCOMOTION] Restarting location manager (last raw: 60s ago)
+[20:43:48.741] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[20:43:49.953] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:44:23.495] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[20:44:23.496] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[20:44:23.496] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[20:44:23.497] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[20:44:24.042] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[20:44:24.164] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[20:44:24.394] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[20:44:42.421] [LOCOMOTION] Restarting location manager (last raw: 60s ago)
+[20:45:42.426] --1--
+[20:45:42.529] [LOCOMOTION] LocomotionManager.startSleeping()
+[20:45:43.138] [TIMELINE] healNextEdge() No possible nearest item found
+[20:46:43.141] --1--
+[20:47:24.953] [UI] Going headless
+[20:48:24.961] --1--
+[20:49:24.968] --2--
+[20:51:24.974] --3--
+[20:52:31.701] [TIMELINE] healNextEdge() No possible nearest item found
+[20:52:31.726] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[20:52:32.886] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[20:52:33.346] [ERROR] [TIMELINE] invalidItem("Trip requires activityType for pruning")
+[20:52:33.379] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:52:33.391] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:53:33.395] --1--
+[20:54:07.337] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[20:54:08.516] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:54:08.526] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[20:54:14.605] [EXPORTING] ExportManager: Starting full export
+[20:54:14.687] [EXPORTING] ExportManager: Starting places export
+[20:54:14.792] [EXPORTING] ExportManager: places export completed (561 in 16 buckets)
+[20:54:14.796] [EXPORTING] ExportManager: Starting timeline items export
+[20:54:15.110] [EXPORTING] ExportManager: timeline items export completed (10033 in 14 buckets)
+[20:54:15.115] [EXPORTING] ExportManager: Starting samples export
+[20:54:15.117] [EXPORTING] ExportManager: Found 688111 samples from 2024-08-08 10:06:00 +0000 to 2026-04-04 23:53:54 +0000
+[20:54:16.487] [EXPORTING] ExportManager: Samples progress - 68301/688111 in 10 weeks
+[20:54:20.063] [EXPORTING] ExportManager: Samples progress - 257665/688111 in 20 weeks
+[20:54:23.095] [EXPORTING] ExportManager: Samples progress - 418580/688111 in 30 weeks
+[20:54:28.518] [EXPORTING] ExportManager: Samples progress - 688111/688111 in 40 weeks
+[20:54:28.518] [EXPORTING] ExportManager: Samples export completed (688111 samples in 40 weeks)
+[20:54:28.535] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[20:54:28.539] [EXPORTING] ExportManager: full export completed in 13.9s
+[20:54:35.620] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[20:55:35.982] --1--
+[20:56:35.986] --2--
+[20:57:37.617] [UI] Going headless
+[20:58:37.625] --1--
+[20:59:37.633] --2--
+[21:01:37.639] --3--
+[21:03:37.483] [UI] Discarding view state
+[21:04:37.506] --1--
+[21:05:37.513] --2--
+[21:06:28.664] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:06:28.765] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:06:29.048] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:06:41.364] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:06:41.467] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:06:41.657] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[21:07:41.660] --1--
+[21:07:44.790] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:07:45.960] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:07:45.977] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:07:46.986] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:07:50.314] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:08:32.018] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:08:32.042] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:08:32.189] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[21:09:32.194] --1--
+[21:10:32.201] --2--
+[21:11:32.956] [UI] Going headless
+[21:12:32.967] --1--
+[21:13:32.281] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:14:32.568] --1--
+[21:15:25.062] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:15:25.115] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:15:25.233] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[21:15:37.578] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:16:37.649] --1--
+[21:17:37.652] --2--
+[21:18:25.394] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:18:25.446] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:18:25.571] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[21:19:25.575] --1--
+[21:20:25.582] --2--
+[21:21:27.927] [UI] Going headless
+[21:22:27.935] --1--
+[21:22:39.111] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:22:40.411] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:22:40.881] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:23:41.263] --1--
+[21:24:41.271] --2--
+[21:25:42.327] [UI] Going headless
+[21:26:42.335] --1--
+[21:27:42.341] --2--
+[21:29:42.347] --3--
+[21:31:42.918] [UI] Discarding view state
+[21:32:42.938] --1--
+[21:33:42.944] --2--
+[21:35:42.949] --3--
+[21:38:42.958] --4--
+[21:43:42.958] --5--
+[21:51:42.958] --6--
+[21:52:32.695] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:52:34.065] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:52:34.147] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:52:34.255] [TIMELINE] healNextEdge() No possible nearest item found
+[21:53:34.256] --1--
+[21:53:37.031] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:53:37.143] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:53:37.382] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[21:53:37.383] [ERROR] [TIMELINE] invalidItem("Trip requires activityType for pruning")
+[21:54:19.308] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:54:20.533] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:54:20.587] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:54:22.581] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:54:28.756] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:55:29.110] --1--
+[21:55:30.470] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:55:31.593] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:55:31.618] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:55:42.743] [IMPORTING] ImportManager: Copying backup to local container
+[21:55:42.747] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[21:55:42.752] [IMPORTING] ImportManager: iCloud directory sync complete
+[21:55:42.761] [IMPORTING] ImportManager: Found 3 files to copy
+[21:55:42.763] [IMPORTING] ImportManager: Copy complete
+[21:55:42.765] [ERROR] [IMPORTING] Failed to read metadata
+[21:55:42.766] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[21:55:42.770] [ERROR] [IMPORTING] missingMetadata
+[21:55:42.855] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[21:55:42.861] [LOCOMOTION] LocomotionManager.startSleeping()
+[21:55:43.088] [TIMELINE] healNextEdge() No possible nearest item found
+[21:56:02.229] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[21:56:12.730] [IMPORTING] ImportManager: Copying backup to local container
+[21:56:12.733] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[21:56:12.738] [IMPORTING] ImportManager: iCloud directory sync complete
+[21:56:12.743] [IMPORTING] ImportManager: Found 3 files to copy
+[21:56:12.744] [IMPORTING] ImportManager: Copy complete
+[21:56:12.746] [ERROR] [IMPORTING] Failed to read metadata
+[21:56:12.746] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[21:56:12.746] [ERROR] [IMPORTING] missingMetadata
+[21:56:12.819] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[21:56:12.878] [LOCOMOTION] LocomotionManager.startSleeping()
+[21:56:12.880] [LOCOMOTION] LocomotionManager.startSleeping()
+[21:56:13.068] [TIMELINE] healNextEdge() No possible nearest item found
+[21:56:26.499] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:57:05.733] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:57:11.969] [IMPORTING] ImportManager: Copying backup to local container
+[21:57:11.973] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[21:57:11.980] [IMPORTING] ImportManager: iCloud directory sync complete
+[21:57:11.990] [IMPORTING] ImportManager: Found 3 files to copy
+[21:57:11.991] [IMPORTING] ImportManager: Copy complete
+[21:57:11.993] [ERROR] [IMPORTING] Failed to read metadata
+[21:57:11.993] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[21:57:11.996] [ERROR] [IMPORTING] missingMetadata
+[21:57:12.074] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[21:57:12.122] [LOCOMOTION] LocomotionManager.startSleeping()
+[21:57:12.361] [TIMELINE] healNextEdge() No possible nearest item found
+[21:57:21.041] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[21:57:21.201] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[21:57:21.355] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[21:57:21.524] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[21:57:21.675] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[21:57:21.824] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[21:57:21.975] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[21:57:22.160] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[21:57:22.378] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[21:57:22.526] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[21:57:22.703] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[21:57:22.893] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[21:57:23.069] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[21:57:23.278] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[21:57:23.453] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[21:57:23.621] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[21:57:23.803] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[21:57:30.110] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[21:57:30.184] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[21:57:30.361] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[21:58:30.366] --1--
+[21:59:30.373] --2--
+[22:00:31.480] [UI] Going headless
+[22:01:31.486] --1--
+[22:02:31.494] --2--
+[22:04:31.500] --3--
+[22:05:43.600] [TASKS] running: activityTypeModelUpdates
+[22:05:43.601] [TASKS] running: placeStatsUpdates
+[22:05:43.602] [TASKS] running: visitCoordinateBackfill
+[22:05:43.602] [TASKS] running: workoutImportCleanup
+[22:05:43.603] [TASKS] completed: workoutImportCleanup
+[22:05:43.603] [TASKS] completed: activityTypeModelUpdates
+[22:05:43.605] [PLACES] UPDATING: Casa
+[22:05:43.650] [TASKS] completed: visitCoordinateBackfill
+[22:05:44.269] [PLACES] UPDATED: Casa
+[22:05:44.291] [TASKS] completed: placeStatsUpdates
+[22:06:12.282] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[22:06:13.544] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[22:07:13.766] --1--
+[22:08:13.771] --2--
+[22:09:14.362] [UI] Going headless
+[22:10:14.368] --1--
+[22:11:14.374] --2--
+[22:13:14.377] --3--
+[22:15:16.452] [UI] Discarding view state
+[22:16:16.471] --1--
+[22:17:16.486] --2--
+[22:19:16.491] --3--
+[22:22:16.495] --4--
+[22:27:16.498] --5--
+[22:35:16.501] --6--
+[22:48:16.498] --7--
+[23:09:16.487] --8--
+[23:43:16.466] --9--
+[23:46:44.486] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:46:44.856] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[23:46:45.003] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[23:46:45.145] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[23:46:45.295] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[23:46:45.458] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[23:46:45.609] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[23:46:45.771] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[23:46:45.934] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[23:46:46.193] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:46:46.261] [TIMELINE] healNextEdge() No possible nearest item found
+[23:46:51.876] [IMPORTING] ImportManager: Copying backup to local container
+[23:46:51.879] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[23:46:51.884] [IMPORTING] ImportManager: iCloud directory sync complete
+[23:46:51.890] [IMPORTING] ImportManager: Found 3 files to copy
+[23:46:51.891] [IMPORTING] ImportManager: Copy complete
+[23:46:51.892] [ERROR] [IMPORTING] Failed to read metadata
+[23:46:51.893] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[23:46:51.893] [ERROR] [IMPORTING] missingMetadata
+[23:46:51.976] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[23:46:51.991] [LOCOMOTION] LocomotionManager.startSleeping()
+[23:46:51.994] [LOCOMOTION] LocomotionManager.startSleeping()
+[23:46:52.174] [TIMELINE] healNextEdge() No possible nearest item found
+[23:46:53.158] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:47:40.842] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[23:47:41.216] [ERROR] [TIMELINE] invalidItem("Trip requires activityType for pruning")
+[23:48:41.217] --1--
+[23:49:41.220] --2--
+[23:50:42.805] [UI] Going headless
+[23:51:42.810] --1--
+[23:52:27.734] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:52:28.069] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:52:28.576] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:52:29.270] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:52:29.297] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:52:31.326] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[23:52:39.241] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:52:49.109] [IMPORTING] ImportManager: Copying backup to local container
+[23:52:49.112] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[23:52:49.121] [IMPORTING] ImportManager: iCloud directory sync complete
+[23:52:49.130] [IMPORTING] ImportManager: Found 3 files to copy
+[23:52:49.132] [IMPORTING] ImportManager: Copy complete
+[23:52:49.133] [ERROR] [IMPORTING] Failed to read metadata
+[23:52:49.133] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[23:52:49.134] [ERROR] [IMPORTING] missingMetadata
+[23:52:49.216] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[23:52:49.223] [LOCOMOTION] LocomotionManager.startSleeping()
+[23:52:49.429] [TIMELINE] healNextEdge() No possible nearest item found
+[23:52:50.911] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:53:50.911] --1--
+[23:53:56.468] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:53:59.704] [IMPORTING] ImportManager: Copying backup to local container
+[23:53:59.706] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[23:53:59.714] [IMPORTING] ImportManager: iCloud directory sync complete
+[23:53:59.729] [IMPORTING] ImportManager: Found 5 files to copy
+[23:54:03.252] [IMPORTING] ImportManager: Copy complete
+[23:54:03.259] [ERROR] [IMPORTING] Failed to read metadata
+[23:54:03.260] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[23:54:03.261] [ERROR] [IMPORTING] missingMetadata
+[23:54:03.370] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[23:54:03.375] [LOCOMOTION] LocomotionManager.startSleeping()
+[23:54:03.543] [TIMELINE] healNextEdge() No possible nearest item found
+[23:54:04.546] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:54:22.157] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:54:29.641] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[23:54:58.399] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:55:25.115] [IMPORTING] ImportManager: Copying backup to local container
+[23:55:25.118] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[23:55:25.126] [IMPORTING] ImportManager: iCloud directory sync complete
+[23:55:25.138] [IMPORTING] ImportManager: Found 5 files to copy
+[23:55:25.140] [IMPORTING] ImportManager: Copy complete
+[23:55:25.141] [ERROR] [IMPORTING] Failed to read metadata
+[23:55:25.142] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value partial", underlyingError: nil))
+[23:55:25.142] [ERROR] [IMPORTING] missingMetadata
+[23:55:25.225] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[23:55:25.231] [LOCOMOTION] LocomotionManager.startSleeping()
+[23:55:25.433] [TIMELINE] healNextEdge() No possible nearest item found
+[23:55:26.813] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[23:55:44.456] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[23:56:06.265] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:56:39.106] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[23:57:39.379] --1--
+[23:57:49.541] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[23:58:01.135] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[23:59:01.351] --1--
+[00:00:01.358] --2--
+[00:01:01.442] [UI] Going headless
+[00:02:01.446] --1--
+[00:02:17.920] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:02:25.743] [IMPORTING] ImportManager: Copying backup to local container
+[00:02:25.746] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[00:02:56.205] [IMPORTING] ImportManager: iCloud directory sync timed out after 30s, proceeding anyway
+[00:02:56.244] [IMPORTING] ImportManager: Requested refresh for 2 stale iCloud files
+[00:02:56.244] [IMPORTING] ImportManager: Found 3 files to copy
+[00:02:56.330] [IMPORTING] ImportManager: Copy complete
+[00:02:56.340] [IMPORTING] ImportManager: Import metadata loaded - schema: 2.2.0, mode: bucketed
+[00:02:56.341] [ERROR] [IMPORTING] missingPlacesDirectory
+[00:02:56.450] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[00:02:56.455] [LOCOMOTION] LocomotionManager.startSleeping()
+[00:02:56.658] [TIMELINE] healNextEdge() No possible nearest item found
+[00:03:48.913] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:04:49.164] --1--
+[00:05:49.170] --2--
+[00:06:49.298] [UI] Going headless
+[00:07:49.305] --1--
+[00:08:49.311] --2--
+[00:10:49.315] --3--
+[00:11:26.718] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:11:28.524] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:11:40.238] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:11:48.292] [IMPORTING] ImportManager: Copying backup to local container
+[00:11:48.294] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[00:12:18.800] [IMPORTING] ImportManager: iCloud directory sync timed out after 30s, proceeding anyway
+[00:12:18.848] [IMPORTING] ImportManager: Requested refresh for 4 stale iCloud files
+[00:12:18.848] [IMPORTING] ImportManager: Found 4 files to copy
+[00:12:18.925] [IMPORTING] ImportManager: Copy complete
+[00:12:18.935] [IMPORTING] ImportManager: Import metadata loaded - schema: 2.2.0, mode: bucketed
+[00:12:18.939] [IMPORTING] ImportState saved: phase=places, exportId=0E60FDBE-309D-11F1-97C4-5CC9D39CEE45
+[00:12:18.940] [IMPORTING] ImportManager: Starting places import (1 files)
+[00:12:18.949] [IMPORTING] ImportManager: Places import complete (2 places)
+[00:12:18.950] [IMPORTING] ImportState phase updated: items
+[00:12:18.951] [IMPORTING] ImportManager: Starting timeline items import (1 files)
+[00:12:18.964] [IMPORTING] ImportManager: Restoring edge relationships
+[00:12:18.967] [IMPORTING] ImportManager: Edge restoration complete
+[00:12:18.967] [IMPORTING] ImportManager: Timeline items import complete (3 items)
+[00:12:18.968] [IMPORTING] ImportState phase updated: samples
+[00:12:18.968] [IMPORTING] ImportManager: Starting samples import (1 files, 0 already processed)
+[00:12:19.924] [IMPORTING] ImportManager: Samples import complete (1931 samples)
+[00:12:19.924] [IMPORTING] ImportState phase updated: extensions
+[00:12:19.924] [IMPORTING] ImportManager: Extension 'notes' imported 0 records
+[00:12:19.924] [IMPORTING] ImportManager completed successfully in 31.8s: 2 places, 3 items, 1931 samples
+[00:12:19.924] [IMPORTING] ImportState cleared
+[00:12:19.925] [IMPORTING] Deleted local import copy
+[00:12:19.925] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[00:12:19.996] [LOCOMOTION] LocomotionManager.startSleeping()
+[00:12:20.001] [LOCOMOTION] LocomotionManager.startSleeping()
+[00:12:20.179] [TIMELINE] healNextEdge() No possible nearest item found
+[00:12:21.104] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[00:12:22.215] [ACTIVITYTYPES] NEW MODEL: [CD2 -33.35,-70.35]
+[00:12:22.235] [ACTIVITYTYPES] NEW MODEL: [CD2 -33.35,-70.55]
+[00:12:22.264] [ACTIVITYTYPES] NEW MODEL: [CD2 -33.35,-70.45]
+[00:12:22.804] [TIMELINE] healNextEdge() Rejecting potential circular reference
+[00:12:26.911] [PLACES] UPDATING: Santa Isabel
+[00:12:26.935] [PLACES] UPDATED: Santa Isabel
+[00:12:26.935] [PLACES] UPDATING: Santa Isabel
+[00:12:26.942] [PLACES] UPDATED: Santa Isabel
+[00:12:31.268] [PLACES] UPDATING: Mirador Lomas del viento
+[00:12:31.273] [PLACES] UPDATED: Mirador Lomas del viento
+[00:12:31.275] [PLACES] UPDATING: Mirador Lomas del viento
+[00:12:31.283] [PLACES] UPDATED: Mirador Lomas del viento
+[00:13:31.475] --1--
+[00:14:08.750] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:15:09.016] --1--
+[00:16:09.021] --2--
+[00:16:19.489] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:16:37.069] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:16:38.774] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:17:38.779] --1--
+[00:17:55.254] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:18:55.475] --1--
+[00:19:55.481] --2--
+[00:20:57.774] [UI] Going headless
+[00:21:57.780] --1--
+[00:22:57.786] --2--
+[00:24:57.786] --3--
+[00:25:16.773] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:25:18.113] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:25:18.814] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:25:19.610] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:25:27.694] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:25:44.069] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:25:44.235] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:25:44.398] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:25:44.571] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:25:44.739] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:25:44.893] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:25:45.060] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:25:45.232] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:25:45.448] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:25:45.606] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:25:45.773] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:25:45.933] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:25:47.106] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:25:47.269] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:25:47.428] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:25:47.584] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:25:47.748] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:26:05.020] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:26:05.191] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:26:05.356] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:26:05.522] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:26:05.694] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:26:05.869] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:26:06.051] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:26:06.201] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:26:17.414] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:26:17.571] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:26:17.754] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:26:18.008] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:26:18.160] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:26:18.328] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:26:18.721] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:26:18.883] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:26:19.099] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:26:19.268] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:26:19.427] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:26:19.591] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:26:19.766] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:26:19.938] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:26:20.099] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:26:20.273] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:26:20.451] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:26:20.660] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:26:20.813] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:26:20.980] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:26:21.156] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:26:21.315] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:26:21.478] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:26:21.655] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:26:21.815] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:26:30.906] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:27:22.860] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:23.179] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:23.334] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:27:23.505] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:27:23.681] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:27:23.982] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:27:24.141] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:27:24.385] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:27:24.567] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:27:24.739] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:24.951] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:25.102] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:27:25.258] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:27:25.417] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:27:25.575] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:27:25.750] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:27:25.905] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:27:26.062] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:27:26.216] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:26.430] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:26.586] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:27:26.743] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:27:26.924] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:27:27.082] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:27:27.356] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:27:27.514] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:27:27.682] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:27:27.839] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:28.065] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:28.238] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:27:28.395] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:27:28.554] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:27:28.709] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:27:28.868] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:27:29.037] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:27:29.195] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:27:29.404] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:29.621] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:30.047] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:27:30.203] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:27:30.359] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:27:30.535] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:27:30.700] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:27:30.869] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:27:31.030] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:27:31.197] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:31.410] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:27:31.564] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:27:31.725] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:27:31.885] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:28:31.890] --1--
+[00:28:32.995] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:28:33.155] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:28:33.313] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:28:33.510] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:33.671] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:28:33.903] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:34.056] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:28:34.213] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:28:34.389] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:28:34.636] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:28:34.795] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:28:34.968] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:28:35.133] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:28:35.303] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:35.551] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:35.724] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:28:35.883] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:28:36.044] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:28:36.226] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:28:36.387] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:28:36.579] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:28:36.736] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:28:36.916] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:37.145] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:37.307] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:28:37.464] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:28:37.623] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:28:37.910] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:28:38.077] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:28:38.233] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:28:38.390] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:28:38.627] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:38.935] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:39.097] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:28:39.269] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:28:39.444] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:28:39.651] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:28:39.863] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:28:40.026] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:28:40.264] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:28:40.573] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:40.799] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:28:40.955] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:28:41.125] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:28:41.293] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:28:41.453] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:28:41.623] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:28:41.777] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:28:41.935] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:28:42.094] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:29:31.267] [UI] Going headless
+[00:29:43.048] [PLACES] Reverse geocode missing locality for place: Yibin Wuliangye Airport
+[00:29:43.209] [PLACES] Reverse geocode missing locality for place: S Yunzhu Hotel
+[00:29:43.367] [PLACES] Reverse geocode missing locality for place: Sichuan Shengzhong Chetietou Railway Traffic
+[00:29:43.530] [PLACES] Reverse geocode missing locality for place: Yibin West Station-Ticket Office
+[00:29:43.685] [PLACES] Reverse geocode missing locality for place: Yibin Railway Station
+[00:29:43.844] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Hongqiao
+[00:29:44.001] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Xangai Pudong
+[00:29:44.158] [PLACES] Reverse geocode missing locality for place: Aeroporto Internacional de Pequim - Daxing
+[00:30:44.163] --1--
+[00:31:44.167] --2--
+[00:31:59.990] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:32:07.257] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:33:07.407] --1--
+[00:34:03.863] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:34:56.179] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:35:02.673] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:35:03.854] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:35:06.357] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:35:07.076] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:35:55.911] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:36:22.720] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:37:22.932] --1--
+[00:38:22.937] --2--
+[00:39:13.590] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[00:39:15.362] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[00:40:15.553] --1--
+[00:41:15.558] --2--
+[00:42:16.410] [UI] Going headless
+[00:43:16.414] --1--
+[00:44:16.419] --2--
+[00:46:16.424] --3--
+[00:48:16.407] [UI] Discarding view state
+[00:49:16.419] --1--
+[00:50:16.421] --2--
+[00:52:16.424] --3--
+[00:55:16.432] --4--
+[01:00:16.435] --5--
+[01:08:16.443] --6--
+[01:21:16.445] --7--
+[01:42:16.442] --8--
+[02:16:16.417] --9--
+[03:11:16.364] --10--
+[04:40:16.277] --11--
+[07:04:16.131] --12--
+[10:57:15.894] --13--
+[11:13:51.212] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:14:00.163] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:14:00.407] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:14:01.360] [ERROR] [DATABASE] CancellationError()
+[11:14:01.490] [TASKS] Running overdue task in foreground: visitCoordinateBackfill
+[11:14:01.495] [TASKS] running: visitCoordinateBackfill
+[11:14:01.509] [TASKS] completed: visitCoordinateBackfill
+[11:14:01.510] [TASKS] Running overdue task in foreground: incrementalBackup
+[11:14:01.512] [TASKS] running: incrementalBackup
+[11:14:01.534] [EXPORTING] ExportManager: Starting incremental export
+[11:14:01.539] [EXPORTING] ExportManager: Incremental from 2026-04-04 23:42:57 +0000
+[11:14:01.609] [EXPORTING] ExportManager: Starting places export
+[11:14:01.668] [EXPORTING] ExportManager: places export completed (563 in 16 buckets)
+[11:14:01.671] [EXPORTING] ExportManager: Starting timeline items export
+[11:14:01.871] [EXPORTING] ExportManager: timeline items export completed (10036 in 14 buckets)
+[11:14:01.877] [EXPORTING] ExportManager: Starting samples export
+[11:14:01.879] [EXPORTING] ExportManager: Found 684292 samples from 2024-08-08 10:06:00 +0000 to 2026-04-05 14:13:34 +0000
+[11:14:04.034] [EXPORTING] ExportManager: Samples export completed (53038 samples in 3 weeks)
+[11:14:04.035] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[11:14:04.042] [EXPORTING] ExportManager: incremental export completed in 2.5s
+[11:14:04.074] [TASKS] completed: incrementalBackup
+[11:14:26.553] [TIMELINE] healNextEdge() No possible nearest item found
+[11:14:29.567] [TIMELINE] healNextEdge() No possible nearest item found
+[11:14:33.410] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:14:36.524] [TIMELINE] healNextEdge() No possible nearest item found
+[11:14:43.840] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:14:49.229] [TIMELINE] healNextEdge() No possible nearest item found
+[11:14:49.376] [TIMELINE] healNextEdge() No possible nearest item found
+[11:14:52.438] [TIMELINE] healNextEdge() No possible nearest item found
+[11:14:54.252] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:15:00.304] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:16:00.966] --1--
+[11:17:00.972] --2--
+[11:18:02.094] [UI] Going headless
+[11:19:02.100] --1--
+[11:20:02.102] --2--
+[11:22:02.106] --3--
+[11:24:02.085] [UI] Discarding view state
+[11:25:02.127] --1--
+[11:25:21.402] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:25:21.515] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:25:21.684] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:25:25.246] [EXPORTING] ExportManager: Starting incremental export
+[11:25:25.253] [EXPORTING] ExportManager: Incremental from 2026-04-05 14:14:01 +0000
+[11:25:25.319] [EXPORTING] ExportManager: Starting places export
+[11:25:25.348] [EXPORTING] ExportManager: places export completed (563 in 16 buckets)
+[11:25:25.353] [EXPORTING] ExportManager: Starting timeline items export
+[11:25:25.550] [EXPORTING] ExportManager: timeline items export completed (10036 in 14 buckets)
+[11:25:25.554] [EXPORTING] ExportManager: Starting samples export
+[11:25:25.556] [EXPORTING] ExportManager: Found 680486 samples from 2024-08-08 10:06:00 +0000 to 2026-04-05 14:24:34 +0000
+[11:25:26.877] [EXPORTING] ExportManager: Samples export completed (15328 samples in 1 weeks)
+[11:25:26.878] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[11:25:26.884] [EXPORTING] ExportManager: incremental export completed in 1.6s
+[11:25:31.265] [EXPORTING] ExportManager: Starting full export
+[11:25:31.291] [EXPORTING] ExportManager: Starting places export
+[11:25:31.394] [EXPORTING] ExportManager: places export completed (563 in 16 buckets)
+[11:25:31.398] [EXPORTING] ExportManager: Starting timeline items export
+[11:25:31.620] [EXPORTING] ExportManager: timeline items export completed (10036 in 14 buckets)
+[11:25:31.624] [EXPORTING] ExportManager: Starting samples export
+[11:25:31.626] [EXPORTING] ExportManager: Found 680486 samples from 2024-08-08 10:06:00 +0000 to 2026-04-05 14:24:34 +0000
+[11:25:32.772] [EXPORTING] ExportManager: Samples progress - 63725/680486 in 10 weeks
+[11:25:36.280] [EXPORTING] ExportManager: Samples progress - 253089/680486 in 20 weeks
+[11:25:39.290] [EXPORTING] ExportManager: Samples progress - 414004/680486 in 30 weeks
+[11:25:45.154] [EXPORTING] ExportManager: Samples progress - 680487/680486 in 40 weeks
+[11:25:45.154] [EXPORTING] ExportManager: Samples export completed (680487 samples in 40 weeks)
+[11:25:45.170] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[11:25:45.174] [EXPORTING] ExportManager: full export completed in 13.9s
+[11:26:12.598] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:26:12.646] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:26:12.773] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:27:12.778] --1--
+[11:28:12.785] --2--
+[11:28:54.050] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:28:55.226] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:28:55.232] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:29:01.459] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:29:08.905] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:29:08.927] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:29:09.097] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:30:09.101] --1--
+[11:31:09.108] --2--
+[11:32:12.076] [UI] Going headless
+[11:33:12.084] --1--
+[11:34:12.091] --2--
+[11:35:20.764] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:35:21.914] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:35:22.040] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:35:41.739] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:35:56.114] [IMPORTING] ImportManager: Copying backup to local container
+[11:35:56.117] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[11:36:26.641] [IMPORTING] ImportManager: iCloud directory sync timed out after 30s, proceeding anyway
+[11:36:26.686] [IMPORTING] ImportManager: Requested refresh for 1 stale iCloud files
+[11:36:26.688] [IMPORTING] ImportManager: Found 5 files to copy
+[11:36:26.702] [IMPORTING] ImportManager: Copy complete
+[11:36:26.707] [IMPORTING] ImportManager: Import metadata loaded - schema: 2.2.0, mode: bucketed
+[11:36:26.709] [IMPORTING] ImportState saved: phase=places, exportId=951B4026-30FC-11F1-B902-5CC9D39CEE45
+[11:36:26.710] [IMPORTING] ImportManager: Starting places import (1 files)
+[11:36:26.710] [IMPORTING] ImportManager: Places import complete (0 places)
+[11:36:26.710] [IMPORTING] ImportState phase updated: items
+[11:36:26.711] [IMPORTING] ImportManager: Starting timeline items import (1 files)
+[11:36:26.721] [IMPORTING] ImportManager: Restoring edge relationships
+[11:36:26.724] [IMPORTING] ImportManager: Edge restoration complete
+[11:36:26.725] [IMPORTING] ImportManager: Timeline items import complete (1 items)
+[11:36:26.725] [IMPORTING] ImportState phase updated: samples
+[11:36:26.725] [IMPORTING] ImportManager: Starting samples import (2 files, 0 already processed)
+[11:36:27.002] [ERROR] [IMPORTING] Orphaned 206 samples with missing parent items
+[11:36:27.013] [IMPORTING] Loaded 2 orphan groups and 0 scenario2 groups from persisted mappings
+[11:36:27.013] [IMPORTING] ImportManager found orphaned samples for 2 missing items (206 samples total)
+[11:36:27.013] [DATABASE] Starting orphan processing: 2 groups, 206 total samples
+[11:36:27.013] [DATABASE] Group C3C945F4-D950-4876-B09A-6A50885E0633: 10 samples (100% stationary) → recreating as Visit
+[11:36:27.017] [DATABASE] Group 6688C822-9D31-41E8-A4EE-78E2553E8DF2: 196 samples (86% stationary) → recreating as Visit
+[11:36:27.034] [DATABASE] Processed orphaned samples: created 2 items and 0 individual samples
+[11:36:27.034] [IMPORTING] ImportManager orphan processing complete: 2 items recreated, 0 individual items
+[11:36:27.034] [IMPORTING] ImportManager: Samples import complete (316 samples)
+[11:36:27.034] [IMPORTING] ImportState phase updated: extensions
+[11:36:27.034] [IMPORTING] ImportManager: Extension 'notes' imported 0 records
+[11:36:27.034] [IMPORTING] ImportManager completed successfully in 31.1s: 0 places, 1 items, 316 samples (processed 206 orphaned samples)
+[11:36:27.034] [IMPORTING] ImportState cleared
+[11:36:27.036] [IMPORTING] Deleted local import copy
+[11:36:27.036] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[11:36:27.202] [LOCOMOTION] LocomotionManager.startSleeping()
+[11:36:27.207] [LOCOMOTION] LocomotionManager.startSleeping()
+[11:36:27.285] [TIMELINE] healNextEdge() No possible nearest item found
+[11:36:28.213] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:36:28.329] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:36:33.312] [ERROR] [DATABASE] CancellationError()
+[11:36:48.863] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:37:21.587] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:37:21.641] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:37:21.862] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:37:44.183] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:37:45.278] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:37:45.295] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:38:16.352] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:38:16.391] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:38:16.587] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:39:16.591] --1--
+[11:40:16.598] --2--
+[11:41:17.066] [UI] Going headless
+[11:41:22.814] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:41:23.951] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:41:23.958] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:41:23.967] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:41:26.894] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:41:52.441] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:41:52.464] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:41:52.646] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:42:35.201] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:42:36.024] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:43:33.606] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:44:33.610] --1--
+[11:45:33.616] --2--
+[11:45:36.677] [UI] Going headless
+[11:46:36.685] --1--
+[11:47:36.692] --2--
+[11:47:51.917] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:47:52.973] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:47:52.980] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:47:52.988] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:47:56.820] [TASKS] registered: incrementalBackup
+[11:47:58.827] [EXPORTING] ExportManager: Starting incremental export
+[11:47:58.835] [EXPORTING] ExportManager: Incremental from 2026-04-05 14:25:25 +0000
+[11:47:58.908] [EXPORTING] ExportManager: Starting places export
+[11:47:58.940] [EXPORTING] ExportManager: places export completed (563 in 16 buckets)
+[11:47:58.944] [EXPORTING] ExportManager: Starting timeline items export
+[11:47:59.153] [EXPORTING] ExportManager: timeline items export completed (10040 in 14 buckets)
+[11:47:59.160] [EXPORTING] ExportManager: Starting samples export
+[11:47:59.163] [EXPORTING] ExportManager: Found 680581 samples from 2024-08-08 10:06:00 +0000 to 2026-04-05 14:47:33 +0000
+[11:48:00.325] [EXPORTING] ExportManager: Samples export completed (15423 samples in 1 weeks)
+[11:48:00.326] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[11:48:00.332] [EXPORTING] ExportManager: incremental export completed in 1.5s
+[11:48:05.683] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:48:05.705] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:48:05.939] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:49:05.946] --1--
+[11:50:05.952] --2--
+[11:51:06.591] [UI] Going headless
+[11:52:06.598] --1--
+[11:53:06.605] --2--
+[11:54:27.354] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:54:28.456] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[11:54:36.449] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:54:36.471] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:54:36.666] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[11:55:29.608] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[11:55:30.399] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[11:55:34.981] [LOCOMOTION] Extended wakeup started: raw outside geofence, Kalman inside
+[11:55:49.993] [LOCOMOTION] Extended wakeup timer fired — back to sleep
+[11:56:50.024] --1--
+[11:56:50.036] [LOCOMOTION] SleepDetector: unfreezing — filtered location outside geofence
+[11:56:50.037] [LOCOMOTION] LocomotionManager.startRecording() (was: wakeup)
+[11:57:50.060] --1--
+[11:58:30.740] [UI] Going headless
+[11:59:30.749] --1--
+[12:00:30.751] --2--
+[12:02:30.758] --3--
+[12:04:10.088] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:04:16.084] [LOCOMOTION] canStartSleeping=false while sleeping — forcing recording
+[12:04:16.085] [LOCOMOTION] LocomotionManager.startRecording() (was: sleeping)
+[12:04:32.089] [UI] Discarding view state
+[12:05:32.140] --1--
+[12:06:32.146] --2--
+[12:06:54.089] [LOCOMOTION] SleepDetector: unfreezing — filtered location outside geofence
+[12:07:54.091] --1--
+[12:08:54.093] --2--
+[12:10:54.099] --3--
+[12:11:37.962] [LOCOMOTION] Restarting location manager (last raw: 60s ago)
+[12:12:37.969] --1--
+[12:13:37.976] --2--
+[12:14:57.044] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:15:57.073] --1--
+[12:16:57.080] --2--
+[12:18:57.086] --3--
+[12:21:57.091] --4--
+[12:26:57.094] --5--
+[12:34:57.098] --6--
+[12:42:31.028] [TASKS] running: activityTypeModelUpdates
+[12:42:31.032] [PLACES] UPDATING: Casa
+[12:42:31.032] [TASKS] running: placeStatsUpdates
+[12:42:32.250] [PLACES] UPDATED: Casa
+[12:42:32.263] [PLACES] UPDATING: Shopping Nova América
+[12:42:32.374] [PLACES] UPDATED: Shopping Nova América
+[12:42:32.404] [PLACES] UPDATING: Supermarket Maria da Graça
+[12:42:32.599] [PLACES] UPDATED: Supermarket Maria da Graça
+[12:42:32.604] [PLACES] UPDATING: Botafogo
+[12:42:32.632] [PLACES] UPDATED: Botafogo
+[12:42:32.644] [TASKS] completed: placeStatsUpdates
+[12:42:33.974] [ACTIVITYTYPES] UPDATED: CD2 -22.95,-43.15 (samples: 5376, accuracy: 0.99, completeness: 0.11, includedTypes: 8)
+[12:42:38.279] [TASKS] expired: activityTypeModelUpdates
+[12:42:44.515] [ACTIVITYTYPES] UPDATED: CD2 -22.85,-43.25 (samples: 32301, accuracy: 0.89, completeness: 0.65, includedTypes: 8)
+[12:42:44.517] [ERROR] [TASKS] CancellationError()
+[12:42:44.517] [ERROR] [TASKS] unfinished: activityTypeModelUpdates
+[12:43:44.519] --1--
+[12:44:44.527] --2--
+[12:46:44.528] --3--
+[12:47:55.130] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:47:55.250] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:47:55.434] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:48:02.670] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[12:48:03.927] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:48:08.899] [PLACES] UPDATING: Supermarket Maria da Graça
+[12:48:08.977] [PLACES] UPDATED: Supermarket Maria da Graça
+[12:48:55.920] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:49:02.197] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[12:49:18.251] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:49:25.998] [IMPORTING] ImportManager: Copying backup to local container
+[12:49:26.002] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[12:49:56.501] [IMPORTING] ImportManager: iCloud directory sync timed out after 30s, proceeding anyway
+[12:49:56.546] [IMPORTING] ImportManager: Requested refresh for 3 stale iCloud files
+[12:49:56.546] [IMPORTING] ImportManager: Found 4 files to copy
+[12:49:56.616] [IMPORTING] ImportManager: Copy complete
+[12:49:56.628] [IMPORTING] ImportManager: Import metadata loaded - schema: 2.2.0, mode: bucketed
+[12:49:56.630] [IMPORTING] ImportState saved: phase=places, exportId=7AAD69A8-3106-11F1-AC97-5CC9D39CEE45
+[12:49:56.632] [IMPORTING] ImportManager: Starting places import (1 files)
+[12:49:56.633] [IMPORTING] ImportManager: Places import complete (0 places)
+[12:49:56.634] [IMPORTING] ImportState phase updated: items
+[12:49:56.635] [IMPORTING] ImportManager: Starting timeline items import (1 files)
+[12:49:56.641] [IMPORTING] ImportManager: Restoring edge relationships
+[12:49:56.643] [IMPORTING] ImportManager: Edge restoration complete
+[12:49:56.644] [IMPORTING] ImportManager: Timeline items import complete (1 items)
+[12:49:56.645] [IMPORTING] ImportState phase updated: samples
+[12:49:56.646] [IMPORTING] ImportManager: Starting samples import (1 files, 0 already processed)
+[12:49:56.887] [ERROR] [IMPORTING] Orphaned 318 samples with missing parent items
+[12:49:56.900] [IMPORTING] Loaded 3 orphan groups and 0 scenario2 groups from persisted mappings
+[12:49:56.901] [IMPORTING] ImportManager found orphaned samples for 3 missing items (318 samples total)
+[12:49:56.901] [DATABASE] Starting orphan processing: 3 groups, 318 total samples
+[12:49:56.901] [DATABASE] Group 8BA95118-30FC-11F1-B902-5CC9D39CEE45: 316 samples (56% stationary, mixed) → creating individual items
+[12:49:56.901] [DATABASE] Creating 316 individual items: 180 visits, 136 trips
+[12:49:57.321] [DATABASE] Group 43A7904A-1432-428B-A1FF-BCD0F3CA9482: 1 samples (below threshold) → creating individual items
+[12:49:57.321] [DATABASE] Creating 1 individual items: 0 visits, 1 trips
+[12:49:57.324] [DATABASE] Group C3C945F4-D950-4876-B09A-6A50885E0633: 1 samples (below threshold) → creating individual items
+[12:49:57.324] [DATABASE] Creating 1 individual items: 1 visits, 0 trips
+[12:49:57.325] [DATABASE] Processed orphaned samples: created 0 items and 318 individual samples
+[12:49:57.325] [IMPORTING] ImportManager orphan processing complete: 0 items recreated, 318 individual items
+[12:49:57.325] [IMPORTING] ImportManager: Samples import complete (428 samples)
+[12:49:57.326] [IMPORTING] ImportState phase updated: extensions
+[12:49:57.326] [IMPORTING] ImportManager: Extension 'notes' imported 0 records
+[12:49:57.326] [IMPORTING] ImportManager completed successfully in 31.5s: 0 places, 1 items, 428 samples (processed 318 orphaned samples)
+[12:49:57.326] [IMPORTING] ImportState cleared
+[12:49:57.328] [IMPORTING] Deleted local import copy
+[12:49:57.328] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[12:49:57.413] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:49:57.428] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:49:58.547] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:49:59.384] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:50:03.841] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:50:04.562] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:51:04.563] --1--
+[12:51:12.676] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:51:22.292] [IMPORTING] ImportManager: Copying backup to local container
+[12:51:22.296] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[12:51:22.308] [IMPORTING] ImportManager: iCloud directory sync complete
+[12:51:22.324] [IMPORTING] ImportManager: Found 4 files to copy
+[12:51:22.326] [IMPORTING] ImportManager: Copy complete
+[12:51:22.328] [IMPORTING] ImportManager: Import metadata loaded - schema: 2.2.0, mode: bucketed
+[12:51:22.328] [IMPORTING] ImportState saved: phase=places, exportId=7AAD69A8-3106-11F1-AC97-5CC9D39CEE45
+[12:51:22.329] [IMPORTING] ImportManager: Starting places import (1 files)
+[12:51:22.329] [IMPORTING] ImportManager: Places import complete (0 places)
+[12:51:22.329] [IMPORTING] ImportState phase updated: items
+[12:51:22.330] [IMPORTING] ImportManager: Starting timeline items import (1 files)
+[12:51:22.332] [IMPORTING] ImportManager: Restoring edge relationships
+[12:51:22.332] [IMPORTING] ImportManager: Edge restoration complete
+[12:51:22.333] [IMPORTING] ImportManager: Timeline items import complete (1 items)
+[12:51:22.333] [IMPORTING] ImportState phase updated: samples
+[12:51:22.333] [IMPORTING] ImportManager: Starting samples import (1 files, 0 already processed)
+[12:51:22.502] [ERROR] [IMPORTING] SQLite error 19: Cannot assign sample to a deleted item - while executing `INSERT OR IGNORE INTO "locomotionSample" ("id", "lastSaved", "date", "secondsFromGMT", "source", "sourceVersion", "movingState", "recordingState", "disabled", "timelineItemId", "latitude", "longitude", "altitude", "horizontalAccuracy", "verticalAccuracy", "speed", "course", "classifiedActivityType", "confirmedActivityType", "stepHz", "xyAcceleration", "zAcceleration", "heartRate", "rtreeId") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+[12:51:22.502] [IMPORTING] ImportManager: Samples import complete (428 samples)
+[12:51:22.503] [IMPORTING] ImportState phase updated: extensions
+[12:51:22.503] [IMPORTING] ImportManager: Extension 'notes' imported 0 records
+[12:51:22.503] [IMPORTING] ImportManager completed successfully in 0.4s: 0 places, 1 items, 428 samples
+[12:51:22.503] [IMPORTING] ImportState cleared
+[12:51:22.505] [IMPORTING] Deleted local import copy
+[12:51:22.505] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[12:51:22.658] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:51:22.674] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:51:23.783] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:51:31.063] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:51:31.333] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[12:51:34.896] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:51:43.709] [IMPORTING] ImportManager: Copying backup to local container
+[12:51:43.715] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[12:51:43.725] [IMPORTING] ImportManager: iCloud directory sync complete
+[12:51:43.735] [IMPORTING] ImportManager: Found 4 files to copy
+[12:51:43.737] [IMPORTING] ImportManager: Copy complete
+[12:51:43.739] [IMPORTING] ImportManager: Import metadata loaded - schema: 2.2.0, mode: bucketed
+[12:51:43.753] [IMPORTING] ImportState saved: phase=places, exportId=7AAD69A8-3106-11F1-AC97-5CC9D39CEE45
+[12:51:43.753] [IMPORTING] ImportManager: Starting places import (1 files)
+[12:51:43.754] [IMPORTING] ImportManager: Places import complete (0 places)
+[12:51:43.754] [IMPORTING] ImportState phase updated: items
+[12:51:43.755] [IMPORTING] ImportManager: Starting timeline items import (1 files)
+[12:51:43.757] [IMPORTING] ImportManager: Restoring edge relationships
+[12:51:43.758] [IMPORTING] ImportManager: Edge restoration complete
+[12:51:43.758] [IMPORTING] ImportManager: Timeline items import complete (1 items)
+[12:51:43.758] [IMPORTING] ImportState phase updated: samples
+[12:51:43.759] [IMPORTING] ImportManager: Starting samples import (1 files, 0 already processed)
+[12:51:43.933] [ERROR] [IMPORTING] SQLite error 19: Cannot assign sample to a deleted item - while executing `INSERT OR IGNORE INTO "locomotionSample" ("id", "lastSaved", "date", "secondsFromGMT", "source", "sourceVersion", "movingState", "recordingState", "disabled", "timelineItemId", "latitude", "longitude", "altitude", "horizontalAccuracy", "verticalAccuracy", "speed", "course", "classifiedActivityType", "confirmedActivityType", "stepHz", "xyAcceleration", "zAcceleration", "heartRate", "rtreeId") VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+[12:51:43.933] [IMPORTING] ImportManager: Samples import complete (428 samples)
+[12:51:43.933] [IMPORTING] ImportState phase updated: extensions
+[12:51:43.933] [IMPORTING] ImportManager: Extension 'notes' imported 0 records
+[12:51:43.934] [IMPORTING] ImportManager completed successfully in 0.4s: 0 places, 1 items, 428 samples
+[12:51:43.934] [IMPORTING] ImportState cleared
+[12:51:43.935] [IMPORTING] Deleted local import copy
+[12:51:43.936] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[12:51:44.090] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:51:44.094] [LOCOMOTION] LocomotionManager.startSleeping()
+[12:51:46.500] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:52:22.405] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:52:22.526] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[12:52:22.791] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[12:53:22.793] --1--
+[12:54:22.800] --2--
+[12:55:24.592] [UI] Going headless
+[12:56:24.600] --1--
+[12:57:24.607] --2--
+[12:57:31.654] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:57:32.801] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[12:57:36.840] [TASKS] registered: incrementalBackup
+[12:57:37.904] [EXPORTING] ExportManager: Starting incremental export
+[12:57:37.912] [EXPORTING] ExportManager: Incremental from 2026-04-05 14:47:58 +0000
+[12:57:37.985] [EXPORTING] ExportManager: Starting places export
+[12:57:38.025] [EXPORTING] ExportManager: places export completed (563 in 16 buckets)
+[12:57:38.031] [EXPORTING] ExportManager: Starting timeline items export
+[12:57:38.241] [EXPORTING] ExportManager: timeline items export completed (10384 in 14 buckets)
+[12:57:38.253] [EXPORTING] ExportManager: Starting samples export
+[12:57:38.256] [EXPORTING] ExportManager: Found 680639 samples from 2024-08-08 10:06:00 +0000 to 2026-04-05 15:56:05 +0000
+[12:57:39.641] [EXPORTING] ExportManager: Samples export completed (15481 samples in 1 weeks)
+[12:57:39.642] [EXPORTING] ExportManager: Extension 'notes' exported 8 records
+[12:57:39.647] [EXPORTING] ExportManager: incremental export completed in 1.7s
+[12:57:44.127] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[12:57:44.153] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[12:57:44.359] [ERROR] [HEALTHKIT] Error Domain=com.apple.healthkit Code=6 "Protected health data is inaccessible" UserInfo={NSLocalizedDescription=Protected health data is inaccessible}
+[12:58:44.363] --1--
+[12:59:44.370] --2--
+[13:00:45.603] [UI] Going headless
+[13:01:45.611] --1--
+[13:02:45.618] --2--
+[13:04:45.624] --3--
+[13:06:45.595] [UI] Discarding view state
+[13:07:02.857] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[13:07:03.110] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[13:07:03.189] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[13:07:05.740] [LIFECYCLE] ArcTimelineEditorApp.enteredBackground()
+[13:07:21.818] [LIFECYCLE] ArcTimelineEditorApp.becameActive()
+[13:07:33.244] [IMPORTING] ImportManager: Copying backup to local container
+[13:07:33.248] [IMPORTING] ImportManager: Requesting iCloud download for backup directory
+[13:08:03.580] [IMPORTING] ImportManager: iCloud directory sync timed out after 30s, proceeding anyway
+[13:08:03.619] [IMPORTING] ImportManager: Requested refresh for 1 stale iCloud files
+[13:08:03.620] [IMPORTING] ImportManager: Found 4 files to copy
+[13:08:03.643] [IMPORTING] ImportManager: Copy complete
+[13:08:03.647] [ERROR] [IMPORTING] Failed to read metadata
+[13:08:03.647] [ERROR] [IMPORTING] dataCorrupted(Swift.DecodingError.Context(codingPath: [CodingKeys(stringValue: "exportType", intValue: nil)], debugDescription: "Cannot initialize ExportType from invalid String value backup", underlyingError: nil))
+[13:08:03.647] [ERROR] [IMPORTING] missingMetadata
+[13:08:03.754] [LOCOMOTION] LocomotionManager.startRecording() (was: off)
+[13:08:03.761] [LOCOMOTION] LocomotionManager.startSleeping()
+[13:08:04.886] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[13:08:05.578] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[13:08:07.578] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[13:08:08.584] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
+[13:09:05.023] [ERROR] [MISC] Error Domain=EKErrorDomain Code=17 "That account does not allow calendars to be added or removed." UserInfo={NSLocalizedDescription=That account does not allow calendars to be added or removed.}
