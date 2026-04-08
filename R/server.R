@@ -2770,7 +2770,7 @@ server <- function(input, output, session) {
   })
 
   # Helper function to render editable route
-  render_editable_route <- function() {
+  render_editable_route <- function(auto_zoom = FALSE) {
     nodes <- route_edit_nodes()
     proxy <- leaflet::leafletProxy("map")
 
@@ -2830,12 +2830,14 @@ server <- function(input, output, session) {
         )
     }
 
-    # Adjust bounds
-    proxy %>%
-      leaflet::fitBounds(
-        lng1 = min(all_lngs) - 0.005, lat1 = min(all_lats) - 0.005,
-        lng2 = max(all_lngs) + 0.005, lat2 = max(all_lats) + 0.005
-      )
+    # Adjust bounds only on initial load
+    if (auto_zoom) {
+      proxy %>%
+        leaflet::fitBounds(
+          lng1 = min(all_lngs) - 0.005, lat1 = min(all_lats) - 0.005,
+          lng2 = max(all_lngs) + 0.005, lat2 = max(all_lats) + 0.005
+        )
+    }
 
     # Set up event handlers on nodes
     session$sendCustomMessage("setup_route_nodes", list())
@@ -2911,7 +2913,7 @@ server <- function(input, output, session) {
     })
     route_edit_nodes(nodes)
 
-    render_editable_route()
+    render_editable_route(auto_zoom = TRUE)
 
     shiny::showNotification(
       sprintf("Route loaded: %d nodes, %.1f km, avg speed %.1f km/h",
