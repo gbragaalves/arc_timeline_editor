@@ -1,0 +1,1210 @@
+{
+  "(not in iCloud: %s)": {
+    "pt": "(não encontradas no iCloud: %s)",
+    "en": "(not in iCloud: %s)"
+  },
+  "(OSRM route virtual samples)": {
+    "pt": "(amostras virtuais da rota OSRM)",
+    "en": "(OSRM route virtual samples)"
+  },
+  "%.1f degrees": {
+    "pt": "%.1f graus",
+    "en": "%.1f degrees"
+  },
+  "%d node(s) deleted.": {
+    "pt": "%d nó(s) excluído(s).",
+    "en": "%d node(s) deleted."
+  },
+  "%d samples discarded.": {
+    "pt": "%d amostras descartadas.",
+    "en": "%d samples discarded."
+  },
+  "%d samples ignored.": {
+    "pt": "%d amostras ignoradas.",
+    "en": "%d samples ignored."
+  },
+  "%d samples loaded.": {
+    "pt": "%d amostras carregadas.",
+    "en": "%d samples loaded."
+  },
+  "%d samples skipped (no valid coordinates).": {
+    "pt": "%d amostras puladas (sem coordenadas válidas).",
+    "en": "%d samples skipped (no valid coordinates)."
+  },
+  "1/7 Starting...": {
+    "pt": "1/7 Iniciando...",
+    "en": "1/7 Starting..."
+  },
+  "2/7 Filtering %d samples...": {
+    "pt": "2/7 Filtrando %d amostras...",
+    "en": "2/7 Filtering %d samples..."
+  },
+  "3/7 Checking OSRM...": {
+    "pt": "3/7 Verificando o OSRM...",
+    "en": "3/7 Checking OSRM..."
+  },
+  "4/7 Extracting coordinates...": {
+    "pt": "4/7 Extraindo coordenadas...",
+    "en": "4/7 Extracting coordinates..."
+  },
+  "5/7 Calculating route with %d points...": {
+    "pt": "5/7 Calculando a rota com %d pontos...",
+    "en": "5/7 Calculating route with %d points..."
+  },
+  "6/7 Interpolating samples...": {
+    "pt": "6/7 Interpolando amostras...",
+    "en": "6/7 Interpolating samples..."
+  },
+  "7/7 Finishing...": {
+    "pt": "7/7 Finalizando...",
+    "en": "7/7 Finishing..."
+  },
+  "Absurd distance detected for flight (%.1f km). Something is wrong with the track.": {
+    "pt": "Distância absurda detectada no voo (%.1f km). Há algo errado com a trilha.",
+    "en": "Absurd distance detected for flight (%.1f km). Something is wrong with the track."
+  },
+  "Activity type:": {
+    "pt": "Tipo de atividade:",
+    "en": "Activity type:"
+  },
+  "Add route": {
+    "pt": "Adicionar rota",
+    "en": "Add route"
+  },
+  "Add visit": {
+    "pt": "Adicionar visita",
+    "en": "Add visit"
+  },
+  "Add: new item, enabled": {
+    "pt": "Adicionar: novo item, ativo",
+    "en": "Add: new item, enabled"
+  },
+  "Airplane": {
+    "pt": "Avião",
+    "en": "Airplane"
+  },
+  "All samples were ignored.": {
+    "pt": "Todas as amostras foram ignoradas.",
+    "en": "All samples were ignored."
+  },
+  "Altitude:": {
+    "pt": "Altitude:",
+    "en": "Altitude:"
+  },
+  "Apply": {
+    "pt": "Aplicar",
+    "en": "Apply"
+  },
+  "Arc JSON package": {
+    "pt": "Pacote JSON do Arc",
+    "en": "Arc JSON package"
+  },
+  "available": {
+    "pt": "disponível",
+    "en": "available"
+  },
+  "Bike": {
+    "pt": "Bicicleta",
+    "en": "Bike"
+  },
+  "Boat": {
+    "pt": "Barco",
+    "en": "Boat"
+  },
+  "Browse...": {
+    "pt": "Procurar...",
+    "en": "Browse..."
+  },
+  "Bus": {
+    "pt": "Ônibus",
+    "en": "Bus"
+  },
+  "Cable car": {
+    "pt": "Teleférico",
+    "en": "Cable car"
+  },
+  "Calculate route": {
+    "pt": "Calcular rota",
+    "en": "Calculate route"
+  },
+  "Cancel": {
+    "pt": "Cancelar",
+    "en": "Cancel"
+  },
+  "Cannot delete first/last node.": {
+    "pt": "Não é possível excluir o primeiro/último nó.",
+    "en": "Cannot delete first/last node."
+  },
+  "Cannot delete the first or last node.": {
+    "pt": "Não é possível excluir o primeiro nem o último nó.",
+    "en": "Cannot delete the first or last node."
+  },
+  "Cannot insert after the last sample.": {
+    "pt": "Não é possível inserir depois da última amostra.",
+    "en": "Cannot insert after the last sample."
+  },
+  "Car": {
+    "pt": "Carro",
+    "en": "Car"
+  },
+  "Chairlift": {
+    "pt": "Teleférico de cadeiras",
+    "en": "Chairlift"
+  },
+  "Checking...": {
+    "pt": "Verificando...",
+    "en": "Checking..."
+  },
+  "Clean & snap": {
+    "pt": "Limpar e ajustar",
+    "en": "Clean & snap"
+  },
+  "Clear": {
+    "pt": "Limpar",
+    "en": "Clear"
+  },
+  "Clear all": {
+    "pt": "Limpar tudo",
+    "en": "Clear all"
+  },
+  "Clear sel.": {
+    "pt": "Limpar sel.",
+    "en": "Clear sel."
+  },
+  "Click points on the map to draw a freeform polyline route. Timestamps are evenly interpolated between start and end times.": {
+    "pt": "Clique no mapa para desenhar uma rota livre (polilinha). Os horários são distribuídos igualmente entre o início e o fim.",
+    "en": "Click points on the map to draw a freeform polyline route. Timestamps are evenly interpolated between start and end times."
+  },
+  "Click the map to insert": {
+    "pt": "Clique no mapa para inserir",
+    "en": "Click the map to insert"
+  },
+  "Click the map to set the location.": {
+    "pt": "Clique no mapa para definir o local.",
+    "en": "Click the map to set the location."
+  },
+  "Click the map to set the points.": {
+    "pt": "Clique no mapa para definir os pontos.",
+    "en": "Click the map to set the points."
+  },
+  "Click to re-check.": {
+    "pt": "Clique para verificar de novo.",
+    "en": "Click to re-check."
+  },
+  "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).": {
+    "pt": "Clique nos pontos de passagem no mapa e calcule uma rota ajustada às vias. Carro/A pé/Bicicleta/Ônibus usam o OSRM local (Docker, portas 5000-5003). Metrô/Trem/VLT usam a Google Maps Directions API (requer GOOGLE_MAPS_API_KEY).",
+    "en": "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
+  },
+  "Click waypoints on the map.": {
+    "pt": "Clique nos pontos de passagem no mapa.",
+    "en": "Click waypoints on the map."
+  },
+  "Close": {
+    "pt": "Fechar",
+    "en": "Close"
+  },
+  "Confirm": {
+    "pt": "Confirmar",
+    "en": "Confirm"
+  },
+  "Corrected route as GPX": {
+    "pt": "Rota corrigida em GPX",
+    "en": "Corrected route as GPX"
+  },
+  "Corrected routes (GPX / JSON): Edit → Edit samples → 3 · Export. All samples as GPX: ⚙ menu.": {
+    "pt": "Rotas corrigidas (GPX / JSON): Editar → Editar amostras → 3 · Exportar. Todas as amostras em GPX: menu ⚙.",
+    "en": "Corrected routes (GPX / JSON): Edit → Edit samples → 3 · Export. All samples as GPX: ⚙ menu."
+  },
+  "Could not parse the departure date/time.": {
+    "pt": "Não foi possível interpretar a data/hora de partida.",
+    "en": "Could not parse the departure date/time."
+  },
+  "Could not read file as geographic layer.": {
+    "pt": "Não foi possível ler o arquivo como camada geográfica.",
+    "en": "Could not read file as geographic layer."
+  },
+  "Course:": {
+    "pt": "Rumo:",
+    "en": "Course:"
+  },
+  "Create": {
+    "pt": "Criar",
+    "en": "Create"
+  },
+  "Cycling": {
+    "pt": "Bicicleta",
+    "en": "Cycling"
+  },
+  "Date format:": {
+    "pt": "Formato da data:",
+    "en": "Date format:"
+  },
+  "Date/Time (Local):": {
+    "pt": "Data/hora (local):",
+    "en": "Date/Time (Local):"
+  },
+  "Date/Time (UTC):": {
+    "pt": "Data/hora (UTC):",
+    "en": "Date/Time (UTC):"
+  },
+  "Day timeline": {
+    "pt": "Linha do tempo do dia",
+    "en": "Day timeline"
+  },
+  "Day timeline package": {
+    "pt": "Pacote da linha do tempo do dia",
+    "en": "Day timeline package"
+  },
+  "Delete": {
+    "pt": "Excluir",
+    "en": "Delete"
+  },
+  "Delete node": {
+    "pt": "Excluir nó",
+    "en": "Delete node"
+  },
+  "Delete sel.": {
+    "pt": "Excluir sel.",
+    "en": "Delete sel."
+  },
+  "disabled": {
+    "pt": "desativado",
+    "en": "disabled"
+  },
+  "Disabled item (imports hidden; Arc has no UI to enable it)": {
+    "pt": "Item desativado (importa oculto; o Arc não tem como ativá-lo)",
+    "en": "Disabled item (imports hidden; Arc has no UI to enable it)"
+  },
+  "Discard": {
+    "pt": "Descartar",
+    "en": "Discard"
+  },
+  "Download Arc package (zip)": {
+    "pt": "Baixar pacote do Arc (zip)",
+    "en": "Download Arc package (zip)"
+  },
+  "Download GPX (all samples)": {
+    "pt": "Baixar GPX (todas as amostras)",
+    "en": "Download GPX (all samples)"
+  },
+  "Drag: move node. Right-click: delete node.": {
+    "pt": "Arrastar: move o nó. Botão direito: exclui o nó.",
+    "en": "Drag: move node. Right-click: delete node."
+  },
+  "Draw a lasso on the map to select multiple samples at once for bulk ignore or discard.": {
+    "pt": "Desenhe um laço no mapa para selecionar várias amostras de uma vez e ignorá-las ou descartá-las em lote.",
+    "en": "Draw a lasso on the map to select multiple samples at once for bulk ignore or discard."
+  },
+  "Edit": {
+    "pt": "Editar",
+    "en": "Edit"
+  },
+  "Edit cancelled.": {
+    "pt": "Edição cancelada.",
+    "en": "Edit cancelled."
+  },
+  "Edit item": {
+    "pt": "Editar item",
+    "en": "Edit item"
+  },
+  "Edit route": {
+    "pt": "Editar rota",
+    "en": "Edit route"
+  },
+  "Edit samples": {
+    "pt": "Editar amostras",
+    "en": "Edit samples"
+  },
+  "Edit the waypoints of a trip.": {
+    "pt": "Edite os pontos de passagem de um trajeto.",
+    "en": "Edit the waypoints of a trip."
+  },
+  "Edit waypoints": {
+    "pt": "Editar pontos",
+    "en": "Edit waypoints"
+  },
+  "Edited route (%.1f km)": {
+    "pt": "Rota editada (%.1f km)",
+    "en": "Edited route (%.1f km)"
+  },
+  "enabled": {
+    "pt": "ativo",
+    "en": "enabled"
+  },
+  "End": {
+    "pt": "Fim",
+    "en": "End"
+  },
+  "End date": {
+    "pt": "Data de fim",
+    "en": "End date"
+  },
+  "End must be after start.": {
+    "pt": "O fim precisa ser depois do início.",
+    "en": "End must be after start."
+  },
+  "End time": {
+    "pt": "Hora de fim",
+    "en": "End time"
+  },
+  "Enriched KML (FR24) loaded. Green = start, Red = end.": {
+    "pt": "KML enriquecido (FR24) carregado. Verde = início, vermelho = fim.",
+    "en": "Enriched KML (FR24) loaded. Green = start, Red = end."
+  },
+  "Entry": {
+    "pt": "Entrada",
+    "en": "Entry"
+  },
+  "Error confirming OSRM route:": {
+    "pt": "Erro ao confirmar a rota OSRM:",
+    "en": "Error confirming OSRM route:"
+  },
+  "Error processing FR24 track:": {
+    "pt": "Erro ao processar a trilha do FR24:",
+    "en": "Error processing FR24 track:"
+  },
+  "Exit": {
+    "pt": "Saída",
+    "en": "Exit"
+  },
+  "Expected ports:": {
+    "pt": "Portas esperadas:",
+    "en": "Expected ports:"
+  },
+  "Export": {
+    "pt": "Exportar",
+    "en": "Export"
+  },
+  "Export (zip)": {
+    "pt": "Exportar (zip)",
+    "en": "Export (zip)"
+  },
+  "Export as a LocoKit2 JSON zip (items + samples + metadata), ready for Arc Editor import.": {
+    "pt": "Exporta um zip JSON do LocoKit2 (itens + amostras + metadados), pronto para importar no Arc.",
+    "en": "Export as a LocoKit2 JSON zip (items + samples + metadata), ready for Arc Editor import."
+  },
+  "Export GPX": {
+    "pt": "Exportar GPX",
+    "en": "Export GPX"
+  },
+  "Exported %d item (%s) + %d samples": {
+    "pt": "Exportado %d item (%s) + %d amostras",
+    "en": "Exported %d item (%s) + %d samples"
+  },
+  "Exported GPX with %d points": {
+    "pt": "GPX exportado com %d pontos",
+    "en": "Exported GPX with %d points"
+  },
+  "Failed to calculate OSRM route.": {
+    "pt": "Falha ao calcular a rota OSRM.",
+    "en": "Failed to calculate OSRM route."
+  },
+  "Failed to calculate route. The server may not have been able to route between the points.": {
+    "pt": "Falha ao calcular a rota. O servidor pode não ter conseguido traçar a rota entre os pontos.",
+    "en": "Failed to calculate route. The server may not have been able to route between the points."
+  },
+  "Failed to generate time sequence for OSRM route.": {
+    "pt": "Falha ao gerar a sequência de horários da rota OSRM.",
+    "en": "Failed to generate time sequence for OSRM route."
+  },
+  "Failed to interpolate OSRM route coordinates.": {
+    "pt": "Falha ao interpolar as coordenadas da rota OSRM.",
+    "en": "Failed to interpolate OSRM route coordinates."
+  },
+  "Failed to load Location History.": {
+    "pt": "Falha ao carregar o Histórico de Localização.",
+    "en": "Failed to load Location History."
+  },
+  "Fetch weeks from iCloud first": {
+    "pt": "Buscar semanas no iCloud antes",
+    "en": "Fetch weeks from iCloud first"
+  },
+  "Fetching from iCloud...": {
+    "pt": "Buscando no iCloud...",
+    "en": "Fetching from iCloud..."
+  },
+  "File route added.": {
+    "pt": "Rota do arquivo adicionada.",
+    "en": "File route added."
+  },
+  "File to send not found.": {
+    "pt": "Arquivo para envio não encontrado.",
+    "en": "File to send not found."
+  },
+  "First point of the OSRM route is invalid.": {
+    "pt": "O primeiro ponto da rota OSRM é inválido.",
+    "en": "First point of the OSRM route is invalid."
+  },
+  "Fix existing samples from the weekly backups.": {
+    "pt": "Corrija amostras existentes dos backups semanais.",
+    "en": "Fix existing samples from the weekly backups."
+  },
+  "Foot": {
+    "pt": "A pé",
+    "en": "Foot"
+  },
+  "For adding new data to empty periods. Add: new enabled item alongside existing data. Disabled item: imports fine but stays hidden; Arc has no UI to enable it. Reuse original item ID: skipped by the importer (INSERT OR IGNORE). To replace a bad route, use GPX instead.": {
+    "pt": "Para adicionar dados novos em períodos vazios. Adicionar: novo item ativo ao lado dos dados existentes. Item desativado: importa sem erro, mas fica oculto; o Arc não tem como ativá-lo. Reaproveitar o ID original: ignorado pelo importador (INSERT OR IGNORE). Para substituir uma rota ruim, use GPX.",
+    "en": "For adding new data to empty periods. Add: new enabled item alongside existing data. Disabled item: imports fine but stays hidden; Arc has no UI to enable it. Reuse original item ID: skipped by the importer (INSERT OR IGNORE). To replace a bad route, use GPX instead."
+  },
+  "FR24 flight": {
+    "pt": "voo FR24",
+    "en": "FR24 flight"
+  },
+  "FR24 flight (%.1f km)": {
+    "pt": "Voo FR24 (%.1f km)",
+    "en": "FR24 flight (%.1f km)"
+  },
+  "FR24 flight added to timeline.": {
+    "pt": "Voo FR24 adicionado à linha do tempo.",
+    "en": "FR24 flight added to timeline."
+  },
+  "Funicular": {
+    "pt": "Funicular",
+    "en": "Funicular"
+  },
+  "Geographic file imported. Green = start, Red = end.": {
+    "pt": "Arquivo geográfico importado. Verde = início, vermelho = fim.",
+    "en": "Geographic file imported. Green = start, Red = end."
+  },
+  "GeoJSON, GPX, KML or GPKG.": {
+    "pt": "GeoJSON, GPX, KML ou GPKG.",
+    "en": "GeoJSON, GPX, KML or GPKG."
+  },
+  "Geometry too short for route.": {
+    "pt": "Geometria curta demais para uma rota.",
+    "en": "Geometry too short for route."
+  },
+  "Golf": {
+    "pt": "Golfe",
+    "en": "Golf"
+  },
+  "Google Maps API key not configured or invalid. Set GOOGLE_MAPS_API_KEY in your .Renviron.": {
+    "pt": "Chave da API do Google Maps não configurada ou inválida. Defina GOOGLE_MAPS_API_KEY no seu .Renviron.",
+    "en": "Google Maps API key not configured or invalid. Set GOOGLE_MAPS_API_KEY in your .Renviron."
+  },
+  "Google Maps Directions API (metro/train/tram):": {
+    "pt": "Google Maps Directions API (metrô/trem/VLT):",
+    "en": "Google Maps Directions API (metro/train/tram):"
+  },
+  "Google transit: only the first and last active samples are used (%d intermediate ignored).": {
+    "pt": "Transporte público do Google: só a primeira e a última amostra ativas são usadas (%d intermediárias ignoradas).",
+    "en": "Google transit: only the first and last active samples are used (%d intermediate ignored)."
+  },
+  "GPX sent to iCloud: %s/GPX/%s. On the iPhone: Arc → timeline → Import GPX File": {
+    "pt": "GPX enviado ao iCloud: %s/GPX/%s. No iPhone: Arc → linha do tempo → Import GPX File",
+    "en": "GPX sent to iCloud: %s/GPX/%s. On the iPhone: Arc → timeline → Import GPX File"
+  },
+  "Help (README)": {
+    "pt": "Ajuda (README)",
+    "en": "Help (README)"
+  },
+  "Hiking": {
+    "pt": "Trilha",
+    "en": "Hiking"
+  },
+  "Horseback": {
+    "pt": "Cavalgada",
+    "en": "Horseback"
+  },
+  "Hot air balloon": {
+    "pt": "Balão",
+    "en": "Hot air balloon"
+  },
+  "iCloud (rclone) is not available.": {
+    "pt": "O iCloud (rclone) não está disponível.",
+    "en": "iCloud (rclone) is not available."
+  },
+  "iCloud authorization expired. In a terminal, run: rclone reconnect %s:": {
+    "pt": "A autorização do iCloud expirou. Em um terminal, rode: rclone reconnect %s:",
+    "en": "iCloud authorization expired. In a terminal, run: rclone reconnect %s:"
+  },
+  "iCloud Drive via rclone (remote '%s'):": {
+    "pt": "iCloud Drive via rclone (remote '%s'):",
+    "en": "iCloud Drive via rclone (remote '%s'):"
+  },
+  "iCloud fetch failed, using local files.": {
+    "pt": "A busca no iCloud falhou; usando os arquivos locais.",
+    "en": "iCloud fetch failed, using local files."
+  },
+  "iCloud sync (rclone)": {
+    "pt": "Sincronização com o iCloud (rclone)",
+    "en": "iCloud sync (rclone)"
+  },
+  "iCloud: %s up to date": {
+    "pt": "iCloud: %s em dia",
+    "en": "iCloud: %s up to date"
+  },
+  "iCloud: no matching weeks found": {
+    "pt": "iCloud: nenhuma semana correspondente encontrada",
+    "en": "iCloud: no matching weeks found"
+  },
+  "iCloud: no weeks to fetch": {
+    "pt": "iCloud: nenhuma semana para buscar",
+    "en": "iCloud: no weeks to fetch"
+  },
+  "If you use individual containers:": {
+    "pt": "Se você usa contêineres individuais:",
+    "en": "If you use individual containers:"
+  },
+  "Ignore": {
+    "pt": "Ignorar",
+    "en": "Ignore"
+  },
+  "Import a route from GeoJSON, GPX, KML, or GPKG. FlightRadar24 KML files are detected automatically and timestamps are extracted from the track.": {
+    "pt": "Importe uma rota de GeoJSON, GPX, KML ou GPKG. Arquivos KML do FlightRadar24 são detectados automaticamente e os horários são extraídos da trilha.",
+    "en": "Import a route from GeoJSON, GPX, KML, or GPKG. FlightRadar24 KML files are detected automatically and timestamps are extracted from the track."
+  },
+  "Import file": {
+    "pt": "Importar arquivo",
+    "en": "Import file"
+  },
+  "imported route": {
+    "pt": "rota importada",
+    "en": "imported route"
+  },
+  "Importing into Arc Editor": {
+    "pt": "Importação no Arc Editor",
+    "en": "Importing into Arc Editor"
+  },
+  "Inline skating": {
+    "pt": "Patins",
+    "en": "Inline skating"
+  },
+  "Insert sample after": {
+    "pt": "Inserir amostra depois",
+    "en": "Insert sample after"
+  },
+  "Insert waypoint mode": {
+    "pt": "Modo de inserir pontos",
+    "en": "Insert waypoint mode"
+  },
+  "Invalid date/time.": {
+    "pt": "Data/hora inválida.",
+    "en": "Invalid date/time."
+  },
+  "Invalid departure time.": {
+    "pt": "Horário de partida inválido.",
+    "en": "Invalid departure time."
+  },
+  "Invalid imported geometry.": {
+    "pt": "Geometria importada inválida.",
+    "en": "Invalid imported geometry."
+  },
+  "Invalid OSRM route (too few points).": {
+    "pt": "Rota OSRM inválida (poucos pontos).",
+    "en": "Invalid OSRM route (too few points)."
+  },
+  "Invalid OSRM route duration.": {
+    "pt": "Duração da rota OSRM inválida.",
+    "en": "Invalid OSRM route duration."
+  },
+  "Invalid OSRM route interval (end before or equal to start).": {
+    "pt": "Intervalo da rota OSRM inválido (fim antes do início ou igual a ele).",
+    "en": "Invalid OSRM route interval (end before or equal to start)."
+  },
+  "Invalid time for imported route.": {
+    "pt": "Horário inválido para a rota importada.",
+    "en": "Invalid time for imported route."
+  },
+  "Invalid time for OSRM route.": {
+    "pt": "Horário inválido para a rota OSRM.",
+    "en": "Invalid time for OSRM route."
+  },
+  "Invalid time for the manual route.": {
+    "pt": "Horário inválido para a rota manual.",
+    "en": "Invalid time for the manual route."
+  },
+  "Invalid time for the visit.": {
+    "pt": "Horário inválido para a visita.",
+    "en": "Invalid time for the visit."
+  },
+  "Invalid times for OSRM route.": {
+    "pt": "Horários inválidos para a rota OSRM.",
+    "en": "Invalid times for OSRM route."
+  },
+  "Invalid times.": {
+    "pt": "Horários inválidos.",
+    "en": "Invalid times."
+  },
+  "item": {
+    "pt": "item",
+    "en": "item"
+  },
+  "Item removed from timeline.": {
+    "pt": "Item removido da linha do tempo.",
+    "en": "Item removed from timeline."
+  },
+  "Item updated.": {
+    "pt": "Item atualizado.",
+    "en": "Item updated."
+  },
+  "items": {
+    "pt": "itens",
+    "en": "items"
+  },
+  "Kayaking": {
+    "pt": "Caiaque",
+    "en": "Kayaking"
+  },
+  "key missing or invalid": {
+    "pt": "chave ausente ou inválida",
+    "en": "key missing or invalid"
+  },
+  "key OK": {
+    "pt": "chave OK",
+    "en": "key OK"
+  },
+  "Latitude:": {
+    "pt": "Latitude:",
+    "en": "Latitude:"
+  },
+  "Load": {
+    "pt": "Carregar",
+    "en": "Load"
+  },
+  "Load a route first.": {
+    "pt": "Carregue uma rota primeiro.",
+    "en": "Load a route first."
+  },
+  "Load at least 2 samples (not ignored) for snap-to-road.": {
+    "pt": "Carregue pelo menos 2 amostras (não ignoradas) para ajustar à via.",
+    "en": "Load at least 2 samples (not ignored) for snap-to-road."
+  },
+  "Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options.": {
+    "pt": "Carregue amostras existentes dos backups semanais (.json.gz). Arraste os marcadores para corrigir posições de GPS, ajuste à via pelo OSRM e ignore ou descarte pontos ruins. Clique com o botão direito numa amostra para mais opções.",
+    "en": "Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options."
+  },
+  "Load route": {
+    "pt": "Carregar rota",
+    "en": "Load route"
+  },
+  "Loading Location History...": {
+    "pt": "Carregando o Histórico de Localização...",
+    "en": "Loading Location History..."
+  },
+  "Longitude:": {
+    "pt": "Longitude:",
+    "en": "Longitude:"
+  },
+  "Manual": {
+    "pt": "Rota manual",
+    "en": "Manual"
+  },
+  "manual route": {
+    "pt": "rota manual",
+    "en": "manual route"
+  },
+  "Manual route (%.1f km)": {
+    "pt": "Rota manual (%.1f km)",
+    "en": "Manual route (%.1f km)"
+  },
+  "Manual route added.": {
+    "pt": "Rota manual adicionada.",
+    "en": "Manual route added."
+  },
+  "Mark a stationary visit. Type a name from your frequent places (config_local.R) to auto-fill coordinates. Entry/exit define the stay duration.": {
+    "pt": "Marque uma visita (parada). Digite o nome de um dos seus lugares frequentes (config_local.R) para preencher as coordenadas. Entrada e saída definem a duração da permanência.",
+    "en": "Mark a stationary visit. Type a name from your frequent places (config_local.R) to auto-fill coordinates. Entry/exit define the stay duration."
+  },
+  "Metro": {
+    "pt": "Metrô",
+    "en": "Metro"
+  },
+  "More": {
+    "pt": "Mais",
+    "en": "More"
+  },
+  "Motorcycle": {
+    "pt": "Moto",
+    "en": "Motorcycle"
+  },
+  "My Location History": {
+    "pt": "Meu Histórico de Localização",
+    "en": "My Location History"
+  },
+  "New sample inserted.": {
+    "pt": "Nova amostra inserida.",
+    "en": "New sample inserted."
+  },
+  "No %s route found between these points. The API did not return routes with this transport mode.": {
+    "pt": "Nenhuma rota de %s encontrada entre esses pontos. A API não retornou rotas com esse meio de transporte.",
+    "en": "No %s route found between these points. The API did not return routes with this transport mode."
+  },
+  "No file imported.": {
+    "pt": "Nenhum arquivo importado.",
+    "en": "No file imported."
+  },
+  "No items in the timeline yet.": {
+    "pt": "Ainda não há itens na linha do tempo.",
+    "en": "No items in the timeline yet."
+  },
+  "No items/samples to export.": {
+    "pt": "Nenhum item/amostra para exportar.",
+    "en": "No items/samples to export."
+  },
+  "No nodes selected.": {
+    "pt": "Nenhum nó selecionado.",
+    "en": "No nodes selected."
+  },
+  "No OSRM route calculated to recalculate the arrival time.": {
+    "pt": "Nenhuma rota OSRM calculada para recalcular a chegada.",
+    "en": "No OSRM route calculated to recalculate the arrival time."
+  },
+  "No OSRM route calculated.": {
+    "pt": "Nenhuma rota OSRM calculada.",
+    "en": "No OSRM route calculated."
+  },
+  "No route to apply.": {
+    "pt": "Nenhuma rota para aplicar.",
+    "en": "No route to apply."
+  },
+  "No routes": {
+    "pt": "Nenhuma rota",
+    "en": "No routes"
+  },
+  "No samples found in the interval.": {
+    "pt": "Nenhuma amostra encontrada no intervalo.",
+    "en": "No samples found in the interval."
+  },
+  "No samples loaded. Click 'Load' first.": {
+    "pt": "Nenhuma amostra carregada. Clique em 'Carregar' primeiro.",
+    "en": "No samples loaded. Click 'Load' first."
+  },
+  "No samples selected.": {
+    "pt": "Nenhuma amostra selecionada.",
+    "en": "No samples selected."
+  },
+  "No samples to export.": {
+    "pt": "Nenhuma amostra para exportar.",
+    "en": "No samples to export."
+  },
+  "No samples with valid coordinates.": {
+    "pt": "Nenhuma amostra com coordenadas válidas.",
+    "en": "No samples with valid coordinates."
+  },
+  "Node %d": {
+    "pt": "Nó %d",
+    "en": "Node %d"
+  },
+  "Node deleted.": {
+    "pt": "Nó excluído.",
+    "en": "Node deleted."
+  },
+  "Node properties": {
+    "pt": "Propriedades do nó",
+    "en": "Node properties"
+  },
+  "Normal": {
+    "pt": "Normal",
+    "en": "Normal"
+  },
+  "not available": {
+    "pt": "indisponível",
+    "en": "not available"
+  },
+  "not configured": {
+    "pt": "não configurado",
+    "en": "not configured"
+  },
+  "Or if you use docker-compose:": {
+    "pt": "Ou, se você usa docker-compose:",
+    "en": "Or if you use docker-compose:"
+  },
+  "original ID": {
+    "pt": "ID original",
+    "en": "original ID"
+  },
+  "OSRM local routing (car/foot/bike/bus):": {
+    "pt": "Roteamento OSRM local (carro/a pé/bicicleta/ônibus):",
+    "en": "OSRM local routing (car/foot/bike/bus):"
+  },
+  "OSRM profile '%s' not configured.": {
+    "pt": "Perfil OSRM '%s' não configurado.",
+    "en": "OSRM profile '%s' not configured."
+  },
+  "OSRM route": {
+    "pt": "rota OSRM",
+    "en": "OSRM route"
+  },
+  "OSRM route (%s)": {
+    "pt": "Rota OSRM (%s)",
+    "en": "OSRM route (%s)"
+  },
+  "OSRM route added.": {
+    "pt": "Rota OSRM adicionada.",
+    "en": "OSRM route added."
+  },
+  "OSRM route coordinates are in an unexpected format.": {
+    "pt": "As coordenadas da rota OSRM estão num formato inesperado.",
+    "en": "OSRM route coordinates are in an unexpected format."
+  },
+  "OSRM route returned no valid coordinates.": {
+    "pt": "A rota OSRM não retornou coordenadas válidas.",
+    "en": "OSRM route returned no valid coordinates."
+  },
+  "OSRM route time interval could not be parsed.": {
+    "pt": "Não foi possível interpretar o intervalo de horários da rota OSRM.",
+    "en": "OSRM route time interval could not be parsed."
+  },
+  "OSRM route times": {
+    "pt": "Horários da rota OSRM",
+    "en": "OSRM route times"
+  },
+  "OSRM route too short or invalid.": {
+    "pt": "Rota OSRM curta demais ou inválida.",
+    "en": "OSRM route too short or invalid."
+  },
+  "OSRM server is not running": {
+    "pt": "O servidor OSRM não está rodando",
+    "en": "OSRM server is not running"
+  },
+  "Place": {
+    "pt": "Local",
+    "en": "Place"
+  },
+  "Processing...": {
+    "pt": "Processando...",
+    "en": "Processing..."
+  },
+  "Profile:": {
+    "pt": "Perfil:",
+    "en": "Profile:"
+  },
+  "Properties": {
+    "pt": "Propriedades",
+    "en": "Properties"
+  },
+  "rclone failed with no output.": {
+    "pt": "O rclone falhou sem nenhuma saída.",
+    "en": "rclone failed with no output."
+  },
+  "Recalculate arrival": {
+    "pt": "Recalcular chegada",
+    "en": "Recalculate arrival"
+  },
+  "Recommended for replacing a bad route. In Arc, Import GPX File reads the activity type from the GPX, then disables and hides the overlapping data (reversible in Arc).": {
+    "pt": "Recomendado para substituir uma rota ruim. No Arc, o Import GPX File lê o tipo de atividade do GPX e depois desativa e oculta os dados sobrepostos (dá para desfazer no Arc).",
+    "en": "Recommended for replacing a bad route. In Arc, Import GPX File reads the activity type from the GPX, then disables and hides the overlapping data (reversible in Arc)."
+  },
+  "Refusing to send: not an import package (needs metadata.json, items/, samples/, places/).": {
+    "pt": "Envio recusado: não é um pacote de importação (precisa de metadata.json, items/, samples/, places/).",
+    "en": "Refusing to send: not an import package (needs metadata.json, items/, samples/, places/)."
+  },
+  "Refusing to sync: destination must end with /Import (got '%s').": {
+    "pt": "Sincronização recusada: o destino precisa terminar em /Import (recebido: '%s').",
+    "en": "Refusing to sync: destination must end with /Import (got '%s')."
+  },
+  "Replacing an existing route": {
+    "pt": "Substituir uma rota existente",
+    "en": "Replacing an existing route"
+  },
+  "Reuse original item ID (not working yet, needs importer upsert)": {
+    "pt": "Reaproveitar o ID do item original (ainda não funciona; o importador precisa de upsert)",
+    "en": "Reuse original item ID (not working yet, needs importer upsert)"
+  },
+  "Reverse": {
+    "pt": "Invertido",
+    "en": "Reverse"
+  },
+  "route": {
+    "pt": "rota",
+    "en": "route"
+  },
+  "Route": {
+    "pt": "Rota",
+    "en": "Route"
+  },
+  "Route imported from file": {
+    "pt": "Rota importada de arquivo",
+    "en": "Route imported from file"
+  },
+  "Route loaded: %d nodes, %.1f km, avg speed %.1f km/h": {
+    "pt": "Rota carregada: %d nós, %.1f km, velocidade média de %.1f km/h",
+    "en": "Route loaded: %d nodes, %.1f km, avg speed %.1f km/h"
+  },
+  "Route must have at least 2 nodes.": {
+    "pt": "A rota precisa ter pelo menos 2 nós.",
+    "en": "Route must have at least 2 nodes."
+  },
+  "Route must have at least 2 samples.": {
+    "pt": "A rota precisa ter pelo menos 2 amostras.",
+    "en": "Route must have at least 2 samples."
+  },
+  "Route not found.": {
+    "pt": "Rota não encontrada.",
+    "en": "Route not found."
+  },
+  "Route updated! %.1f km, duration %.0f min, avg speed %.1f km/h": {
+    "pt": "Rota atualizada! %.1f km, duração de %.0f min, velocidade média de %.1f km/h",
+    "en": "Route updated! %.1f km, duration %.0f min, avg speed %.1f km/h"
+  },
+  "Route:": {
+    "pt": "Rota:",
+    "en": "Route:"
+  },
+  "Rowing": {
+    "pt": "Remo",
+    "en": "Rowing"
+  },
+  "Running": {
+    "pt": "Corrida",
+    "en": "Running"
+  },
+  "Sample discarded.": {
+    "pt": "Amostra descartada.",
+    "en": "Sample discarded."
+  },
+  "Sample ignored.": {
+    "pt": "Amostra ignorada.",
+    "en": "Sample ignored."
+  },
+  "Sample Properties": {
+    "pt": "Propriedades da amostra",
+    "en": "Sample Properties"
+  },
+  "Sample re-included.": {
+    "pt": "Amostra incluída de volta.",
+    "en": "Sample re-included."
+  },
+  "Satellite": {
+    "pt": "Satélite",
+    "en": "Satellite"
+  },
+  "Save": {
+    "pt": "Salvar",
+    "en": "Save"
+  },
+  "Scooter": {
+    "pt": "Patinete",
+    "en": "Scooter"
+  },
+  "Select a route.": {
+    "pt": "Selecione uma rota.",
+    "en": "Select a route."
+  },
+  "Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes.": {
+    "pt": "Escolha um trajeto da linha do tempo para editar seus pontos de passagem. Arraste os nós para mover, use o botão direito para excluir ou insira novos pontos. A velocidade média é mantida ao aplicar as alterações.",
+    "en": "Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes."
+  },
+  "Select exactly 1 point on the map for the visit.": {
+    "pt": "Marque exatamente 1 ponto no mapa para a visita.",
+    "en": "Select exactly 1 point on the map for the visit."
+  },
+  "Selection cleared.": {
+    "pt": "Seleção limpa.",
+    "en": "Selection cleared."
+  },
+  "Selection mode": {
+    "pt": "Modo de seleção",
+    "en": "Selection mode"
+  },
+  "Selection mode (lasso)": {
+    "pt": "Modo de seleção (laço)",
+    "en": "Selection mode (lasso)"
+  },
+  "Send Arc package to iCloud": {
+    "pt": "Enviar pacote do Arc ao iCloud",
+    "en": "Send Arc package to iCloud"
+  },
+  "Send GPX to iCloud": {
+    "pt": "Enviar GPX ao iCloud",
+    "en": "Send GPX to iCloud"
+  },
+  "Send to iCloud (Import)": {
+    "pt": "Enviar ao iCloud (Import)",
+    "en": "Send to iCloud (Import)"
+  },
+  "Sending GPX to iCloud...": {
+    "pt": "Enviando GPX ao iCloud...",
+    "en": "Sending GPX to iCloud..."
+  },
+  "Sending to iCloud...": {
+    "pt": "Enviando ao iCloud...",
+    "en": "Sending to iCloud..."
+  },
+  "Sending...": {
+    "pt": "Enviando...",
+    "en": "Sending..."
+  },
+  "Sent to %s": {
+    "pt": "Enviado para %s",
+    "en": "Sent to %s"
+  },
+  "Sent to iCloud: %s/Import (%d %s, %d samples). On the iPhone: Arc → Backup & Restore → Restore from Backup → %s/Import": {
+    "pt": "Enviado ao iCloud: %s/Import (%d %s, %d amostras). No iPhone: Arc → Backup & Restore → Restore from Backup → %s/Import",
+    "en": "Sent to iCloud: %s/Import (%d %s, %d samples). On the iPhone: Arc → Backup & Restore → Restore from Backup → %s/Import"
+  },
+  "Set at least 2 points on the map for the manual route.": {
+    "pt": "Marque pelo menos 2 pontos no mapa para a rota manual.",
+    "en": "Set at least 2 points on the map for the manual route."
+  },
+  "Set at least 2 points on the map for the OSRM route.": {
+    "pt": "Marque pelo menos 2 pontos no mapa para a rota OSRM.",
+    "en": "Set at least 2 points on the map for the OSRM route."
+  },
+  "Setup": {
+    "pt": "Configuração",
+    "en": "Setup"
+  },
+  "Skateboard": {
+    "pt": "Skate",
+    "en": "Skateboard"
+  },
+  "Ski lift": {
+    "pt": "Elevador de esqui",
+    "en": "Ski lift"
+  },
+  "Skiing": {
+    "pt": "Esqui",
+    "en": "Skiing"
+  },
+  "Snap": {
+    "pt": "Ajustar",
+    "en": "Snap"
+  },
+  "Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route": {
+    "pt": "Ajusta todas as amostras ativas à via mais próxima pelo OSRM e gera pontos virtuais intermediários ao longo da rota",
+    "en": "Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route"
+  },
+  "Snap-to-road complete! %d Arc samples + %d virtual (%.1f km).": {
+    "pt": "Ajuste à via concluído! %d amostras do Arc + %d virtuais (%.1f km).",
+    "en": "Snap-to-road complete! %d Arc samples + %d virtual (%.1f km)."
+  },
+  "Snap-to-road error:": {
+    "pt": "Erro no ajuste à via:",
+    "en": "Snap-to-road error:"
+  },
+  "Snowboarding": {
+    "pt": "Snowboard",
+    "en": "Snowboarding"
+  },
+  "Songthaew": {
+    "pt": "Songthaew",
+    "en": "Songthaew"
+  },
+  "Speed:": {
+    "pt": "Velocidade:",
+    "en": "Speed:"
+  },
+  "Start": {
+    "pt": "Início",
+    "en": "Start"
+  },
+  "Start date": {
+    "pt": "Data de início",
+    "en": "Start date"
+  },
+  "Start time": {
+    "pt": "Hora de início",
+    "en": "Start time"
+  },
+  "Surfing": {
+    "pt": "Surfe",
+    "en": "Surfing"
+  },
+  "Swimming": {
+    "pt": "Natação",
+    "en": "Swimming"
+  },
+  "Taxi": {
+    "pt": "Táxi",
+    "en": "Taxi"
+  },
+  "The OSRM server did not respond at:": {
+    "pt": "O servidor OSRM não respondeu em:",
+    "en": "The OSRM server did not respond at:"
+  },
+  "This interval overlaps an existing activity.": {
+    "pt": "Este intervalo se sobrepõe a uma atividade existente.",
+    "en": "This interval overlaps an existing activity."
+  },
+  "Timeline items for the current working date. Click Edit to change times, Delete to remove. Items are sorted by start time.": {
+    "pt": "Itens da linha do tempo na data de trabalho. Clique em Editar para mudar os horários e em Excluir para remover. Os itens são ordenados pelo início.",
+    "en": "Timeline items for the current working date. Click Edit to change times, Delete to remove. Items are sorted by start time."
+  },
+  "Timeline, samples and map cleared.": {
+    "pt": "Linha do tempo, amostras e mapa limpos.",
+    "en": "Timeline, samples and map cleared."
+  },
+  "Times filled from KML file (UTC -> system local time).": {
+    "pt": "Horários preenchidos a partir do KML (UTC -> horário local do sistema).",
+    "en": "Times filled from KML file (UTC -> system local time)."
+  },
+  "To check if it's running:": {
+    "pt": "Para verificar se está rodando:",
+    "en": "To check if it's running:"
+  },
+  "To start OSRM, run in terminal:": {
+    "pt": "Para iniciar o OSRM, rode no terminal:",
+    "en": "To start OSRM, run in terminal:"
+  },
+  "Too many samples (%d). Using only the first 100.": {
+    "pt": "Amostras demais (%d). Usando só as 100 primeiras.",
+    "en": "Too many samples (%d). Using only the first 100."
+  },
+  "Tractor": {
+    "pt": "Trator",
+    "en": "Tractor"
+  },
+  "Train": {
+    "pt": "Trem",
+    "en": "Train"
+  },
+  "Tram": {
+    "pt": "VLT",
+    "en": "Tram"
+  },
+  "Tram/VLT": {
+    "pt": "VLT",
+    "en": "Tram/VLT"
+  },
+  "Tuk tuk": {
+    "pt": "Tuk-tuk",
+    "en": "Tuk tuk"
+  },
+  "Undo": {
+    "pt": "Desfazer",
+    "en": "Undo"
+  },
+  "visit": {
+    "pt": "visita",
+    "en": "visit"
+  },
+  "Visit": {
+    "pt": "Visita",
+    "en": "Visit"
+  },
+  "Visit added.": {
+    "pt": "Visita adicionada.",
+    "en": "Visit added."
+  },
+  "Visit name": {
+    "pt": "Nome da visita",
+    "en": "Visit name"
+  },
+  "Walking": {
+    "pt": "Caminhada",
+    "en": "Walking"
+  },
+  "Waypoint inserted.": {
+    "pt": "Ponto inserido.",
+    "en": "Waypoint inserted."
+  },
+  "Wheelchair": {
+    "pt": "Cadeira de rodas",
+    "en": "Wheelchair"
+  },
+  "Working date": {
+    "pt": "Data de trabalho",
+    "en": "Working date"
+  },
+  "Zoom in": {
+    "pt": "Aproximar",
+    "en": "Zoom in"
+  },
+  "Zoom out": {
+    "pt": "Afastar",
+    "en": "Zoom out"
+  }
+}

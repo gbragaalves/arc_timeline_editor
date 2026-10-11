@@ -136,12 +136,11 @@ calculate_google_transit_route <- function(points, transit_mode = c("subway", "t
     key          = key
   )
 
-  # Intermediate waypoints (if more than 2 points)
+  # Transit directions don't support waypoints (MAX_WAYPOINTS_EXCEEDED):
+  # always route origin -> destination only
   if (nrow(points) > 2) {
-    wps <- vapply(2:(nrow(points) - 1), function(i) {
-      paste0(points$lat[i], ",", points$lng[i])
-    }, character(1))
-    params$waypoints <- paste(wps, collapse = "|")
+    message(sprintf("[Google API] Transit: using origin/destination only (%d intermediate points ignored)",
+                    nrow(points) - 2L))
   }
 
   url <- "https://maps.googleapis.com/maps/api/directions/json"

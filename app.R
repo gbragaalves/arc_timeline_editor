@@ -21,13 +21,6 @@ library(zip)
 # ---- Local config (private data, not tracked) ----
 source("config_local.R", local = FALSE)
 
-# People config for Location History overlay (optional)
-if (file.exists("R/config_people.R")) {
-  source("R/config_people.R", local = FALSE)
-} else {
-  PEOPLE_CONFIG <- list()
-}
-
 # ---- Load modules ----
 # Order matters: base modules first, then dependents
 
@@ -37,6 +30,8 @@ source("R/utils_osrm.R", local = FALSE)
 source("R/utils_google.R", local = FALSE)
 source("R/utils_arc.R", local = FALSE)
 source("R/utils_weeks.R", local = FALSE)
+source("R/utils_i18n.R", local = FALSE)
+source("R/utils_icloud.R", local = FALSE)
 source("R/export_arc.R", local = FALSE)
 source("R/ui.R", local = FALSE)
 source("R/server.R", local = FALSE)

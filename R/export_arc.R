@@ -222,3 +222,229 @@ export_arc_json <- function(timeline_items, samples, output_dir, work_date) {
 
   invisible(NULL)
 }
+
+# ---- Edit Samples export (corrected route) ----
+# Modes (see download_edit_arc in server.R):
+#   replace_disabled: new item + samples, all disabled. Imports fine but stays
+#                     hidden: Arc has no UI to enable it (tested 2026-10-10).
+#   additive:         new item + samples, enabled, alongside the original (default).
+#   reuse_id:         original item ID. Skipped by INSERT OR IGNORE until the
+#                     importer supports upsert.
+EDIT_EXPORT_MODES <- c("replace_disabled", "additive", "reuse_id")
+
+# Samples to export: virtual (snapped) samples if any, otherwise non-ignored edit samples.
+# Returns an empty list when every edit sample is ignored.
+select_edit_export_samples <- function(edit_samples, ignored = character(0), virtual = list()) {
+  if (length(edit_samples) == 0) return(list())
+
+  ids <- vapply(edit_samples, sample_id, character(1))
+  active <- edit_samples[!ids %in% ignored]
+  if (length(active) == 0) return(list())
+
+  if (length(virtual) > 0) virtual else active
+}
+
+# Build the item + samples for an edit export. Pure: no Shiny state, no I/O.
+# Returns list(item = <item list>, samples = <list of samples sorted by date>).
+build_edit_package <- function(samples, originals, original_item_id, mode, now_utc) {
+  mode <- match.arg(mode, EDIT_EXPORT_MODES)
+  new_uuid <- function() toupper(uuid::UUIDgenerate(use.time = TRUE))
+
+  # Sort by date, dropping samples without a parseable date (they can't be bucketed)
+  ts <- as.POSIXct(
+    vapply(samples, function(s) as.character(s$date %||% NA_character_)[1], character(1)),
+    format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"
+  )
+  ord <- order(ts, na.last = NA)
+  if (length(ord) == 0) stop("No samples with a valid date to export.")
+  samples <- samples[ord]
+  ts <- ts[ord]
+
+  has_original_id <- is.character(original_item_id) && length(original_item_id) == 1 &&
+    !is.na(original_item_id) && nzchar(original_item_id)
+  item_id <- if (mode == "reuse_id" && has_original_id) original_item_id else new_uuid()
+
+  disabled <- mode == "replace_disabled"
+
+  # Activity type from the original samples (virtual samples are created as car)
+  at_code <- if (length(originals) > 0) {
+    originals[[1]]$confirmedActivityType %||% originals[[1]]$classifiedActivityType %||% 5L
+  } else {
+    5L
+  }
+  at_code <- as.integer(at_code)
+
+  samples <- lapply(samples, function(s) {
+    s[startsWith(names(s), ".")] <- NULL  # internal fields (.virtual)
+    s$id                     <- new_uuid()
+    s$timelineItemId         <- item_id
+    s$lastSaved              <- now_utc
+    s$classifiedActivityType <- at_code
+    s$confirmedActivityType  <- at_code
+    s$disabled               <- disabled
+    s
+  })
+
+  # Trip stats: distance in metres, speed in m/s
+  coords <- cbind(
+    lon = vapply(samples, sample_lon, numeric(1)),
+    lat = vapply(samples, sample_lat, numeric(1))
+  )
+  coords <- coords[stats::complete.cases(coords), , drop = FALSE]
+  distance_m <- track_distance_km(coords) * 1000
+  duration_s <- as.numeric(difftime(ts[length(ts)], ts[1], units = "secs"))
+  speed_ms <- if (duration_s > 0) distance_m / duration_s else 0
+
+  item <- list(
+    base = list(
+      id              = item_id,
+      source          = "LocoKit2",
+      sourceVersion   = "9.0.0",
+      isVisit         = FALSE,
+      startDate       = format(ts[1], "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+      endDate         = format(ts[length(ts)], "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+      lastSaved       = now_utc,
+      deleted         = FALSE,
+      disabled        = disabled,
+      locked          = FALSE,
+      samplesChanged  = FALSE,
+      stepCount       = 0L,
+      activeEnergyBurned = 0
+    ),
+    trip = list(
+      itemId                 = item_id,
+      classifiedActivityType = at_code,
+      confirmedActivityType  = at_code,
+      uncertainActivityType  = FALSE,
+      distance               = distance_m,
+      speed                  = speed_ms,
+      lastSaved              = now_utc
+    )
+  )
+
+  list(item = item, samples = samples)
+}
+
+# Write an edit package (see build_edit_package) as a LocoKit2 import folder:
+# items/{YYYY-MM}.json, samples/{YYYY-Www}.json.gz, places/0.json, metadata.json
+write_edit_package_dir <- function(pkg, dir) {
+  new_item <- pkg$item
+  new_samples <- pkg$samples
+  current_timestamp <- new_item$base$lastSaved
+
+  # Create LocoKit2 structure (places/, items/, samples/ required by ImportManager)
+  sample_dir <- file.path(dir, "samples")
+  items_dir  <- file.path(dir, "items")
+  places_dir <- file.path(dir, "places")
+  dir.create(sample_dir, recursive = TRUE)
+  dir.create(items_dir,  recursive = TRUE)
+  dir.create(places_dir, recursive = TRUE)
+
+  # Group by ISO week
+  samples_by_week <- list()
+  for (s in new_samples) {
+    ts <- tryCatch(
+      as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+      error = function(e) NULL
+    )
+    if (is.null(ts) || is.na(ts)) next
+    week_key <- strftime(ts, "%G-W%V")
+    if (!week_key %in% names(samples_by_week)) {
+      samples_by_week[[week_key]] <- list()
+    }
+    samples_by_week[[week_key]][[length(samples_by_week[[week_key]]) + 1L]] <- s
+  }
+
+  # Write all weekly files
+  for (week_key in names(samples_by_week)) {
+    gz_path <- file.path(sample_dir, paste0(week_key, ".json.gz"))
+    json_str <- jsonlite::toJSON(samples_by_week[[week_key]], auto_unbox = TRUE, pretty = TRUE, digits = NA)
+    con <- gzfile(gz_path, "w")
+    writeLines(json_str, con)
+    close(con)
+  }
+
+  # ---- TIMELINE ITEMS ----
+  items_export <- list(new_item)
+
+  # Write items grouped by month
+  month_key <- substr(new_item$base$startDate, 1, 7)
+  items_path <- file.path(items_dir, paste0(month_key, ".json"))
+  jsonlite::write_json(items_export, items_path, auto_unbox = TRUE, pretty = TRUE, digits = NA)
+
+  # Empty places file (iCloud drops empty dirs)
+  jsonlite::write_json(list(), file.path(places_dir, "0.json"), auto_unbox = TRUE)
+
+  # Metadata
+  metadata <- list(
+    exportId = toupper(uuid::UUIDgenerate(use.time = TRUE)),
+    lastBackupDate = current_timestamp,
+    sessionStartDate = current_timestamp,
+    sessionFinishDate = current_timestamp,
+    exportMode = "bucketed",
+    exportType = "incremental",
+    schemaVersion = "2.2.0",
+    stats = list(
+      itemCount   = length(items_export),
+      sampleCount = length(new_samples),
+      placeCount  = 0L
+    ),
+    itemsCompleted = TRUE,
+    samplesCompleted = TRUE,
+    placesCompleted = TRUE
+  )
+  jsonlite::write_json(metadata, file.path(dir, "metadata.json"), auto_unbox = TRUE, pretty = TRUE)
+
+  invisible(dir)
+}
+
+# Local wall-clock time of a sample (UTC date shifted by secondsFromGMT)
+sample_local_time <- function(s) {
+  as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC") + as.numeric(s$secondsFromGMT %||% 0)[1]
+}
+
+# GPX filename for an edit package: arc_edit_<YYYYmmdd_HHMM of first sample, local>.gpx
+edit_gpx_filename <- function(pkg) {
+  paste0("arc_edit_", format(sample_local_time(pkg$samples[[1]]), "%Y%m%d_%H%M"), ".gpx")
+}
+
+# GPX 1.1 track of an edit package (samples already sorted by date). Returns lines.
+build_edit_gpx <- function(pkg, now_utc) {
+  xml_escape <- function(x) {
+    x <- gsub("&", "&amp;", x, fixed = TRUE)
+    x <- gsub("<", "&lt;", x, fixed = TRUE)
+    x <- gsub(">", "&gt;", x, fixed = TRUE)
+    x <- gsub("\"", "&quot;", x, fixed = TRUE)
+    gsub("'", "&apos;", x, fixed = TRUE)
+  }
+
+  samples <- pkg$samples
+  at_code <- pkg$item$trip$confirmedActivityType
+  type_name <- unname(ACTIVITY_TYPE_NAMES[as.character(at_code)])
+  if (is.na(type_name)) type_name <- "unknown"
+  trk_name <- paste("Arc edit", format(sample_local_time(samples[[1]]), "%Y-%m-%d %H:%M"))
+
+  pts <- Filter(sample_has_coords, samples)
+  trkpts <- vapply(pts, function(s) {
+    time_str <- format(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+                       "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    alt <- as.numeric(s$altitude %||% 0)[1]
+    ele <- if (!is.na(alt) && alt != 0) sprintf("<ele>%.2f</ele>", alt) else ""
+    sprintf('      <trkpt lat="%.8f" lon="%.8f">%s<time>%s</time></trkpt>',
+            sample_lat(s), sample_lon(s), ele, time_str)
+  }, character(1))
+
+  c(
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<gpx version="1.1" creator="ArcTimelineBuilder" xmlns="http://www.topografix.com/GPX/1/1">',
+    sprintf("  <metadata><time>%s</time></metadata>", now_utc),
+    "  <trk>",
+    sprintf("    <name>%s</name>", xml_escape(trk_name)),
+    sprintf("    <type>%s</type>", xml_escape(type_name)),
+    "    <trkseg>",
+    trkpts,
+    "    </trkseg>",
+    "  </trk>",
+    "</gpx>"
+  )
+}

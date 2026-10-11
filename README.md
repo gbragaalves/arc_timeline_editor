@@ -29,7 +29,7 @@ This tool originally exported in the LocoKit format used by Arc Timeline. It now
 | **Visit** | Mark a point, name it, set entry/exit times. Frequent places auto-fill coordinates. |
 | **Manual Route** | Click points for a polyline, set times, pick an activity type. |
 | **Import File** | Import GeoJSON, GPX, KML, or GPKG. Special handling for FlightRadar24 KML. |
-| **Edit Samples** | Load existing samples from weekly `.json.gz` backups. Drag, ignore, lasso-select, snap-to-road. |
+| **Edit Samples** | Load existing samples from weekly `.json.gz` backups (optionally fetched from iCloud). Drag, ignore, lasso-select, snap-to-road, export as GPX or JSON. |
 | **Edit Route** | Select a trip, edit its waypoints (drag, delete, insert), apply changes preserving average speed. |
 
 ### Activity types
@@ -62,24 +62,39 @@ samples/2026-W12.json.gz    # Samples grouped by ISO week (gzipped)
 places/0.json               # Places referenced by visits
 ```
 
+In **Edit Samples** mode, the corrected route is exported first as GPX (**Send GPX to iCloud** / **Export GPX**), which is the way to replace a bad route (see [Replacing an existing route](#replacing-an-existing-route)). Below it, under **Arc JSON package**, a mode selector controls how **Export (zip)** / **Send to iCloud (Import)** write the route:
+
+| Mode | Item | Use |
+|------|------|-----|
+| **Add** (default) | New ID, enabled | Corrected route added alongside the original; mainly for filling empty periods |
+| **Disabled item** | New ID, item and samples `disabled` | Imports fine but stays hidden: Arc has no UI to enable it |
+| **Reuse original item ID** | Original ID | Not working yet: needs upsert support in the importer |
+
+Exported samples always get new IDs and the original trip's activity type, and the item gets real distance and speed. The GPX contains the same samples as the zip, with the activity type in `<trk><type>`.
+
 ### Importing into Arc Editor
 
-1. In the Shiny app, click the **Download Arc** button (or **Download Edit** if using Edit Samples mode)
+1. In the Shiny app, open the **Export** tab and click **Download Arc package (zip)** (for Edit Samples: **Edit → Edit samples → 3 · Export → Arc JSON package → Export (zip)**)
 2. The zip is named `Import.zip` — extract it to get the `Import` folder
 3. Upload the `Import` folder to **iCloud Drive**, then move it inside the **Arc Editor** folder
 4. In Arc Editor on your device: **Menu > Backup & Restore > Restore from Backup**
 5. Select the `Import` folder and tap **Open**
 6. After import, Arc will run an automatic incremental backup that includes the new data
 
+With [iCloud sync](#icloud-sync-optional-via-rclone) set up, **Send Arc package to iCloud** / **Send to iCloud (Import)** replace steps 2–3: the package is written straight to `Arc Timeline/Import`.
+
 > **Important — existing data is never modified by import.** See [How the LocoKit2 Import Works](#how-the-locokit2-import-works) below for details.
 
 ### Other features
 
-- **Location History overlay** — Google Location History for multiple people, with per-person colors
+- **My Location History overlay** — your own Google Location History export for the working date, as an optional map layer (off by default)
 - **Overlap detection** — prevents overlapping timeline items
 - **Auto-suggest times** — next item starts 1 minute after the previous one
 - **Multi-timezone** — detects timezone from coordinates
-- **GPX export** — for use with other tools
+- **GPX export** — for use with other tools (all samples: ⚙ menu)
+- **OpenFreeMap base map** — vector base layer by default (falls back to OSM if it can't load); OSM, CartoDB, Satellite and Topo in the layers control
+- **No page scrolling** — the layout fits the browser window (1366×768 and up): Create / Edit / Export tabs on the left, the map in the middle, the day timeline on the right; both sidebars can be collapsed
+- **Portuguese / English** — see [Language](#language)
 
 ## How the LocoKit2 Import Works
 
@@ -105,10 +120,22 @@ This is a fundamental constraint of the LocoKit2 ImportManager design (`INSERT O
 ## Known Limitations
 
 - **Cannot replace existing items/samples via import** — the LocoKit2 ImportManager uses `INSERT OR IGNORE`, so records with existing IDs are always skipped
-- **Old route remains after importing a correction** — the corrected route is added as a new separate item; the original stays in the database
+- **Old route remains after importing a correction** — the corrected route is added as a new separate item; the original stays in the database. Use the GPX workflow below instead
 - **`deleted: true` on items has no effect during import** — the item already exists with the same ID, so the import record is ignored entirely
 - **`deleted` field on samples is not recognized by LocoKit2** — the `LocomotionSample` model uses `disabled` instead (inherited from the LocoKit1 -> LocoKit2 migration)
 - **Marking items as "bogus" in Arc Editor** changes the activity type but does not remove the item or its samples from the timeline
+
+### Replacing an existing route
+
+Verified on device (Arc Timeline 4): import a **GPX** of the corrected route with Arc's own **Import GPX File**. Arc reads the activity type from `<trk><type>` (e.g. Metro), shows the local time correctly, warns that the GPX overlaps existing timeline data, and then disables and hides the overlapping data, replacing the bad trip. Internally this is LocoKit2's `enableItem(itemId:)` (`TimelineProcessor+EnabledState.swift`): items that overlap the new one are disabled along with their samples, and partial overlaps are split.
+
+1. In Edit Samples mode, load the samples, keep only the boarding and alighting points (Ignore/Discard the rest), and **Snap**. Metro/Train/Tram use Google transit directions (origin to destination only); road modes use OSRM.
+2. Click **Send GPX to iCloud** (or **Export GPX** and copy the file to iCloud yourself).
+3. In Arc, use **Import GPX File** and pick the file from `Arc Timeline/GPX`.
+
+The existing data is disabled and hidden, not deleted, and Arc can undo the import.
+
+The JSON **Disabled item** mode is not an alternative: the package imports fine (Arc logs the item and samples), but the item stays hidden and Arc has no UI to enable it.
 
 ## Requirements
 
@@ -145,6 +172,30 @@ GOOGLE_MAPS_API_KEY=your_key_here
 
 The key needs the **Directions API** enabled in the [Google Cloud Console](https://console.cloud.google.com/apis/library/directions-backend.googleapis.com).
 
+Google transit directions don't support waypoints, so transit routes always go from the first point to the last; intermediate points are ignored.
+
+### iCloud sync (optional, via rclone)
+
+Fetches the weekly sample backups and sends import packages / GPX files without moving files by hand. The iCloud controls only appear when rclone and the remote are available.
+
+1. Install [rclone](https://rclone.org/install/) (a version with the `iclouddrive` backend).
+2. Run `rclone config` and create a new remote named `icloud`, type `iclouddrive`, with your normal Apple ID password and the 2FA code.
+3. Check it with `rclone lsd icloud:`.
+
+The login creates a trust token that lasts about 30 days. When it expires, the app shows "iCloud authorization expired"; renew it in a terminal with `rclone reconnect icloud:`. With **Advanced Data Protection** on, **Access iCloud Data on the Web** must be enabled on the iPhone.
+
+The app reads weekly backups from `Arc Timeline/Backup/<backup-id>/samples/`, picking the backup folder with the most recently modified file. Optional overrides in `config_local.R`:
+
+```r
+ICLOUD_REMOTE    <- "icloud"        # rclone remote name
+ICLOUD_ARC_DIR   <- "Arc Timeline"  # Arc folder in iCloud Drive
+ICLOUD_BACKUP_ID <- "<backup-id>"   # skip auto-detection
+```
+
+- **Fetch weeks from iCloud first** (Edit Samples) copies the needed weeks into `WEEKLY_BACKUP_DIR` before loading. Only changed files are downloaded. If it fails, the app loads what is already on disk.
+- **Send GPX to iCloud** copies the GPX to `Arc Timeline/GPX/`.
+- **Send to iCloud (Import)** / **Send Arc package to iCloud** **replace** the contents of `Arc Timeline/Import` (`rclone sync`), so leftovers from earlier imports are removed.
+
 ## Setup
 
 1. Clone this repo
@@ -159,27 +210,33 @@ FREQUENT_PLACES <- list(
   "Home" = list(lat = -23.5505, lon = -46.6333),
   "Work" = list(lat = -23.5600, lon = -46.6500)
 )
+
+# Your own Google Location History export (optional). When set, the map's
+# layers control gets a "My Location History" overlay (off by default)
+# showing visits and trips for the working date.
+MY_LOCATION_HISTORY_FILE <- "path/to/location_history.json"
+
+# Default UI language (optional): "pt" (default) or "en"
+APP_LANGUAGE <- "pt"
 ```
 
-3. Optionally create `R/config_people.R` for Location History overlay:
-
-```r
-PEOPLE_CONFIG <- list(
-  list(id = "person_1", label = "Person 1", file = "location_history/me.json", color = "#E91E63"),
-  list(id = "person_2", label = "Person 2", file = "location_history/other.json", color = "#2196F3")
-)
-```
-
-4. Run the app:
+3. Run the app:
 
 ```r
 shiny::runApp()
 ```
 
+## Language
+
+The interface is available in Brazilian Portuguese and English. Switch with the **PT | EN** toggle in the top bar: texts change in place, without reloading or losing what you were doing, and the browser remembers the choice. The default for a new browser is `APP_LANGUAGE` in `config_local.R` (`"pt"` if unset). Dates are shown as `dd/mm/yyyy` in Portuguese and `yyyy-mm-dd` in English. Arc's own feature names (Import GPX File, Restore from Backup) are kept as Arc shows them.
+
+Translations live in `i18n/translations.json` (English key → `pt` / `en`). After adding or changing user-facing text, run `Rscript i18n/check_translations.R` from the project root: it fails if a key used in the code is missing, a key is unused, or placeholders like `%d` differ between languages.
+
 ## Project structure
 
 ```
 app.R                          # Entry point
+i18n/translations.json         # UI translations (PT/EN) + check_translations.R
 R/
   utils_time.R                 # Time parsing, timezone detection, interval validation
   utils_geo.R                  # Geographic calculations, FR24 KML parsing, Location History
@@ -187,6 +244,8 @@ R/
   utils_google.R              # Google Maps Directions API (transit routes)
   utils_arc.R                 # LocoKit2 data model: samples, items, places, activity types
   utils_weeks.R               # Weekly backup file I/O, overlap detection, sample loading
+  utils_icloud.R              # iCloud Drive round-trip via rclone (fetch backups, send imports/GPX)
+  utils_i18n.R                # UI language (PT/EN): translation lookup, date formats
   export_arc.R                # LocoKit2 JSON export (zip package generation)
   ui.R                        # Shiny UI layout and controls
   server.R                    # Shiny server logic, editing modes, import/export handlers

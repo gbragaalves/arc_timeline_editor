@@ -170,10 +170,10 @@ parse_kml_rich <- function(kml_file) {
 }
 
 
-# ---- Google Location History ----
+# ---- Google Location History (your own export, optional overlay) ----
 
 # Load and parse Google Location History file
-# Returns data.frame with: start_time, end_time, lat, lon, type (visit/activity)
+# Returns data.frame with: start_time, end_time, lat, lon, lat_end, lon_end, type (visit/activity)
 load_location_history <- function(file_path) {
   if (!file.exists(file_path)) return(NULL)
 
@@ -183,77 +183,59 @@ load_location_history <- function(file_path) {
   )
   if (is.null(raw_data) || length(raw_data) == 0) return(NULL)
 
-  records <- lapply(raw_data, function(item) {
-    # Parse ISO8601 with offset (e.g.: 2024-09-10T08:33:50.000-03:00)
-    start_time <- tryCatch({
-      ts <- lubridate::ymd_hms(item$startTime)
-      lubridate::with_tz(ts, "UTC")
-    }, error = function(e) NA)
+  # Extract fields per record, then parse everything in vectorized calls
+  # (per-record ymd_hms takes ~10 ms each)
+  str_or_na <- function(x) if (is.character(x) && length(x) == 1) x else NA_character_
+  field <- function(f) vapply(raw_data, function(item) str_or_na(f(item)), character(1))
 
-    end_time <- tryCatch({
-      ts <- lubridate::ymd_hms(item$endTime)
-      lubridate::with_tz(ts, "UTC")
-    }, error = function(e) NA)
-
-    if (is.na(start_time) || is.na(end_time)) return(NULL)
-
-    # Extract coordinates
-    if (!is.null(item$visit)) {
-      # It's a visit
-      loc_str <- item$visit$topCandidate$placeLocation
-      coords <- parse_geo_string(loc_str)
-      if (is.null(coords)) return(NULL)
-
-      data.frame(
-        start_time = start_time,
-        end_time   = end_time,
-        lat        = coords$lat,
-        lon        = coords$lon,
-        lat_end    = coords$lat,
-        lon_end    = coords$lon,
-        type       = "visit",
-        stringsAsFactors = FALSE
-      )
-    } else if (!is.null(item$activity)) {
-      # It's an activity (trajectory)
-      start_coords <- parse_geo_string(item$activity$start)
-      end_coords   <- parse_geo_string(item$activity$end)
-      if (is.null(start_coords) || is.null(end_coords)) return(NULL)
-
-      data.frame(
-        start_time = start_time,
-        end_time   = end_time,
-        lat        = start_coords$lat,
-        lon        = start_coords$lon,
-        lat_end    = end_coords$lat,
-        lon_end    = end_coords$lon,
-        type       = "activity",
-        stringsAsFactors = FALSE
-      )
-    } else {
-      NULL
-    }
+  type <- vapply(raw_data, function(item) {
+    if (!is.null(item$visit)) "visit" else if (!is.null(item$activity)) "activity" else NA_character_
+  }, character(1))
+  start_str <- field(function(item) item$startTime)
+  end_str   <- field(function(item) item$endTime)
+  # Visits use the place location for both ends; activities have start/end
+  from_geo <- field(function(item) {
+    if (!is.null(item$visit)) item$visit$topCandidate$placeLocation else item$activity$start
+  })
+  to_geo <- field(function(item) {
+    if (!is.null(item$visit)) item$visit$topCandidate$placeLocation else item$activity$end
   })
 
-  records <- Filter(Negate(is.null), records)
-  if (length(records) == 0) return(NULL)
+  # ISO8601 with offset (e.g.: 2024-09-10T08:33:50.000-03:00) -> UTC
+  start_time <- lubridate::with_tz(lubridate::ymd_hms(start_str, quiet = TRUE), "UTC")
+  end_time   <- lubridate::with_tz(lubridate::ymd_hms(end_str, quiet = TRUE), "UTC")
+  from <- parse_geo_strings(from_geo)
+  to   <- parse_geo_strings(to_geo)
 
-  do.call(rbind, records)
+  keep <- !is.na(type) & !is.na(start_time) & !is.na(end_time) &
+    !is.na(from$lat) & !is.na(to$lat)
+  if (!any(keep)) return(NULL)
+
+  data.frame(
+    start_time = start_time[keep],
+    end_time   = end_time[keep],
+    lat        = from$lat[keep],
+    lon        = from$lon[keep],
+    lat_end    = to$lat[keep],
+    lon_end    = to$lon[keep],
+    type       = type[keep],
+    stringsAsFactors = FALSE
+  )
 }
 
-# Parse "geo:lat,lon" string to list(lat, lon)
-parse_geo_string <- function(geo_str) {
-  if (is.null(geo_str) || !grepl("^geo:", geo_str)) return(NULL)
+# Parse "geo:lat,lon" strings to list(lat, lon) numeric vectors (NA when invalid)
+parse_geo_strings <- function(geo_str) {
+  valid <- !is.na(geo_str) & grepl("^geo:", geo_str)
+  parts <- strsplit(sub("^geo:", "", geo_str), ",", fixed = TRUE)
+  part_num <- function(i) suppressWarnings(as.numeric(vapply(parts, function(p) {
+    if (length(p) >= 2) p[i] else NA_character_
+  }, character(1))))
 
-  coords_str <- sub("^geo:", "", geo_str)
-  parts <- strsplit(coords_str, ",")[[1]]
-  if (length(parts) < 2) return(NULL)
-
-  lat <- as.numeric(parts[1])
-  lon <- as.numeric(parts[2])
-
-  if (is.na(lat) || is.na(lon)) return(NULL)
-
+  lat <- part_num(1)
+  lon <- part_num(2)
+  bad <- !valid | is.na(lat) | is.na(lon)
+  lat[bad] <- NA_real_
+  lon[bad] <- NA_real_
   list(lat = lat, lon = lon)
 }
 
@@ -278,72 +260,7 @@ filter_location_history_by_date <- function(df, target_date, local_tz = Sys.time
   filtered_df
 }
 
-# ---- Optimized loading via RDS cache ----
-
-CACHE_DIR <- "location_history/cache"
-
-# Check if cache exists for a person
-cache_exists <- function(person_id) {
-  index_file <- file.path(CACHE_DIR, person_id, "_indice.rds")
-  file.exists(index_file)
-}
-
-# Load data for a person on a specific date (via RDS cache)
-load_lh_by_date <- function(person_id, target_date, local_tz = Sys.timezone()) {
-  person_dir <- file.path(CACHE_DIR, person_id)
-  index_file <- file.path(person_dir, "_indice.rds")
-
-  if (!file.exists(index_file)) return(NULL)
-
-  # Determine which month(s) to load
-  # The date may be in a different UTC month than the local month
-  start_local <- lubridate::ymd_hms(paste(target_date, "00:00:00"), tz = local_tz)
-  end_local    <- lubridate::ymd_hms(paste(target_date, "23:59:59"), tz = local_tz)
-
-  start_utc <- lubridate::with_tz(start_local, "UTC")
-  end_utc    <- lubridate::with_tz(end_local, "UTC")
-
-  # Months that may contain data for the day (considering timezone)
-  required_months <- unique(c(
-    format(start_utc, "%Y-%m"),
-    format(end_utc, "%Y-%m")
-  ))
-
-  # Load only the necessary RDS files
-  dfs <- lapply(required_months, function(month) {
-    rds_file <- file.path(person_dir, paste0(month, ".rds"))
-    if (file.exists(rds_file)) {
-      readRDS(rds_file)
-    } else {
-      NULL
-    }
-  })
-
-  dfs <- Filter(Negate(is.null), dfs)
-  if (length(dfs) == 0) return(NULL)
-
-  df <- do.call(rbind, dfs)
-
-  # Filter for the specific day
-  filtered_df <- df[
-    (df$start_time <= end_utc & df$end_time >= start_utc),
-  ]
-
-  if (nrow(filtered_df) == 0) return(NULL)
-
-  filtered_df
-}
-
-# Format date/time for tooltip (e.g.: "05/jun. 14:30")
-format_datetime_lh <- function(timestamp, local_tz = Sys.timezone()) {
-  ts_local <- lubridate::with_tz(timestamp, local_tz)
-
-  months_abbr <- c("Jan", "Feb", "Mar", "Apr", "May", "Jun",
-                   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
-
-  day_str <- format(ts_local, "%d")
-  month_str <- months_abbr[as.integer(format(ts_local, "%m"))]
-  time_str <- format(ts_local, "%H:%M")
-
-  paste0(day_str, "/", month_str, " ", time_str)
+# Format date/time for map labels: dd/mm/yyyy HH:MM (pt) or yyyy-mm-dd HH:MM (en)
+format_history_time <- function(timestamp, lang = "en", local_tz = Sys.timezone()) {
+  fmt_datetime(lubridate::with_tz(timestamp, local_tz), lang)
 }
