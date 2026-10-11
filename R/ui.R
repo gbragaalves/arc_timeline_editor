@@ -30,6 +30,13 @@ PROFILE_CHOICES <- c(
   "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"
 )
 
+# Batch review: activities, sort order (labels are translation keys)
+REVIEW_ACTIVITY_CHOICES <- c(
+  "Metro" = "metro", "Train" = "train", "Tram" = "tram",
+  "Car" = "car", "Taxi" = "taxi", "Bus" = "bus"
+)
+REVIEW_SORT_CHOICES <- c("By date" = "date", "By severity" = "severity")
+
 ACTIVITY_CHOICES <- c(
   "Walking" = "walking", "Running" = "running", "Hiking" = "hiking",
   "Cycling" = "cycling", "Skateboard" = "skateboarding",
@@ -63,7 +70,9 @@ date_time_row <- function(label, date_id, time_id, time_value) {
   shiny::div(
     class = "dt-row",
     shiny::span(class = "dt-label", t_(label)),
-    date_input(date_id, NULL, Sys.Date(), width = "100%"),
+    # Picker right-aligned to the date field, so it doesn't spread over the time column
+    htmltools::tagQuery(date_input(date_id, NULL, Sys.Date(), width = "100%"))$
+      find("input")$addAttrs(`data-date-orientation` = "right")$allTags(),
     shiny::textInput(time_id, NULL, time_value, width = "100%")
   )
 }
@@ -198,6 +207,125 @@ APP_CSS <- "
   .help-icon { margin-left: 4px; color: var(--bs-secondary-color); cursor: help; font-size: 0.95em; }
   .timeline-title { font-weight: 600; font-size: 0.9rem; }
   .timeline-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+
+  /* Batch review: only the trip list scrolls (height set by fitReviewList) */
+  .range-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto 1fr;
+    gap: 4px;
+    align-items: center;
+    margin-bottom: 0.3rem;
+  }
+  .range-row .shiny-input-container { margin-bottom: 0 !important; }
+  .review-toolbar { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; justify-content: space-between; }
+  .review-toolbar .shiny-input-container { margin-bottom: 0 !important; }
+  .review-toolbar .shiny-options-group { white-space: nowrap; }
+  .review-toolbar .form-check-inline { margin-right: 0.3rem; padding-left: 1.3em; font-size: 0.74rem; }
+  .review-toolbar .form-check-inline .form-check-input { margin-left: -1.3em; }
+  .review-toolbar .selectize-input, .review-toolbar select { font-size: 0.74rem; min-height: 0; padding: 2px 6px; }
+  .review-list {
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    margin: 0.3rem 0;
+    height: 160px;
+  }
+  .review-row {
+    display: grid;
+    grid-template-columns: 14px 16px 34px 64px 30px 34px minmax(0, 1fr);
+    gap: 2px;
+    align-items: center;
+    padding: 2px 2px;
+    font-size: 0.74rem;
+    white-space: nowrap;
+    cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+  }
+  .review-row:hover { background: var(--bs-tertiary-bg); }
+  .review-row.selected { background: var(--bs-primary-bg-subtle); }
+  .review-row input { margin: 0; }
+  .review-row .rv-num { text-align: right; font-variant-numeric: tabular-nums; }
+  .review-row .rv-badge {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.64rem;
+    padding: 0 2px;
+    border-radius: 3px;
+    justify-self: start;
+    max-width: 100%;
+  }
+  .review-empty { padding: 6px; font-size: 0.76rem; color: var(--bs-secondary-color); }
+  .review-summary { font-size: 0.76rem; margin-top: 0.3rem; }
+  .review-detail { font-size: 0.76rem; margin-bottom: 0.3rem; }
+  .review-detail .rv-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .review-detail .rv-title .rv-stations { font-weight: 400; }
+  .review-detail .rv-warn { color: var(--bs-danger-text-emphasis); }
+  .review-detail .rv-clamp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .review-end {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) 52px;
+    gap: 2px 3px;
+    align-items: center;
+    margin-top: 2px;
+  }
+  .review-end .shiny-input-container { margin-bottom: 0 !important; }
+  .review-end .selectize-input, .review-toolbar .selectize-input {
+    font-size: 0.72rem;
+    min-height: 0;
+    padding: 1px 18px 1px 4px;
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .review-end .selectize-input > .item, .review-toolbar .selectize-input > .item {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+  .review-end .btn-group { grid-column: 2 / 4; }
+  .review-end .btn-group .btn { padding: 0 6px; font-size: 0.66rem; line-height: 1.25; }
+  .review-actions .btn { white-space: nowrap; font-size: 0.76rem; padding: 0.2rem 0.3rem; }
+  .review-keep { font-size: 0.74rem; }
+  .review-row .rv-badge.rv-detour, .review-detail .rv-detour { background: #FFE0B2; color: #BF360C; }
+  .review-row .rv-badge.rv-fragment, .review-detail .rv-fragment {
+    background: #ECEFF1; color: #455A64; border: 1px dashed #90A4AE;
+  }
+  .review-detail .rv-detour, .review-detail .rv-fragment {
+    font-size: 0.66rem; padding: 0 3px; border-radius: 3px; margin-right: 4px;
+  }
+  /* Jaé boardings (Route pane): time | mode (+ no location) | button, label below (wraps) */
+  .jae-box { padding: 0.35rem 0.5rem; }
+  .jae-box .pane-title { margin-bottom: 0.2rem; cursor: help; }
+  .jae-list { max-height: 168px; overflow-y: auto; }
+  .jae-row {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    column-gap: 4px;
+    align-items: center;
+    padding: 2px 0;
+    font-size: 0.74rem;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+  }
+  .jae-row:last-child { border-bottom: 0; }
+  .jae-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .jae-head { display: flex; gap: 4px; align-items: center; min-width: 0; }
+  .jae-mode { color: #fff; font-size: 0.64rem; padding: 0 4px; border-radius: 3px; white-space: nowrap; }
+  .jae-noloc { font-size: 0.66rem; color: var(--bs-secondary-color); font-style: italic; white-space: nowrap; }
+  .jae-start { font-size: 0.66rem; padding: 0 6px; line-height: 1.4; white-space: nowrap; }
+  .jae-label { grid-column: 2 / 4; overflow-wrap: anywhere; line-height: 1.3; color: var(--bs-secondary-color); }
+  .jae-row.jae-used .jae-time, .jae-row.jae-used .jae-head { opacity: 0.55; }
+  .jae-row.jae-used .jae-start { border-color: transparent; color: var(--bs-success-text-emphasis); opacity: 1; }
+  .review-cands { display: flex; width: 100%; margin-top: 2px; }
+  .review-cands .btn { flex: 1 1 auto; min-width: 0; padding: 0 4px; font-size: 0.68rem; line-height: 1.35;
+                       white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .review-bulk {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 4px;
+    align-items: center;
+    margin-top: 0.3rem;
+    line-height: 1.15;
+  }
   #right_sidebar > .sidebar-content { height: 100%; overflow: hidden; }
 
   /* A collapsed sidebar's toggle sits over the map corner: move the Leaflet
@@ -270,6 +398,7 @@ osrm_pane <- shiny::tagList(
     "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
   ),
   shiny::selectInput("osrm_profile", t_("Profile:"), choices = tr_choices(PROFILE_CHOICES), selected = "car", width = "100%"),
+  shiny::uiOutput("jae_list"),
   mode_actions(
     shiny::actionButton("undo_point_osrm", t_("Undo"), class = "btn-sm btn-outline-secondary"),
     shiny::actionButton("clear_points_osrm", t_("Clear"), class = "btn-sm btn-outline-secondary"),
@@ -452,6 +581,69 @@ edit_route_pane <- shiny::tagList(
   )
 )
 
+batch_review_pane <- shiny::tagList(
+  mode_hint(
+    "Fix trips that stray off the rails or roads.",
+    "Trips are measured against the rails (metro, train, tram) or the roads matched by the local OSRM (car, taxi, bus). Accepted fixes are exported as one GPX with a track per trip: in Arc, Import GPX File replaces the overlapping data. Keys: A accept, S skip, R re-route."
+  ),
+  shiny::uiOutput("review_resume"),
+  bslib::accordion(
+    id = "review_steps",
+    multiple = FALSE,
+    open = "find",
+    bslib::accordion_panel(
+      shiny::tagList("1 · ", t_("Find")), value = "find",
+      shiny::selectizeInput("review_activities", NULL, choices = tr_choices(REVIEW_ACTIVITY_CHOICES),
+                            selected = "metro", multiple = TRUE, width = "100%",
+                            options = list(plugins = list("remove_button"))),
+      shiny::div(
+        class = "range-row",
+        shiny::span(class = "dt-label", t_("From")),
+        date_input("review_from", NULL, as.Date(format(Sys.Date(), "%Y-01-01")), width = "100%"),
+        shiny::span(class = "dt-label", t_("To")),
+        date_input("review_to", NULL, Sys.Date(), width = "100%")
+      ),
+      if (icloud_available()) {
+        shiny::checkboxInput("review_fetch_icloud", t_("Fetch everything from iCloud first"), FALSE)
+      },
+      bslib::input_task_button("review_find", t_("Find trips"), label_busy = t_("Searching..."), class = "btn-sm w-100"),
+      shiny::uiOutput("review_summary")
+    ),
+    bslib::accordion_panel(
+      shiny::tagList("2 · ", t_("Review")), value = "review",
+      shiny::div(
+        class = "review-toolbar",
+        shiny::checkboxInput("review_only_flagged", t_("Only flagged"), TRUE),
+        shiny::selectInput("review_sort", NULL, choices = tr_choices(REVIEW_SORT_CHOICES), selected = "date",
+                           width = "106px")
+      ),
+      shiny::div(id = "review_list_box", class = "review-list", shiny::uiOutput("review_list")),
+      shiny::uiOutput("review_detail"),
+      shiny::div(
+        class = "btn-row review-actions",
+        shiny::actionButton("review_accept", t_("Accept (A)"), class = "btn-sm btn-success"),
+        shiny::actionButton("review_skip", t_("Skip (S)"), class = "btn-sm btn-outline-secondary"),
+        shiny::actionButton("review_reroute", t_("Re-route (R)"), class = "btn-sm btn-outline-primary")
+      ),
+      shiny::actionLink("review_keep", t_("Use the recorded path as is"), class = "review-keep"),
+      shiny::uiOutput("review_bulk")
+    ),
+    bslib::accordion_panel(
+      shiny::tagList("3 · ", t_("Export")), value = "export",
+      shiny::uiOutput("review_export_count"),
+      shiny::checkboxInput("review_only_checked", t_("Send only checked"), FALSE),
+      if (icloud_available()) {
+        shiny::div(
+          class = "mb-1",
+          bslib::input_task_button("review_send_icloud", t_("Send batch GPX to iCloud"), label_busy = t_("Sending..."),
+                                   class = "btn-sm w-100")
+        )
+      },
+      shiny::downloadButton("review_download", t_("Download batch GPX"), class = "btn-sm btn-outline-secondary w-100")
+    )
+  )
+)
+
 export_pane <- shiny::tagList(
   shiny::div(
     class = "pane-section",
@@ -504,6 +696,7 @@ gear_menu <- shiny::div(
     shiny::tags$li(
       shiny::downloadLink("download_gpx", t_("Download GPX (all samples)"), class = "dropdown-item")
     ),
+    shiny::tags$li(shiny::actionLink("rebuild_rail_reference", t_("Rebuild rail reference"), class = "dropdown-item")),
     shiny::tags$li(shiny::tags$hr(class = "dropdown-divider")),
     shiny::tags$li(shiny::tags$h6(class = "dropdown-header", t_("Help (README)"))),
     lapply(
@@ -566,7 +759,7 @@ ui <- bslib::page_fillable(
         class = "d-none",
         shiny::radioButtons(
           "mode", NULL,
-          choices = c("OSRM", "Visit", "Manual", "Import", "EditSamples", "EditRoute"),
+          choices = c("OSRM", "Visit", "Manual", "Import", "EditSamples", "EditRoute", "BatchReview"),
           selected = "OSRM"
         )
       ),
@@ -588,11 +781,12 @@ ui <- bslib::page_fillable(
           t_("Edit"), value = "edit",
           mode_segments(
             "edit_mode_seg",
-            c("Edit samples" = "EditSamples", "Edit route" = "EditRoute"),
+            c("Edit samples" = "EditSamples", "Edit route" = "EditRoute", "Batch review" = "BatchReview"),
             "EditSamples"
           ),
           shiny::conditionalPanel("input.mode == 'EditSamples'", edit_samples_pane),
-          shiny::conditionalPanel("input.mode == 'EditRoute'", edit_route_pane)
+          shiny::conditionalPanel("input.mode == 'EditRoute'", edit_route_pane),
+          shiny::conditionalPanel("input.mode == 'BatchReview'", batch_review_pane)
         ),
         bslib::nav_panel(t_("Export"), value = "export", export_pane)
       )
@@ -643,6 +837,123 @@ ui <- bslib::page_fillable(
     shiny::div(class = "sample-context-menu-separator"),
     shiny::div(id = "ctx-delete-node", class = "sample-context-menu-item danger", t_("Delete node"))
   ),
+
+  # Context menu for recorded samples in Batch review
+  shiny::div(
+    id = "review-context-menu",
+    class = "sample-context-menu",
+    shiny::div(class = "sample-context-menu-item", `data-endpoint` = "start", t_("Set as start")),
+    shiny::div(class = "sample-context-menu-item", `data-endpoint` = "end", t_("Set as end"))
+  ),
+
+  # JavaScript for Batch review: trip list, keys, endpoint menu, list height
+  shiny::tags$script(shiny::HTML("
+    $(document).ready(function() {
+      // Rows: click selects, checkbox toggles 'checked' (kept server-side)
+      $(document).on('click', '.review-row', function(e) {
+        if ($(e.target).is('input')) return;
+        Shiny.setInputValue('review_select', $(this).attr('data-id'), {priority: 'event'});
+      });
+      $(document).on('change', '.review-row input.rv-check', function() {
+        Shiny.setInputValue('review_check', {id: $(this).closest('.review-row').attr('data-id'),
+                                             checked: this.checked, ts: Date.now()}, {priority: 'event'});
+      });
+
+      // Fine time adjustments: data-review-adj='start:-60'
+      $(document).on('click', '[data-review-adj]', function() {
+        var parts = $(this).attr('data-review-adj').split(':');
+        Shiny.setInputValue('review_time_adj', {which: parts[0], delta: parseInt(parts[1], 10), ts: Date.now()},
+                            {priority: 'event'});
+      });
+
+      // Road detours: pick the matched path or the one through the recording
+      $(document).on('click', '[data-review-pick]', function() {
+        Shiny.setInputValue('review_pick', {key: $(this).attr('data-review-pick'), ts: Date.now()}, {priority: 'event'});
+      });
+
+      // Keys: A accept, S skip, R re-route (Batch review only, not while typing)
+      $(document).on('keydown', function(e) {
+        if ($('#mode input:checked').val() !== 'BatchReview') return;
+        if (e.ctrlKey || e.metaKey || e.altKey || $('.modal.show').length) return;
+        if ($(e.target).is('input, textarea, select, [contenteditable]')) return;
+        var id = {a: 'review_accept', s: 'review_skip', r: 'review_reroute'}[String(e.key).toLowerCase()];
+        if (id) {
+          e.preventDefault();
+          $('#' + id).click();
+        }
+      });
+
+      // Right-click on a recorded sample: set as start / end
+      var $rvMenu = $('#review-context-menu');
+      var rvSampleIdx = null;
+      $(document).on('click', function() { $rvMenu.removeClass('show'); });
+      $rvMenu.on('click', function(e) { e.stopPropagation(); });
+      $rvMenu.find('[data-endpoint]').on('click', function() {
+        if (rvSampleIdx !== null) {
+          Shiny.setInputValue('review_set_endpoint', {which: $(this).attr('data-endpoint'), idx: rvSampleIdx,
+                                                      ts: Date.now()}, {priority: 'event'});
+        }
+        $rvMenu.removeClass('show');
+      });
+      function bindReviewSample(layer) {
+        layer.off('contextmenu');
+        layer.on('contextmenu', function(e) {
+          L.DomEvent.stopPropagation(e);
+          L.DomEvent.preventDefault(e);
+          rvSampleIdx = parseInt(String(layer.options.layerId).replace('rvs_', ''), 10);
+          $rvMenu.css({left: e.originalEvent.pageX + 'px', top: e.originalEvent.pageY + 'px'}).addClass('show');
+        });
+      }
+      function hookReviewMap() {
+        var widget = HTMLWidgets.find('#map');
+        var map = widget && widget.getMap();
+        if (!map) { setTimeout(hookReviewMap, 500); return; }
+        if (map._reviewHook) return;
+        map._reviewHook = true;
+        map.on('layeradd', function(e) {
+          var layer = e.layer;
+          if (layer.options && layer.options.group === 'review_samples' && layer.options.layerId) bindReviewSample(layer);
+        });
+      }
+      $(document).on('shiny:connected', function() { setTimeout(hookReviewMap, 500); });
+
+      // The trip list takes whatever height the sidebar has left (no page or
+      // sidebar scroll); the list itself scrolls
+      window.fitReviewList = function() {
+        var box = document.getElementById('review_list_box');
+        var aside = document.getElementById('left_sidebar');
+        var sb = aside && aside.querySelector(':scope > .sidebar-content');
+        if (!box || !sb || !box.offsetParent) return;
+        // A selected row in view stays in view when the list shrinks (the detail grew)
+        var row = box.querySelector('.review-row.selected');
+        var below = function() { return row.getBoundingClientRect().bottom - box.getBoundingClientRect().bottom; };
+        var keep = row && below() <= 1 && row.getBoundingClientRect().top >= box.getBoundingClientRect().top - 1;
+        // .sidebar-content is as tall as its content; the aside is the full column
+        box.style.height = '60px';
+        var limit = aside.getBoundingClientRect().bottom - (parseFloat(getComputedStyle(sb).paddingBottom) || 0);
+        var bottom = sb.getBoundingClientRect().top;
+        Array.prototype.forEach.call(sb.children, function(c) {
+          if (c.offsetParent) bottom = Math.max(bottom, c.getBoundingClientRect().bottom);
+        });
+        box.style.height = Math.max(60, 60 + Math.floor(limit - bottom) - 2) + 'px';
+        if (keep && below() > 0) box.scrollTop += Math.ceil(below()) + 1;
+      };
+      var fitSoon = function() { setTimeout(window.fitReviewList, 60); };
+      $(document).on('shiny:value', function(e) {
+        if (!/^review_/.test(e.name)) return;
+        fitSoon();
+        if (e.name === 'review_list') {
+          setTimeout(function() {
+            var row = document.querySelector('.review-row.selected');
+            if (row) row.scrollIntoView({block: 'nearest'});
+          }, 80);
+        }
+      });
+      $(document).on('shown.bs.collapse hidden.bs.collapse', '#review_steps', fitSoon);
+      $(document).on('change', '#mode input', fitSoon);
+      $(window).on('resize', fitSoon);
+    });
+  ")),
 
   # JavaScript for context menu
   shiny::tags$script(shiny::HTML("
@@ -1209,6 +1520,19 @@ ui <- bslib::page_fillable(
       $(document).on('change', 'input[name=\"create_mode_seg\"], input[name=\"edit_mode_seg\"]', function() {
         setMode(this.value);
       });
+
+      // ---- Jaé boardings: one input for every row's button ----
+      $(document).on('click', '[data-jae-start]', function() {
+        Shiny.setInputValue('jae_start', $(this).attr('data-jae-start'), {priority: 'event'});
+      });
+      // Starting a route from a boarding outside Create > Route: select the
+      // Route segment, show the Create tab, then set the mode
+      Shiny.addCustomMessageHandler('jae_route_mode', function(msg) {
+        $('#seg_OSRM').prop('checked', true);
+        var tab = document.querySelector('#nav_section [data-value=\"create\"]');
+        if (tab && !tab.classList.contains('active')) bootstrap.Tab.getOrCreateInstance(tab).show();
+        setMode('OSRM');
+      });
       $(document).on('shown.bs.tab', '#nav_section [data-bs-toggle=\"tab\"]', function(e) {
         var section = $(e.target).attr('data-value');
         if (section === 'create') setMode(segmentValue('create_mode_seg'));
@@ -1259,7 +1583,24 @@ ui <- bslib::page_fillable(
         return window.I18N_DEFAULT;
       }
 
-      // Date pickers: dd/mm/yyyy (pt-BR) or yyyy-mm-dd (en); value unchanged
+      // Date pickers (bootstrap-datepicker as $.fn.bsDatepicker). Set before Shiny
+      // creates them (this script runs first), so pickers in modals get it too:
+      // 3-letter weekdays in pt-BR (its 2-letter daysMin repeats Qu Qu / Se Se),
+      // and a z-index above the Leaflet controls (1000) and the sidebar toggles.
+      if ($.fn.bsDatepicker) {
+        $.fn.bsDatepicker.dates['pt-BR'].daysMin = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+        $.fn.bsDatepicker.dates['en'].daysMin = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+        $.fn.bsDatepicker.defaults.zIndexOffset = 1060;
+      }
+      // Keep the popup inside the window: right-aligned next to a narrow date
+      // field (sidebar rows) it can start a few px past the left edge
+      $(document).on('show', '.shiny-date-input input', function() {
+        var dp = $(this).data('datepicker');
+        if (dp && parseFloat(dp.picker.css('left')) < 4) dp.picker.css('left', 4);
+      });
+
+      // Date pickers: dd/mm/yyyy (pt-BR) or yyyy-mm-dd (en); value unchanged.
+      // Idempotent: applyI18n() runs several times (load, map ready, language switch)
       function relocalizeDatepickers(lang) {
         var opts = lang === 'pt' ? {language: 'pt-BR', format: 'dd/mm/yyyy'} : {language: 'en', format: 'yyyy-mm-dd'};
         $('.shiny-date-input input').each(function() {
@@ -1268,8 +1609,11 @@ ui <- bslib::page_fillable(
           $input.attr('data-date-language', opts.language).attr('data-date-format', opts.format);
           $input.attr('title', i18nText('Date format:', lang) + ' ' + opts.format);
           if (!dp) return;
+          var $dowRows = dp.picker.find('.datepicker-days thead tr').has('th.dow');
+          if (dp.o.language === opts.language && $dowRows.length === 1) return;
           var date = $input.bsDatepicker('getUTCDate');
           dp._process_options(opts);
+          $dowRows.remove();  // fillDow() appends a row: drop the old one first
           dp.fillDow();
           dp.fillMonths();
           if (date) $input.bsDatepicker('setUTCDate', date);

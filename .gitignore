@@ -6,6 +6,9 @@ import/
 arquivos/
 location_history/
 location_history/cache/
+items/
+reference/
+scratch/
 
 # Local configuration (private data)
 config_local.R

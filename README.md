@@ -25,12 +25,13 @@ This tool originally exported in the LocoKit format used by Arc Timeline. It now
 
 | Mode | Description |
 |------|-------------|
-| **Route** | Click waypoints, select a transport profile (car/foot/bike/bus via OSRM, or metro/train/tram via Google Maps), calculate a snap-to-road route. |
+| **Route** | Click waypoints, select a transport profile (car/foot/bike/bus via OSRM, or metro/train/tram via Google Maps), calculate a snap-to-road route. Can start from a Jaé fare card boarding, see [Jaé boardings](#jaé-boardings-optional). |
 | **Visit** | Mark a point, name it, set entry/exit times. Frequent places auto-fill coordinates. |
 | **Manual Route** | Click points for a polyline, set times, pick an activity type. |
 | **Import File** | Import GeoJSON, GPX, KML, or GPKG. Special handling for FlightRadar24 KML. |
 | **Edit Samples** | Load existing samples from weekly `.json.gz` backups (optionally fetched from iCloud). Drag, ignore, lasso-select, snap-to-road, export as GPX or JSON. |
 | **Edit Route** | Select a trip, edit its waypoints (drag, delete, insert), apply changes preserving average speed. |
+| **Batch review** | Find trips whose recorded path doesn't follow the rails or roads, review a proposed clean path for each, and export the accepted ones as one GPX. See [Batch review](#batch-review). |
 
 ### Activity types
 
@@ -138,6 +139,20 @@ The same works for any trip built in this app, e.g. a flight imported from a Fli
 
 The JSON **Disabled item** mode is not an alternative: the package imports fine (Arc logs the item and samples), but the item stays hidden and Arc has no UI to enable it.
 
+### Batch review
+
+**Edit → Batch review** fixes many trips at once. Distance and speed are poor signals for a bad recording; geometry isn't: a metro trip should follow the rails, a car trip the roads.
+
+1. **Find**: pick the activities (metro, train, tram, car, taxi, bus) and a date range. Trips come from the backup's monthly `items/` files (tick *Fetch everything from iCloud first* to copy `samples/` and `items/` with rclone; nothing is written to iCloud). Each trip's recorded path is densified every 20 m and compared with its network:
+   - **rails** for metro/train/tram, from `reference/rails.gpkg` (built from the OSM extract on first use, or via ⚙ → *Rebuild rail reference*; osmium when installed, otherwise GDAL's OSM driver);
+   - **roads** for car/taxi/bus, via OSRM `/match` on the local server (car profile for car and taxi, bus profile for bus).
+
+   A trip is flagged on `off_share` (share of the path farther than the tolerance), `longest_off_m` (longest stretch off the network), `max_offset_m` (rail), no road match at all, or a recorded path under 0.5 km (a *fragment*; round trips with a real path are not fragments). A GPX import can't remove data, so fragments get a *fragment* badge suggesting to delete them or mark them as bogus in Arc, and are never accepted in bulk. Road trips are judged on geometry only, with a 35 m tolerance for urban-canyon noise; OSRM's match confidence is shown but doesn't flag (it is often near 0 on dense recordings, as the minimum over 100-point chunks). All thresholds are in `REVIEW_THRESHOLDS` at the top of `R/utils_review.R`. Trips imported from GPX (source other than LocoKit2) show as *already fixed*. Results are cached per trip in `scratch/review_cache.rds`, so a second Find is instant. No Google calls happen here.
+2. **Review**: the list scrolls on its own; click a row to see on the map the reference network, the recorded path coloured by offset (grey within the tolerance, red beyond) and the proposed clean path. **A** accepts, **S** skips, **R** re-routes; *Use the recorded path as is* marks the trip OK.
+   - **Rail**: origin and destination are the first/last samples with accuracy ≤ 50 m (right-click a sample on the map: *Set as start / Set as end*). Each end snaps to the nearest station of the mode within 600 m (behind the first samples, ahead of the last ones; the selects offer the 3 nearest). Google transit routes station to station, with the original weekday and time of day. The clean path starts before the first sample by the along-rail distance at 35 km/h (at most 3 min) and ends likewise after the last; −1 min … +1 min nudge the start and end times. In between, the time follows Google's steps: the real duration is shared among the legs and transfers in proportion to Google's durations (a transfer is the walk, then a wait standing still at the next platform: the gap between Google's arrival and departure times), linear by distance within each; the panel shows the legs, e.g. *Linha 2 · 18 min → transfer Estácio 4 min → Linha 1 · 9 min* (Google's own times and the scale factor in the tooltip). When Google gives no step durations, times are linear by distance and the panel says so. A warning shows when Google's route itself strays from the rails.
+   - **Road**: the matched geometry, with the real sample times at the matched points (speed varies like the trip); gaps between matched pieces are routed with OSRM. Find builds this proposal for every flagged road trip (local OSRM only) and checks it: its length against the recorded one, and the proposal matched again, which should leave ~0 % off the roads. A proposal over 1.25× the recorded length gets an orange *detour?* badge, one under 0.9× a *skips part?* badge (it possibly skips part of the trip); **R** then routes through the recording too (OSRM `/route` via one sample every ~300 m, snapped in the travel direction, loops around badly snapped waypoints dropped) and both candidates are shown with their lengths to pick from. Otherwise **R** routes between the start and end samples. *Accept all* accepts, after a confirmation with the count, the flagged road trips whose proposal is 0.9–1.2× the recorded length and stays on the roads when matched again; fragments, detours, proposals under 0.9× and trips re-routed by hand are left out.
+3. **Export**: **Send batch GPX to iCloud** / **Download batch GPX** write `arc_batch_<types>_<first>_<last>.gpx`, one `<trk>` per accepted trip. *Send only checked* exports only the ticked rows: Arc's import of a GPX with many tracks is not verified yet, so try 2–3 trips first. Accepted trips are saved in `scratch/review_state.rds`; reopening the mode offers *Resume previous review*.
+
 ## Requirements
 
 ### R packages
@@ -197,6 +212,14 @@ ICLOUD_BACKUP_ID <- "<backup-id>"   # skip auto-detection
 - **Send GPX to iCloud** copies the GPX to `Arc Timeline/GPX/`.
 - **Send to iCloud (Import)** / **Send Arc package to iCloud** **replace** the contents of `Arc Timeline/Import` (`rclone sync`), so leftovers from earlier imports are removed.
 
+### Jaé boardings (optional)
+
+For Rio de Janeiro's Jaé fare card. Set `JAE_CSV_PATH` in `config_local.R` to a CSV export of your fare history. The Route pane then lists the work date's boardings under **Jaé boardings**, and the map shows them as markers coloured by mode (bus, BRT, metro, VLT); a marker's popup has the time, line or station, fare type and fare.
+
+**Start route here** puts the route's first point on the boarding and sets the profile (bus and BRT → bus, metro → metro, VLT → tram). When you calculate the route, the start time is the tap-in time, and the confirmed route is described by the boarding (`<line> · <direction> · veículo <id>` for buses, `Metrô · <station>`, `VLT · <stop>`). A boarding without coordinates shows "no location": after **Start route here**, click its location on the map to set the first point. Boardings already turned into a route in the current session are greyed out.
+
+The CSV is UTF-8, comma-separated, one row per boarding (tap-in only; there is no alighting data), with the columns `datetime_local`, `datetime_utc` (ISO, `Z`), `modo` (`Ônibus` | `BRT` | `Metrô` | `VLT`), `consorcio`, `linha_ou_estacao`, `descricao`, `sentido`, `id_veiculo`, `tipo_transacao`, `produto`, `meio_pagamento`, `valor`, `latitude`, `longitude`, `fonte_coordenada`, `usar_no_arc` (`sim` | `não`), `obs`. Only rows with `usar_no_arc` = `sim` are used, and dates are matched in `America/Sao_Paulo`. Without `JAE_CSV_PATH`, or if the file is missing, nothing is shown. Keep the CSV outside the repository: it holds your trips and locations.
+
 ## Setup
 
 1. Clone this repo
@@ -214,6 +237,15 @@ FREQUENT_PLACES <- list(
 
 # Default UI language (optional): "pt" (default) or "en"
 APP_LANGUAGE <- "pt"
+
+# Jaé fare history CSV (optional): boardings listed in the Route pane
+JAE_CSV_PATH <- "path/to/jae_history.csv"
+
+# Batch review (optional; defaults shown)
+ITEMS_BACKUP_DIR    <- file.path(dirname(WEEKLY_BACKUP_DIR), "items")  # monthly items from the backup
+OSM_PBF_FILE        <- "~/osrm-data/merged_south_america.osm.pbf"     # source of reference/rails.gpkg
+RAIL_REFERENCE_FILE <- "reference/rails.gpkg"
+REVIEW_SCRATCH_DIR  <- "scratch"                                     # review_cache.rds, review_state.rds
 ```
 
 3. Run the app:
@@ -235,16 +267,21 @@ app.R                          # Entry point
 i18n/translations.json         # UI translations (PT/EN) + check_translations.R
 R/
   utils_time.R                 # Time parsing, timezone detection, interval validation
-  utils_geo.R                  # Geographic calculations, FR24 KML parsing
-  utils_osrm.R                # OSRM routing, snap-to-road, route smoothing
+  utils_geo.R                  # Geographic calculations, FR24 KML parsing, timed path helpers
+  utils_osrm.R                # OSRM routing, map matching (/match), snap-to-road, route smoothing
   utils_google.R              # Google Maps Directions API (transit routes)
   utils_arc.R                 # LocoKit2 data model: samples, items, places, activity types
+  utils_jae.R                 # Jaé fare card boardings (CSV): profile, label, day filter
   utils_weeks.R               # Weekly backup file I/O, overlap detection, sample loading
   utils_icloud.R              # iCloud Drive round-trip via rclone (fetch backups, send imports/GPX)
   utils_i18n.R                # UI language (PT/EN): translation lookup, date formats
+  utils_review.R              # Batch review: items, rail reference, conformity metrics, fixes
+  server_review.R             # Batch review server (Edit → Batch review)
   export_arc.R                # LocoKit2 JSON export (zip package generation)
   ui.R                        # Shiny UI layout and controls
   server.R                    # Shiny server logic, editing modes, import/export handlers
+reference/rails.gpkg           # Rails + stations from OSM (built locally, not tracked)
+scratch/                       # Batch review cache and saved review (not tracked)
 ```
 
 ## License

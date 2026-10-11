@@ -126,6 +126,11 @@ server <- function(input, output, session) {
   route_original_samples <- shiny::reactiveVal(list())  # Original route samples
   route_avg_speed <- shiny::reactiveVal(NULL)        # Average speed (m/s)
 
+  # Jaé fare card boardings (JAE_CSV_PATH in config_local.R; empty if not set)
+  jae_boardings <- read_jae_boardings()
+  jae_used <- shiny::reactiveVal(character(0))  # jae_ids already turned into routes
+  jae_day <- shiny::reactive(jae_on_date(jae_boardings, input$work_date))
+
   # ---- Language (PT | EN toggle in the top bar) ----
   # input$app_lang comes from the browser (remembered in localStorage);
   # APP_LANGUAGE (config_local.R, default "pt") until it arrives.
@@ -377,6 +382,9 @@ server <- function(input, output, session) {
     # Ignore clicks in Import File mode (uses uploaded file)
     if (current_mode == "Import") return()
 
+    # Batch review uses its own markers (right-click on the samples)
+    if (current_mode == "BatchReview") return()
+
     pts <- temp_points()
 
     if (current_mode == "Visit") {
@@ -418,6 +426,89 @@ server <- function(input, output, session) {
       temp_points(pts)
       update_map_points(auto_zoom = FALSE)
     }
+  })
+
+  # ---- Jaé boardings: map layer, list in the Route pane, start a route ----
+
+  # Markers for the work date in their own group (only cleared here);
+  # boardings already turned into routes are grey
+  shiny::observe({
+    day <- jae_day()
+    used <- jae_used()
+    lang <- current_lang()
+    proxy <- leaflet::leafletProxy("map") %>% leaflet::clearGroup("jae")
+    day <- day[!is.na(day$latitude) & !is.na(day$longitude), , drop = FALSE]
+    if (nrow(day) == 0) return()
+    fill <- ifelse(day$jae_id %in% used, JAE_USED_COLOR, unname(JAE_MODE_COLORS[day$modo]))
+    proxy %>%
+      leaflet::addCircleMarkers(
+        lng = day$longitude, lat = day$latitude,
+        radius = 7, weight = 2, color = "white", opacity = 1,
+        fillColor = ifelse(is.na(fill), JAE_USED_COLOR, fill), fillOpacity = 0.95,
+        popup = jae_popup(day, lang),
+        label = jae_local_time(day$datetime_utc),
+        group = "jae",
+        # A click opens the popup without adding a route point
+        options = leaflet::pathOptions(bubblingMouseEvents = FALSE)
+      )
+  })
+
+  jae_mode_name <- function(modo) {
+    switch(modo, "Ônibus" = tr("Bus"), "Metrô" = tr("Metro"), modo)
+  }
+
+  output$jae_list <- shiny::renderUI({
+    day <- jae_day()
+    if (nrow(day) == 0) return(NULL)
+    used <- jae_used()
+    rows <- lapply(seq_len(nrow(day)), function(i) {
+      b <- day[i, ]
+      is_used <- b$jae_id %in% used
+      has_xy <- !is.na(b$latitude) && !is.na(b$longitude)
+      col <- unname(JAE_MODE_COLORS[b$modo])
+      shiny::div(
+        class = paste("jae-row", if (is_used) "jae-used"),
+        shiny::span(class = "jae-time", jae_local_time(b$datetime_utc)),
+        shiny::span(
+          class = "jae-head",
+          shiny::span(class = "jae-mode", style = sprintf("background: %s;", if (is.na(col)) JAE_USED_COLOR else col),
+                      jae_mode_name(b$modo)),
+          if (!has_xy) shiny::span(class = "jae-noloc", tr("no location"))
+        ),
+        shiny::tags$button(
+          type = "button", class = "btn btn-outline-primary jae-start", `data-jae-start` = b$jae_id,
+          disabled = if (is_used) NA,
+          if (is_used) paste("✓", tr("Route added")) else tr("Start route here")
+        ),
+        shiny::span(class = "jae-label", b$label)
+      )
+    })
+    shiny::div(
+      class = "pane-section jae-box",
+      shiny::div(class = "pane-title", title = tr("Fare card tap-ins on this date. A route started here takes the boarding's place, time, profile and description."),
+                 tr("Jaé boardings")),
+      shiny::div(class = "jae-list", rows)
+    )
+  })
+
+  shiny::observeEvent(input$jae_start, {
+    b <- jae_boardings[jae_boardings$jae_id == input$jae_start, , drop = FALSE]
+    if (nrow(b) != 1 || b$jae_id %in% jae_used()) return()
+
+    # The hidden mode radio and the Create segment are synced client-side
+    if (!identical(input$mode, "OSRM")) session$sendCustomMessage("jae_route_mode", list())
+
+    if (!is.na(b$latitude) && !is.na(b$longitude)) {
+      temp_points(data.frame(lat = b$latitude, lng = b$longitude))
+      update_map_points(auto_zoom = TRUE)
+    } else {
+      # No coordinates: the next map click becomes the first point
+      temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
+      update_map_points(auto_zoom = FALSE)
+      shiny::showNotification(tr("Click the boarding location on the map"), type = "message")
+    }
+    if (!is.na(b$profile)) shiny::updateSelectInput(session, "osrm_profile", selected = b$profile)
+    session$userData$jae_pending <- b
   })
 
   # ---- Visit: auto-fill coordinates from frequent place name ----
@@ -628,6 +719,23 @@ server <- function(input, output, session) {
 
     profile <- input$osrm_profile
 
+    # Suggest time based on the last activity (if any); also the reference
+    # time for transit routing
+    last_utc <- get_last_end_local()  # returns in UTC
+    if (!is.null(last_utc)) {
+      last_local <- lubridate::with_tz(last_utc, tzone = Sys.timezone())
+      suggested_start <- last_local + 60  # +1 minute
+    } else {
+      data_ref <- input$work_date
+      suggested_start <- lubridate::ymd_hms(
+        paste(data_ref, "08:00:00"),
+        tz = Sys.timezone()
+      )
+    }
+    # Route started from a Jaé boarding: its tap-in time
+    jae <- session$userData$jae_pending
+    if (!is.null(jae)) suggested_start <- lubridate::with_tz(jae$datetime_utc, tzone = Sys.timezone())
+
     # Transit profiles use Google Maps API instead of OSRM
     if (profile %in% GOOGLE_TRANSIT_MODES) {
       if (!check_google_api()) {
@@ -638,7 +746,8 @@ server <- function(input, output, session) {
         return()
       }
       transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[profile]]
-      route <- calculate_google_transit_route(pts, transit_mode = transit_mode)
+      route <- calculate_google_transit_route(pts, transit_mode = transit_mode,
+                                              ref_time_utc = lubridate::with_tz(suggested_start, "UTC"))
       if (is.null(route)) {
         shiny::showNotification(
           sprintf(tr("No %s route found between these points. The API did not return routes with this transport mode."), profile),
@@ -663,27 +772,18 @@ server <- function(input, output, session) {
       }
     }
 
-    # Suggest time based on the last activity (if any)
-    last_utc <- get_last_end_local()  # returns in UTC
-    if (!is.null(last_utc)) {
-      last_local <- lubridate::with_tz(last_utc, tzone = Sys.timezone())
-      suggested_start <- last_local + 60  # +1 minute
-    } else {
-      data_ref <- input$work_date
-      suggested_start <- lubridate::ymd_hms(
-        paste(data_ref, "08:00:00"),
-        tz = Sys.timezone()
-      )
-    }
     suggested_end <- suggested_start + route$duration_s
+    # as.Date() gives a POSIXct's UTC date: a boarding after 21:00 local needs its
+    # local date (other routes keep the UTC default)
+    date_tz <- if (!is.null(jae)) Sys.timezone() else "UTC"
 
 
     shiny::showModal(
       shiny::modalDialog(
         title = tr("OSRM route times"),
-        date_input("osrm_date_start", tr("Start date"), as.Date(suggested_start), lang = current_lang()),
+        date_input("osrm_date_start", tr("Start date"), as.Date(suggested_start, tz = date_tz), lang = current_lang()),
         shiny::textInput("osrm_time_start", tr("Start time"), format(suggested_start, "%H:%M:%S")),
-        date_input("osrm_date_end", tr("End date"), as.Date(suggested_end), lang = current_lang()),
+        date_input("osrm_date_end", tr("End date"), as.Date(suggested_end, tz = date_tz), lang = current_lang()),
         shiny::textInput("osrm_time_end", tr("End time"), format(suggested_end, "%H:%M:%S")),
         footer = shiny::tagList(
           shiny::modalButton(tr("Cancel")),
@@ -752,7 +852,9 @@ server <- function(input, output, session) {
 
     end_local <- start_local + dur_s
 
-    shiny::updateDateInput(session, "osrm_date_end", value = as.Date(end_local))
+    # Local date for a route started from a Jaé boarding (see calculate_osrm)
+    date_tz <- if (!is.null(session$userData$jae_pending)) tz else "UTC"
+    shiny::updateDateInput(session, "osrm_date_end", value = as.Date(end_local, tz = date_tz))
     shiny::updateTextInput(session, "osrm_time_end", value = format(end_local, "%H:%M:%S"))
   })
 
@@ -889,12 +991,15 @@ server <- function(input, output, session) {
         )
         sample_ids <- vapply(new_samples, `[[`, "", "id")
 
+        # Route started from a Jaé boarding: its label is the description
+        jae <- session$userData$jae_pending
+
         item <- create_timeline_item_path(
           timestamps_utc = ts_seq,
           coords         = coords_new,
           sample_ids     = sample_ids,
           type           = "osrm_route",
-          description    = sprintf(tr("OSRM route (%s)"), profile),
+          description    = if (!is.null(jae)) jae$label else sprintf(tr("OSRM route (%s)"), profile),
           activity_type  = activity_type
         )
 
@@ -904,6 +1009,11 @@ server <- function(input, output, session) {
 
         s <- all_samples()
         all_samples(c(s, new_samples))
+
+        if (!is.null(jae)) {
+          jae_used(unique(c(jae_used(), jae$jae_id)))
+          session$userData$jae_pending <- NULL
+        }
 
         leaflet::leafletProxy("map") %>%
           leaflet::clearGroup("current_route") %>%
@@ -1965,7 +2075,11 @@ server <- function(input, output, session) {
 
       if (uses_google) {
         transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[profile]]
-        route <- calculate_google_transit_route(pts, transit_mode = transit_mode)
+        # Reference time: the first active sample (same weekday/time of day)
+        first_date <- active_samples[[1]]$date
+        if (is.list(first_date)) first_date <- unlist(first_date)
+        ref_time_utc <- parse_timestamp_utc(as.character(first_date %||% NA_character_)[1])
+        route <- calculate_google_transit_route(pts, transit_mode = transit_mode, ref_time_utc = ref_time_utc)
         if (!is.null(route)) {
           route$coords <- smooth_osrm_route(route$coords, tolerance_m = 5, angle_min = 2)
         }
@@ -2014,57 +2128,14 @@ server <- function(input, output, session) {
       # Store the OSRM route geometry for display
       osrm_route(osrm_coords)
 
-      # Filter points with direction change (>2 degrees) or significant distance
-      # Criteria: angular change OR distance > 50m from last included point
-      relevant_points <- 1L  # always include the first
-      last_included <- 1L
-
-      for (i in 2:(n_osrm - 1)) {
-        should_include <- FALSE
-
-        # Criterion 1: direction change > 2 degrees
-        b1 <- geosphere::bearing(
-          c(osrm_coords[i - 1, 1], osrm_coords[i - 1, 2]),
-          c(osrm_coords[i, 1], osrm_coords[i, 2])
-        )
-        b2 <- geosphere::bearing(
-          c(osrm_coords[i, 1], osrm_coords[i, 2]),
-          c(osrm_coords[i + 1, 1], osrm_coords[i + 1, 2])
-        )
-        diff_ang <- abs((b2 - b1 + 180) %% 360 - 180)
-        if (diff_ang > 2) {
-          should_include <- TRUE
-        }
-
-        # Criterion 2: distance > 50m from last included point
-        if (!should_include) {
-          dist_last <- geosphere::distHaversine(
-            c(osrm_coords[last_included, 1], osrm_coords[last_included, 2]),
-            c(osrm_coords[i, 1], osrm_coords[i, 2])
-          )
-          if (dist_last > 50) {
-            should_include <- TRUE
-          }
-        }
-
-        if (should_include) {
-          relevant_points <- c(relevant_points, i)
-          last_included <- i
-        }
-      }
-      relevant_points <- c(relevant_points, n_osrm)  # always include the last
+      # Points with a direction change (>2 degrees) or > 50 m from the last kept one
+      relevant_points <- path_key_points(osrm_coords, angle_deg = 2, max_gap_m = 50)
 
       # Filtered coordinates for virtual samples
       filtered_coords <- osrm_coords[relevant_points, , drop = FALSE]
       n_filtered <- nrow(filtered_coords)
 
-      cumulative_dist <- numeric(n_osrm)
-      cumulative_dist[1] <- 0
-      for (i in 2:n_osrm) {
-        p1 <- c(osrm_coords[i - 1, 1], osrm_coords[i - 1, 2])
-        p2 <- c(osrm_coords[i, 1], osrm_coords[i, 2])
-        cumulative_dist[i] <- cumulative_dist[i - 1] + geosphere::distHaversine(p1, p2)
-      }
+      cumulative_dist <- path_cumulative_m(osrm_coords)
       total_dist <- cumulative_dist[n_osrm]
 
       # For each active sample, interpolate position on the OSRM route
@@ -2081,31 +2152,11 @@ server <- function(input, output, session) {
       t_range <- t_max - t_min
       if (t_range <= 0) t_range <- 1
 
+      # Position on the OSRM route at the sample's time proportion (0 to 1)
+      new_xy <- path_points_at(osrm_coords, cumulative_dist, (ts_vec - t_min) / t_range * total_dist)
       for (i in seq_len(n)) {
-        # Time proportion (0 to 1)
-        prop <- (ts_vec[i] - t_min) / t_range
-
-        # Target distance on the OSRM route
-        target_dist <- prop * total_dist
-
-        # Find segment on the OSRM route
-        seg_idx <- max(1, sum(cumulative_dist <= target_dist))
-        if (seg_idx >= n_osrm) seg_idx <- n_osrm - 1
-
-        # Interpolate within the segment
-        d1 <- cumulative_dist[seg_idx]
-        d2 <- cumulative_dist[seg_idx + 1]
-        seg_len <- d2 - d1
-        if (seg_len <= 0) seg_len <- 1
-
-        frac <- (target_dist - d1) / seg_len
-        frac <- max(0, min(1, frac))
-
-        new_lon <- osrm_coords[seg_idx, 1] + frac * (osrm_coords[seg_idx + 1, 1] - osrm_coords[seg_idx, 1])
-        new_lat <- osrm_coords[seg_idx, 2] + frac * (osrm_coords[seg_idx + 1, 2] - osrm_coords[seg_idx, 2])
-
-        active_samples[[i]]$longitude <- new_lon
-        active_samples[[i]]$latitude <- new_lat
+        active_samples[[i]]$longitude <- unname(new_xy[i, 1])
+        active_samples[[i]]$latitude <- unname(new_xy[i, 2])
       }
 
       shiny::showNotification(tr("7/7 Finishing..."), id = "snap_progress", duration = NULL, type = "message")
@@ -3262,6 +3313,9 @@ server <- function(input, output, session) {
     session$sendCustomMessage("clear_node_selection", list())
     shiny::showNotification(tr("Selection cleared."), type = "message")
   })
+
+  # ---- Batch review (R/server_review.R) ----
+  review_server(input, output, session, tr, current_lang)
 
   # Download links can sit in collapsed panels, other tabs or the ⚙ menu:
   # keep their URLs set even while hidden

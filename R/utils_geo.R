@@ -168,3 +168,116 @@ parse_kml_rich <- function(kml_file) {
   if (length(out) == 0) return(NULL)
   do.call(rbind, out)
 }
+
+
+# ---- Path helpers (n x 2 lon/lat matrices) ----
+# Shared by the Edit Samples snap and the batch review fixes.
+
+# Cumulative great-circle distance (m) at each vertex
+path_cumulative_m <- function(coords) {
+  n <- nrow(coords)
+  if (n < 2) return(rep(0, n))
+  c(0, cumsum(geosphere::distHaversine(coords[-n, , drop = FALSE], coords[-1, , drop = FALSE])))
+}
+
+# Indices of the vertices worth keeping: direction change > angle_deg, or more
+# than max_gap_m from the last kept vertex. First and last are always kept.
+path_key_points <- function(coords, angle_deg = 2, max_gap_m = 50) {
+  n <- nrow(coords)
+  if (n <= 2) return(seq_len(n))
+  bearings <- geosphere::bearing(coords[-n, , drop = FALSE], coords[-1, , drop = FALSE])
+
+  keep <- 1L
+  last <- 1L
+  for (i in 2:(n - 1)) {
+    turn <- abs((bearings[i] - bearings[i - 1] + 180) %% 360 - 180)
+    if (isTRUE(turn > angle_deg) ||
+        geosphere::distHaversine(coords[last, ], coords[i, ]) > max_gap_m) {
+      keep <- c(keep, i)
+      last <- i
+    }
+  }
+  c(keep, n)
+}
+
+# Points at distances d along a path (cum = path_cumulative_m(coords)),
+# linear within each segment; d is clamped to the path
+path_points_at <- function(coords, cum, d) {
+  n <- nrow(coords)
+  if (n < 2) return(coords[rep(1L, length(d)), , drop = FALSE])
+  seg <- pmin(pmax(findInterval(d, cum), 1L), n - 1L)
+  seg_len <- cum[seg + 1L] - cum[seg]
+  seg_len[seg_len <= 0] <- 1
+  frac <- pmax(0, pmin(1, (d - cum[seg]) / seg_len))
+  out <- coords[seg, , drop = FALSE] + frac * (coords[seg + 1L, , drop = FALSE] - coords[seg, , drop = FALSE])
+  colnames(out) <- c("lon", "lat")
+  out
+}
+
+# Timed path: the vertices of `coords` plus anchor points at along-path
+# distances anchor_d with times anchor_t (both non-decreasing, numeric seconds).
+# Vertex times are linear in distance between neighbouring anchors, so the
+# speed varies with the anchors; anchors at the same distance make a dwell.
+# Returns data.frame(lon, lat, t, d, anchor).
+timed_path_from_anchors <- function(coords, anchor_d, anchor_t) {
+  cum <- path_cumulative_m(coords)
+  anchor_d <- pmin(pmax(anchor_d, 0), cum[length(cum)])
+  anchor_xy <- path_points_at(coords, cum, anchor_d)
+
+  rows <- data.frame(
+    lon = c(coords[, 1], anchor_xy[, 1]),
+    lat = c(coords[, 2], anchor_xy[, 2]),
+    d = c(cum, anchor_d),
+    t = c(rep(NA_real_, length(cum)), anchor_t),
+    anchor = c(rep(FALSE, length(cum)), rep(TRUE, length(anchor_d)))
+  )
+  # By distance; at equal distance anchors keep their own order, vertices go first
+  rows <- rows[order(rows$d, rows$anchor, c(seq_along(cum), seq_along(anchor_d))), ]
+
+  a <- which(rows$anchor)
+  prev_a <- a[pmax(findInterval(seq_len(nrow(rows)), a), 1L)]
+  next_a <- a[pmin(findInterval(seq_len(nrow(rows)) - 1L, a) + 1L, length(a))]
+  span <- rows$d[next_a] - rows$d[prev_a]
+  frac <- ifelse(span > 0, (rows$d - rows$d[prev_a]) / span, 0)
+  frac <- pmax(0, pmin(1, frac))
+  rows$t <- ifelse(rows$anchor, rows$t, rows$t[prev_a] + frac * (rows$t[next_a] - rows$t[prev_a]))
+
+  # A vertex at the same distance as an anchor adds nothing
+  rows <- rows[rows$anchor | !(rows$d %in% anchor_d), ]
+  rownames(rows) <- NULL
+  rows
+}
+
+# Resample a timed path (timed_path_from_anchors) so consecutive points are at
+# most max_m and max_s apart, whichever gives more points. Shape vertices
+# (path_key_points), anchors and dwells are kept; inserted points follow the
+# original geometry. A dwell (no movement) gets a point every max_dwell_s.
+resample_timed_path <- function(path, max_m = 100, max_s = 10, angle_deg = 2, max_dwell_s = max_s) {
+  n <- nrow(path)
+  if (n < 2) return(path)
+  coords <- cbind(path$lon, path$lat)
+  dwell <- c(FALSE, diff(path$d) == 0) | c(diff(path$d) == 0, FALSE)
+  keep <- sort(unique(c(path_key_points(coords, angle_deg, max_gap_m = max_m),
+                        which(path$anchor | dwell))))
+
+  out <- vector("list", length(keep))
+  for (k in seq_along(keep)) {
+    i <- keep[k]
+    out[[k]] <- path[i, c("lon", "lat", "t", "d", "anchor")]
+    if (k == length(keep)) break
+    j <- keep[k + 1]
+    len <- path$d[j] - path$d[i]
+    dur <- path$t[j] - path$t[i]
+    steps <- max(ceiling(len / max_m), ceiling(dur / if (len > 0) max_s else max_dwell_s), 1)
+    if (steps > 1) {
+      f <- seq_len(steps - 1) / steps
+      d_new <- path$d[i] + f * len
+      xy <- if (len > 0) path_points_at(coords, path$d, d_new) else coords[rep(i, length(f)), , drop = FALSE]
+      out[[k]] <- rbind(out[[k]], data.frame(lon = xy[, 1], lat = xy[, 2], t = path$t[i] + f * dur,
+                                             d = d_new, anchor = FALSE))
+    }
+  }
+  res <- do.call(rbind, out)
+  rownames(res) <- NULL
+  res
+}

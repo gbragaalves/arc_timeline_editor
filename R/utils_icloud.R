@@ -10,6 +10,8 @@
 ICLOUD_REMOTE    <- if (exists("ICLOUD_REMOTE"))    ICLOUD_REMOTE    else "icloud"
 ICLOUD_ARC_DIR   <- if (exists("ICLOUD_ARC_DIR"))   ICLOUD_ARC_DIR   else "Arc Timeline"
 ICLOUD_BACKUP_ID <- if (exists("ICLOUD_BACKUP_ID")) ICLOUD_BACKUP_ID else NULL  # NULL = auto-detect
+# Monthly timeline items (items/YYYY-MM.json), next to the weekly samples
+ITEMS_BACKUP_DIR <- if (exists("ITEMS_BACKUP_DIR")) ITEMS_BACKUP_DIR else file.path(dirname(WEEKLY_BACKUP_DIR), "items")
 
 # Session cache (availability, active backup ID, last error output)
 .icloud_state <- new.env(parent = emptyenv())
@@ -134,6 +136,38 @@ icloud_fetch_weeks <- function(weeks, dest = WEEKLY_BACKUP_DIR, lang = "en") {
   }
 
   list(ok = TRUE, message = msg, weeks = got)
+}
+
+# Copy the whole active backup's samples/ into samples_dest and items/ into
+# items_dest (rclone copy: only changed files are downloaded, nothing is
+# deleted locally). on_step(fraction, label) reports progress (e.g. setProgress
+# inside withProgress). Returns list(ok, message).
+icloud_fetch_all <- function(samples_dest = WEEKLY_BACKUP_DIR, items_dest = ITEMS_BACKUP_DIR,
+                             lang = "en", on_step = NULL) {
+  step <- function(fraction, label) if (is.function(on_step)) on_step(fraction, label)
+
+  step(0.05, icloud_msg("Finding the active backup...", lang))
+  backup_id <- icloud_active_backup()
+  if (is.null(backup_id)) {
+    return(list(ok = FALSE, message = icloud_error_hint(.icloud_state$last_error, lang)))
+  }
+
+  parts <- list(
+    list(sub = "samples", dest = samples_dest, label = icloud_msg("Fetching samples...", lang), at = 0.15),
+    list(sub = "items",   dest = items_dest,   label = icloud_msg("Fetching items...", lang),   at = 0.85)
+  )
+  for (p in parts) {
+    step(p$at, p$label)
+    if (!dir.exists(p$dest)) dir.create(p$dest, recursive = TRUE, showWarnings = FALSE)
+    res <- rclone_run(c("copy", icloud_path("Backup", backup_id, p$sub), p$dest), timeout = 1800)
+    if (!res$ok) return(list(ok = FALSE, message = icloud_error_hint(res$output, lang)))
+  }
+
+  step(1, icloud_msg("Done", lang))
+  n_weeks <- length(list.files(samples_dest, "\\.json\\.gz$"))
+  n_months <- length(list.files(items_dest, "\\.json$"))
+  list(ok = TRUE, message = sprintf(icloud_msg("iCloud: %d weeks of samples and %d months of items up to date", lang),
+                                    n_weeks, n_months))
 }
 
 # rclone arguments for icloud_push_import(); stops unless local_dir is an

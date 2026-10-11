@@ -1,15 +1,19 @@
 {
-  "(not in iCloud: %s)": {
-    "pt": "(não encontradas no iCloud: %s)",
-    "en": "(not in iCloud: %s)"
+  "%.0f m in a row off the network": {
+    "pt": "%.0f m seguidos fora da rede",
+    "en": "%.0f m in a row off the network"
   },
-  "(OSRM route virtual samples)": {
-    "pt": "(amostras virtuais da rota OSRM)",
-    "en": "(OSRM route virtual samples)"
+  "%.0f%% of the path off the network": {
+    "pt": "%.0f%% do trajeto fora da rede",
+    "en": "%.0f%% of the path off the network"
   },
   "%.1f degrees": {
     "pt": "%.1f graus",
     "en": "%.1f degrees"
+  },
+  "%d accepted": {
+    "pt": "%d aceitas",
+    "en": "%d accepted"
   },
   "%d node(s) deleted.": {
     "pt": "%d nó(s) excluído(s).",
@@ -30,6 +34,26 @@
   "%d samples skipped (no valid coordinates).": {
     "pt": "%d amostras puladas (sem coordenadas válidas).",
     "en": "%d samples skipped (no valid coordinates)."
+  },
+  "%d trips accepted.": {
+    "pt": "%d viagens aceitas.",
+    "en": "%d trips accepted."
+  },
+  "%s: %d trips · %d off-network · %d already fixed": {
+    "pt": "%s: %d viagens · %d fora da rede · %d já corrigidas",
+    "en": "%s: %d trips · %d off-network · %d already fixed"
+  },
+  "(%d of them checked)": {
+    "pt": "(%d delas marcadas)",
+    "en": "(%d of them checked)"
+  },
+  "(not in iCloud: %s)": {
+    "pt": "(não encontradas no iCloud: %s)",
+    "en": "(not in iCloud: %s)"
+  },
+  "(OSRM route virtual samples)": {
+    "pt": "(amostras virtuais da rota OSRM)",
+    "en": "(OSRM route virtual samples)"
   },
   "1/7 Starting...": {
     "pt": "1/7 Iniciando...",
@@ -63,6 +87,30 @@
     "pt": "Distância absurda detectada no voo (%.1f km). Há algo errado com a trilha.",
     "en": "Absurd distance detected for flight (%.1f km). Something is wrong with the track."
   },
+  "Accept": {
+    "pt": "Aceitar",
+    "en": "Accept"
+  },
+  "Accept %d flagged road trips? Each proposal is %.1f–%.1f× the recorded length and stays on the roads when matched again (≤ %.0f%% off). Fragments, possible detours, proposals that may skip part of the trip and trips re-routed by hand are left for review.": {
+    "pt": "Aceitar %d viagens de rua sinalizadas? Cada proposta tem %.1f–%.1f× o comprimento gravado e continua nas ruas quando ajustada de novo (≤ %.0f%% fora). Fragmentos, possíveis desvios, propostas que podem pular parte da viagem e viagens com rota refeita à mão ficam para revisão.",
+    "en": "Accept %d flagged road trips? Each proposal is %.1f–%.1f× the recorded length and stays on the roads when matched again (≤ %.0f%% off). Fragments, possible detours, proposals that may skip part of the trip and trips re-routed by hand are left for review."
+  },
+  "Accept (A)": {
+    "pt": "Aceitar (A)",
+    "en": "Accept (A)"
+  },
+  "Accept all": {
+    "pt": "Aceitar todas",
+    "en": "Accept all"
+  },
+  "Accept in bulk": {
+    "pt": "Aceitar em lote",
+    "en": "Accept in bulk"
+  },
+  "accepted": {
+    "pt": "aceita",
+    "en": "accepted"
+  },
   "Activity type:": {
     "pt": "Tipo de atividade:",
     "en": "Activity type:"
@@ -87,6 +135,10 @@
     "pt": "Todas as amostras foram ignoradas.",
     "en": "All samples were ignored."
   },
+  "already fixed": {
+    "pt": "já corrigida",
+    "en": "already fixed"
+  },
   "Altitude:": {
     "pt": "Altitude:",
     "en": "Altitude:"
@@ -103,6 +155,14 @@
     "pt": "disponível",
     "en": "available"
   },
+  "Batch GPX: %d tracks.": {
+    "pt": "GPX em lote: %d trilhas.",
+    "en": "Batch GPX: %d tracks."
+  },
+  "Batch review": {
+    "pt": "Revisar em lote",
+    "en": "Batch review"
+  },
   "Bike": {
     "pt": "Bicicleta",
     "en": "Bike"
@@ -115,9 +175,25 @@
     "pt": "Procurar...",
     "en": "Browse..."
   },
+  "Building proposals...": {
+    "pt": "Montando as propostas...",
+    "en": "Building proposals..."
+  },
+  "Building the rail reference...": {
+    "pt": "Montando a referência de trilhos...",
+    "en": "Building the rail reference..."
+  },
   "Bus": {
     "pt": "Ônibus",
     "en": "Bus"
+  },
+  "By date": {
+    "pt": "Por data",
+    "en": "By date"
+  },
+  "By severity": {
+    "pt": "Por gravidade",
+    "en": "By severity"
   },
   "Cable car": {
     "pt": "Teleférico",
@@ -126,6 +202,10 @@
   "Calculate route": {
     "pt": "Calcular rota",
     "en": "Calculate route"
+  },
+  "Calculating transit route...": {
+    "pt": "Calculando a rota de transporte público...",
+    "en": "Calculating transit route..."
   },
   "Cancel": {
     "pt": "Cancelar",
@@ -155,6 +235,10 @@
     "pt": "Verificando...",
     "en": "Checking..."
   },
+  "Choose at least one activity.": {
+    "pt": "Escolha pelo menos uma atividade.",
+    "en": "Choose at least one activity."
+  },
   "Clean & snap": {
     "pt": "Limpar e ajustar",
     "en": "Clean & snap"
@@ -174,6 +258,10 @@
   "Click points on the map to draw a freeform polyline route. Timestamps are evenly interpolated between start and end times.": {
     "pt": "Clique no mapa para desenhar uma rota livre (polilinha). Os horários são distribuídos igualmente entre o início e o fim.",
     "en": "Click points on the map to draw a freeform polyline route. Timestamps are evenly interpolated between start and end times."
+  },
+  "Click the boarding location on the map": {
+    "pt": "Clique no local do embarque no mapa",
+    "en": "Click the boarding location on the map"
   },
   "Click the map to insert": {
     "pt": "Clique no mapa para inserir",
@@ -215,6 +303,10 @@
     "pt": "Rotas corrigidas (GPX / JSON): Editar → Editar amostras → 3 · Exportar. Todas as amostras em GPX: menu ⚙.",
     "en": "Corrected routes (GPX / JSON): Edit → Edit samples → 3 · Export. All samples as GPX: ⚙ menu."
   },
+  "Could not build a path for this trip (OSRM).": {
+    "pt": "Não foi possível montar um trajeto para esta viagem (OSRM).",
+    "en": "Could not build a path for this trip (OSRM)."
+  },
   "Could not parse the departure date/time.": {
     "pt": "Não foi possível interpretar a data/hora de partida.",
     "en": "Could not parse the departure date/time."
@@ -222,6 +314,10 @@
   "Could not read file as geographic layer.": {
     "pt": "Não foi possível ler o arquivo como camada geográfica.",
     "en": "Could not read file as geographic layer."
+  },
+  "Could not route through the recorded path (OSRM).": {
+    "pt": "Não foi possível rotear pelo trajeto gravado (OSRM).",
+    "en": "Could not route through the recorded path (OSRM)."
   },
   "Course:": {
     "pt": "Rumo:",
@@ -263,6 +359,10 @@
     "pt": "Excluir",
     "en": "Delete"
   },
+  "Delete it or mark it as bogus in Arc: a GPX import can't remove data.": {
+    "pt": "Apague ou marque como bogus no Arc: importar GPX não remove dados.",
+    "en": "Delete it or mark it as bogus in Arc: a GPX import can't remove data."
+  },
   "Delete node": {
     "pt": "Excluir nó",
     "en": "Delete node"
@@ -270,6 +370,10 @@
   "Delete sel.": {
     "pt": "Excluir sel.",
     "en": "Delete sel."
+  },
+  "detour?": {
+    "pt": "desvio?",
+    "en": "detour?"
   },
   "disabled": {
     "pt": "desativado",
@@ -283,9 +387,17 @@
     "pt": "Descartar",
     "en": "Discard"
   },
+  "Done": {
+    "pt": "Pronto",
+    "en": "Done"
+  },
   "Download Arc package (zip)": {
     "pt": "Baixar pacote do Arc (zip)",
     "en": "Download Arc package (zip)"
+  },
+  "Download batch GPX": {
+    "pt": "Baixar GPX em lote",
+    "en": "Download batch GPX"
   },
   "Download GPX (all samples)": {
     "pt": "Baixar GPX (todas as amostras)",
@@ -350,6 +462,10 @@
   "End must be after start.": {
     "pt": "O fim precisa ser depois do início.",
     "en": "End must be after start."
+  },
+  "End sample": {
+    "pt": "Amostra de fim",
+    "en": "End sample"
   },
   "End time": {
     "pt": "Hora de fim",
@@ -423,6 +539,14 @@
     "pt": "Falha ao interpolar as coordenadas da rota OSRM.",
     "en": "Failed to interpolate OSRM route coordinates."
   },
+  "Fare card tap-ins on this date. A route started here takes the boarding's place, time, profile and description.": {
+    "pt": "Validações do cartão nesta data. Uma rota iniciada aqui usa o local, o horário, o perfil e a descrição do embarque.",
+    "en": "Fare card tap-ins on this date. A route started here takes the boarding's place, time, profile and description."
+  },
+  "Fetch everything from iCloud first": {
+    "pt": "Baixar tudo do iCloud antes",
+    "en": "Fetch everything from iCloud first"
+  },
   "Fetch weeks from iCloud first": {
     "pt": "Buscar semanas no iCloud antes",
     "en": "Fetch weeks from iCloud first"
@@ -430,6 +554,14 @@
   "Fetching from iCloud...": {
     "pt": "Buscando no iCloud...",
     "en": "Fetching from iCloud..."
+  },
+  "Fetching items...": {
+    "pt": "Baixando os itens...",
+    "en": "Fetching items..."
+  },
+  "Fetching samples...": {
+    "pt": "Baixando as amostras...",
+    "en": "Fetching samples..."
   },
   "File route added.": {
     "pt": "Rota do arquivo adicionada.",
@@ -439,6 +571,22 @@
     "pt": "Arquivo para envio não encontrado.",
     "en": "File to send not found."
   },
+  "Find": {
+    "pt": "Buscar",
+    "en": "Find"
+  },
+  "Find trips": {
+    "pt": "Buscar viagens",
+    "en": "Find trips"
+  },
+  "Find trips first (step 1).": {
+    "pt": "Busque as viagens primeiro (passo 1).",
+    "en": "Find trips first (step 1)."
+  },
+  "Finding the active backup...": {
+    "pt": "Procurando o backup ativo...",
+    "en": "Finding the active backup..."
+  },
   "First point of the OSRM route is invalid.": {
     "pt": "O primeiro ponto da rota OSRM é inválido.",
     "en": "First point of the OSRM route is invalid."
@@ -446,6 +594,14 @@
   "Fix existing samples from the weekly backups.": {
     "pt": "Corrija amostras existentes dos backups semanais.",
     "en": "Fix existing samples from the weekly backups."
+  },
+  "Fix trips that stray off the rails or roads.": {
+    "pt": "Corrija viagens fora dos trilhos ou das ruas.",
+    "en": "Fix trips that stray off the rails or roads."
+  },
+  "Flagged road trips whose proposal is %.1f–%.1f× the recorded length and stays on the roads when matched again. Fragments, possible detours, proposals that may skip part of the trip and trips re-routed by hand are left out.": {
+    "pt": "Viagens de rua sinalizadas cuja proposta tem %.1f–%.1f× o comprimento gravado e continua nas ruas quando ajustada de novo. Fragmentos, possíveis desvios, propostas que podem pular parte da viagem e viagens com rota refeita à mão ficam de fora.",
+    "en": "Flagged road trips whose proposal is %.1f–%.1f× the recorded length and stays on the roads when matched again. Fragments, possible detours, proposals that may skip part of the trip and trips re-routed by hand are left out."
   },
   "Flight added. To replace the Arc data: Export → Download timeline GPX, then in Arc use Import GPX File.": {
     "pt": "Voo adicionado. Para substituir os dados do Arc: Exportar → Baixar GPX da linha do tempo e, no Arc, use Import GPX File.",
@@ -470,6 +626,22 @@
   "FR24 flight (%.1f km)": {
     "pt": "Voo FR24 (%.1f km)",
     "en": "FR24 flight (%.1f km)"
+  },
+  "fragment": {
+    "pt": "fragmento",
+    "en": "fragment"
+  },
+  "fragment: %.2f km recorded": {
+    "pt": "fragmento: %.2f km gravados",
+    "en": "fragment: %.2f km recorded"
+  },
+  "Fragment: only %.2f km recorded. A GPX import can't remove data: delete this trip or mark it as bogus in Arc.": {
+    "pt": "Fragmento: só %.2f km gravados. Importar GPX não remove dados: apague esta viagem ou marque-a como bogus no Arc.",
+    "en": "Fragment: only %.2f km recorded. A GPX import can't remove data: delete this trip or mark it as bogus in Arc."
+  },
+  "From": {
+    "pt": "De",
+    "en": "From"
   },
   "Funicular": {
     "pt": "Funicular",
@@ -502,6 +674,10 @@
   "Google transit: only the first and last active samples are used (%d intermediate ignored).": {
     "pt": "Transporte público do Google: só a primeira e a última amostra ativas são usadas (%d intermediárias ignoradas).",
     "en": "Google transit: only the first and last active samples are used (%d intermediate ignored)."
+  },
+  "Google: %s. Scaled ×%.2f to fit the recorded times.": {
+    "pt": "Google: %s. Escalado ×%.2f para caber nos horários gravados.",
+    "en": "Google: %s. Scaled ×%.2f to fit the recorded times."
   },
   "GPX sent to iCloud: %s/GPX/%s. On the iPhone: Arc → timeline → Import GPX File": {
     "pt": "GPX enviado ao iCloud: %s/GPX/%s. No iPhone: Arc → linha do tempo → Import GPX File",
@@ -542,6 +718,10 @@
   "iCloud sync (rclone)": {
     "pt": "Sincronização com o iCloud (rclone)",
     "en": "iCloud sync (rclone)"
+  },
+  "iCloud: %d weeks of samples and %d months of items up to date": {
+    "pt": "iCloud: %d semanas de amostras e %d meses de itens atualizados",
+    "en": "iCloud: %d weeks of samples and %d months of items up to date"
   },
   "iCloud: %s up to date": {
     "pt": "iCloud: %s em dia",
@@ -590,6 +770,10 @@
   "Insert waypoint mode": {
     "pt": "Modo de inserir pontos",
     "en": "Insert waypoint mode"
+  },
+  "Invalid date range.": {
+    "pt": "Intervalo de datas inválido.",
+    "en": "Invalid date range."
   },
   "Invalid date/time.": {
     "pt": "Data/hora inválida.",
@@ -655,6 +839,10 @@
     "pt": "itens",
     "en": "items"
   },
+  "Jaé boardings": {
+    "pt": "Embarques Jaé",
+    "en": "Jaé boardings"
+  },
   "Kayaking": {
     "pt": "Caiaque",
     "en": "Kayaking"
@@ -715,6 +903,22 @@
     "pt": "Marque uma visita (parada). Digite o nome de um dos seus lugares frequentes (config_local.R) para preencher as coordenadas. Entrada e saída definem a duração da permanência.",
     "en": "Mark a stationary visit. Type a name from your frequent places (config_local.R) to auto-fill coordinates. Entry/exit define the stay duration."
   },
+  "Matched": {
+    "pt": "Ajustado",
+    "en": "Matched"
+  },
+  "Matched to the roads (confidence %.2f)": {
+    "pt": "Ajustado às ruas (confiança %.2f)",
+    "en": "Matched to the roads (confidence %.2f)"
+  },
+  "Matched to the roads (confidence %.2f), gaps routed": {
+    "pt": "Ajustado às ruas (confiança %.2f), lacunas roteadas",
+    "en": "Matched to the roads (confidence %.2f), gaps routed"
+  },
+  "Measuring trips...": {
+    "pt": "Medindo as viagens...",
+    "en": "Measuring trips..."
+  },
   "Metro": {
     "pt": "Metrô",
     "en": "Metro"
@@ -735,6 +939,10 @@
     "pt": "Nenhuma rota de %s encontrada entre esses pontos. A API não retornou rotas com esse meio de transporte.",
     "en": "No %s route found between these points. The API did not return routes with this transport mode."
   },
+  "No accepted trips to export.": {
+    "pt": "Nenhuma viagem aceita para exportar.",
+    "en": "No accepted trips to export."
+  },
   "No file imported.": {
     "pt": "Nenhum arquivo importado.",
     "en": "No file imported."
@@ -746,6 +954,10 @@
   "No items/samples to export.": {
     "pt": "Nenhum item/amostra para exportar.",
     "en": "No items/samples to export."
+  },
+  "no location": {
+    "pt": "sem localização",
+    "en": "no location"
   },
   "No nodes selected.": {
     "pt": "Nenhum nó selecionado.",
@@ -759,6 +971,22 @@
     "pt": "Nenhuma rota OSRM calculada.",
     "en": "No OSRM route calculated."
   },
+  "No proposal for this trip.": {
+    "pt": "Sem proposta para esta viagem.",
+    "en": "No proposal for this trip."
+  },
+  "No proposal to accept for this trip.": {
+    "pt": "Não há proposta para aceitar nesta viagem.",
+    "en": "No proposal to accept for this trip."
+  },
+  "no road match": {
+    "pt": "sem ajuste às ruas",
+    "en": "no road match"
+  },
+  "No road match: routed between start and end": {
+    "pt": "Sem ajuste às ruas: roteado entre início e fim",
+    "en": "No road match: routed between start and end"
+  },
   "No route to apply.": {
     "pt": "Nenhuma rota para aplicar.",
     "en": "No route to apply."
@@ -766,6 +994,10 @@
   "No routes": {
     "pt": "Nenhuma rota",
     "en": "No routes"
+  },
+  "no samples found": {
+    "pt": "nenhuma amostra encontrada",
+    "en": "no samples found"
   },
   "No samples found in the interval.": {
     "pt": "Nenhuma amostra encontrada no intervalo.",
@@ -787,9 +1019,21 @@
     "pt": "Nenhuma amostra com coordenadas válidas.",
     "en": "No samples with valid coordinates."
   },
+  "No timeline items found for these dates. Fetch everything from iCloud first.": {
+    "pt": "Nenhum item da linha do tempo nessas datas. Baixe tudo do iCloud primeiro.",
+    "en": "No timeline items found for these dates. Fetch everything from iCloud first."
+  },
   "No trips in the timeline to export.": {
     "pt": "Nenhum trajeto na linha do tempo para exportar.",
     "en": "No trips in the timeline to export."
+  },
+  "No trips of these types in this period.": {
+    "pt": "Nenhuma viagem desses tipos no período.",
+    "en": "No trips of these types in this period."
+  },
+  "No trips to show.": {
+    "pt": "Nenhuma viagem para mostrar.",
+    "en": "No trips to show."
   },
   "Node %d": {
     "pt": "Nó %d",
@@ -815,9 +1059,25 @@
     "pt": "não configurado",
     "en": "not configured"
   },
+  "Not enough samples to build a path for this trip.": {
+    "pt": "Amostras insuficientes para montar um trajeto para esta viagem.",
+    "en": "Not enough samples to build a path for this trip."
+  },
+  "off-network": {
+    "pt": "fora da rede",
+    "en": "off-network"
+  },
+  "OK": {
+    "pt": "OK",
+    "en": "OK"
+  },
   "One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data.": {
     "pt": "Uma trilha por trajeto (as visitas ficam de fora). No Arc, o Import GPX File adiciona os trajetos e desativa e oculta os dados sobrepostos, então serve para substituir trajetos mal registrados. O pacote do Arc abaixo só adiciona dados.",
     "en": "One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data."
+  },
+  "Only flagged": {
+    "pt": "Só sinalizadas",
+    "en": "Only flagged"
   },
   "Or if you use docker-compose:": {
     "pt": "Ou, se você usa docker-compose:",
@@ -871,9 +1131,33 @@
     "pt": "O servidor OSRM não está rodando",
     "en": "OSRM server is not running"
   },
+  "Part of the path is a straight line (OSRM route failed).": {
+    "pt": "Parte do trajeto é uma linha reta (a rota do OSRM falhou).",
+    "en": "Part of the path is a straight line (OSRM route failed)."
+  },
   "Place": {
     "pt": "Local",
     "en": "Place"
+  },
+  "possible detour": {
+    "pt": "possível desvio",
+    "en": "possible detour"
+  },
+  "Possible detour: the proposal is %.2f× the recorded length (%.1f vs %.1f km). Re-route offers a path through the recording.": {
+    "pt": "Possível desvio: a proposta tem %.2f× o comprimento gravado (%.1f vs %.1f km). Nova rota oferece um trajeto pela gravação.",
+    "en": "Possible detour: the proposal is %.2f× the recorded length (%.1f vs %.1f km). Re-route offers a path through the recording."
+  },
+  "possibly skips part of the trip": {
+    "pt": "pode pular parte da viagem",
+    "en": "possibly skips part of the trip"
+  },
+  "Possibly skips part of the trip: the proposal is %.2f× the recorded length (%.1f vs %.1f km).": {
+    "pt": "Pode pular parte da viagem: a proposta tem %.2f× o comprimento gravado (%.1f vs %.1f km).",
+    "en": "Possibly skips part of the trip: the proposal is %.2f× the recorded length (%.1f vs %.1f km)."
+  },
+  "Previous review resumed: %d accepted.": {
+    "pt": "Revisão anterior retomada: %d aceitas.",
+    "en": "Previous review resumed: %d accepted."
   },
   "Processing...": {
     "pt": "Processando...",
@@ -887,9 +1171,29 @@
     "pt": "Propriedades",
     "en": "Properties"
   },
+  "Proposed %.1f km · recorded %.1f km": {
+    "pt": "Proposto %.1f km · gravado %.1f km",
+    "en": "Proposed %.1f km · recorded %.1f km"
+  },
+  "Rail reference built: %s": {
+    "pt": "Referência de trilhos pronta: %s",
+    "en": "Rail reference built: %s"
+  },
   "rclone failed with no output.": {
     "pt": "O rclone falhou sem nenhuma saída.",
     "en": "rclone failed with no output."
+  },
+  "Re-matched: %.0f%% off the roads": {
+    "pt": "Ajustado de novo: %.0f%% fora das ruas",
+    "en": "Re-matched: %.0f%% off the roads"
+  },
+  "Re-route (R)": {
+    "pt": "Nova rota (R)",
+    "en": "Re-route (R)"
+  },
+  "Rebuild rail reference": {
+    "pt": "Refazer a referência de trilhos",
+    "en": "Rebuild rail reference"
   },
   "Recalculate arrival": {
     "pt": "Recalcular chegada",
@@ -898,6 +1202,10 @@
   "Recommended for replacing a bad route. In Arc, Import GPX File reads the activity type from the GPX, then disables and hides the overlapping data (reversible in Arc).": {
     "pt": "Recomendado para substituir uma rota ruim. No Arc, o Import GPX File lê o tipo de atividade do GPX e depois desativa e oculta os dados sobrepostos (dá para desfazer no Arc).",
     "en": "Recommended for replacing a bad route. In Arc, Import GPX File reads the activity type from the GPX, then disables and hides the overlapping data (reversible in Arc)."
+  },
+  "recorded point": {
+    "pt": "ponto gravado",
+    "en": "recorded point"
   },
   "Refusing to send: not an import package (needs metadata.json, items/, samples/, places/).": {
     "pt": "Envio recusado: não é um pacote de importação (precisa de metadata.json, items/, samples/, places/).",
@@ -911,6 +1219,10 @@
     "pt": "Substituir uma rota existente",
     "en": "Replacing an existing route"
   },
+  "Resume previous review (%d accepted)": {
+    "pt": "Retomar a revisão anterior (%d aceitas)",
+    "en": "Resume previous review (%d accepted)"
+  },
   "Reuse original item ID (not working yet, needs importer upsert)": {
     "pt": "Reaproveitar o ID do item original (ainda não funciona; o importador precisa de upsert)",
     "en": "Reuse original item ID (not working yet, needs importer upsert)"
@@ -919,6 +1231,14 @@
     "pt": "Invertido",
     "en": "Reverse"
   },
+  "Review": {
+    "pt": "Revisar",
+    "en": "Review"
+  },
+  "Roads: %d safe proposals (%.1f–%.1f× the recorded length)": {
+    "pt": "Ruas: %d propostas seguras (%.1f–%.1f× o comprimento gravado)",
+    "en": "Roads: %d safe proposals (%.1f–%.1f× the recorded length)"
+  },
   "route": {
     "pt": "rota",
     "en": "route"
@@ -926,6 +1246,10 @@
   "Route": {
     "pt": "Rota",
     "en": "Route"
+  },
+  "Route added": {
+    "pt": "Rota criada",
+    "en": "Route added"
   },
   "Route imported from file": {
     "pt": "Rota importada de arquivo",
@@ -947,6 +1271,10 @@
     "pt": "Rota não encontrada.",
     "en": "Route not found."
   },
+  "Route off the rails:": {
+    "pt": "Rota fora dos trilhos:",
+    "en": "Route off the rails:"
+  },
   "Route updated! %.1f km, duration %.0f min, avg speed %.1f km/h": {
     "pt": "Rota atualizada! %.1f km, duração de %.0f min, velocidade média de %.1f km/h",
     "en": "Route updated! %.1f km, duration %.0f min, avg speed %.1f km/h"
@@ -954,6 +1282,18 @@
   "Route:": {
     "pt": "Rota:",
     "en": "Route:"
+  },
+  "Routed between start and end": {
+    "pt": "Roteado entre início e fim",
+    "en": "Routed between start and end"
+  },
+  "Routed through the recorded path (%d waypoints)": {
+    "pt": "Roteado pelo trajeto gravado (%d pontos de passagem)",
+    "en": "Routed through the recorded path (%d waypoints)"
+  },
+  "Routing through the recorded path...": {
+    "pt": "Roteando pelo trajeto gravado...",
+    "en": "Routing through the recorded path..."
   },
   "Rowing": {
     "pt": "Remo",
@@ -991,6 +1331,10 @@
     "pt": "Patinete",
     "en": "Scooter"
   },
+  "Searching...": {
+    "pt": "Buscando...",
+    "en": "Searching..."
+  },
   "Select a route.": {
     "pt": "Selecione uma rota.",
     "en": "Select a route."
@@ -998,6 +1342,10 @@
   "Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes.": {
     "pt": "Escolha um trajeto da linha do tempo para editar seus pontos de passagem. Arraste os nós para mover, use o botão direito para excluir ou insira novos pontos. A velocidade média é mantida ao aplicar as alterações.",
     "en": "Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes."
+  },
+  "Select a trip in the list.": {
+    "pt": "Escolha uma viagem na lista.",
+    "en": "Select a trip in the list."
   },
   "Select exactly 1 point on the map for the visit.": {
     "pt": "Marque exatamente 1 ponto no mapa para a visita.",
@@ -1019,9 +1367,17 @@
     "pt": "Enviar pacote do Arc ao iCloud",
     "en": "Send Arc package to iCloud"
   },
+  "Send batch GPX to iCloud": {
+    "pt": "Enviar GPX em lote ao iCloud",
+    "en": "Send batch GPX to iCloud"
+  },
   "Send GPX to iCloud": {
     "pt": "Enviar GPX ao iCloud",
     "en": "Send GPX to iCloud"
+  },
+  "Send only checked": {
+    "pt": "Enviar só as marcadas",
+    "en": "Send only checked"
   },
   "Send timeline GPX to iCloud": {
     "pt": "Enviar GPX da linha do tempo ao iCloud",
@@ -1051,6 +1407,14 @@
     "pt": "Enviado ao iCloud: %s/Import (%d %s, %d amostras). No iPhone: Arc → Backup & Restore → Restore from Backup → %s/Import",
     "en": "Sent to iCloud: %s/Import (%d %s, %d samples). On the iPhone: Arc → Backup & Restore → Restore from Backup → %s/Import"
   },
+  "Set as end": {
+    "pt": "Definir como fim",
+    "en": "Set as end"
+  },
+  "Set as start": {
+    "pt": "Definir como início",
+    "en": "Set as start"
+  },
   "Set at least 2 points on the map for the manual route.": {
     "pt": "Marque pelo menos 2 pontos no mapa para a rota manual.",
     "en": "Set at least 2 points on the map for the manual route."
@@ -1074,6 +1438,18 @@
   "Skiing": {
     "pt": "Esqui",
     "en": "Skiing"
+  },
+  "Skip (S)": {
+    "pt": "Pular (S)",
+    "en": "Skip (S)"
+  },
+  "skipped": {
+    "pt": "pulada",
+    "en": "skipped"
+  },
+  "skips part?": {
+    "pt": "pula trecho?",
+    "en": "skips part?"
   },
   "Snap": {
     "pt": "Ajustar",
@@ -1111,6 +1487,14 @@
     "pt": "Data de início",
     "en": "Start date"
   },
+  "Start route here": {
+    "pt": "Iniciar rota aqui",
+    "en": "Start route here"
+  },
+  "Start sample": {
+    "pt": "Amostra de início",
+    "en": "Start sample"
+  },
   "Start time": {
     "pt": "Hora de início",
     "en": "Start time"
@@ -1147,6 +1531,14 @@
     "pt": "Horários preenchidos a partir do KML (UTC -> horário local do sistema).",
     "en": "Times filled from KML file (UTC -> system local time)."
   },
+  "Timing by distance: Google returned no step durations.": {
+    "pt": "Tempo por distância: o Google não retornou durações por trecho.",
+    "en": "Timing by distance: Google returned no step durations."
+  },
+  "To": {
+    "pt": "Até",
+    "en": "To"
+  },
   "To check if it's running:": {
     "pt": "Para verificar se está rodando:",
     "en": "To check if it's running:"
@@ -1175,6 +1567,14 @@
     "pt": "VLT",
     "en": "Tram/VLT"
   },
+  "transfer %s %s": {
+    "pt": "baldeação %s %s",
+    "en": "transfer %s %s"
+  },
+  "transfer %s %s (walk %s, wait %s)": {
+    "pt": "baldeação %s %s (caminhada %s, espera %s)",
+    "en": "transfer %s %s (walk %s, wait %s)"
+  },
   "trip": {
     "pt": "trajeto",
     "en": "trip"
@@ -1183,6 +1583,10 @@
     "pt": "trajetos",
     "en": "trips"
   },
+  "Trips are measured against the rails (metro, train, tram) or the roads matched by the local OSRM (car, taxi, bus). Accepted fixes are exported as one GPX with a track per trip: in Arc, Import GPX File replaces the overlapping data. Keys: A accept, S skip, R re-route.": {
+    "pt": "As viagens são comparadas com os trilhos (metrô, trem, VLT) ou com as ruas ajustadas pelo OSRM local (carro, táxi, ônibus). As correções aceitas são exportadas num GPX com uma trilha por viagem: no Arc, o Import GPX File substitui os dados sobrepostos. Teclas: A aceitar, S pular, R refazer a rota.",
+    "en": "Trips are measured against the rails (metro, train, tram) or the roads matched by the local OSRM (car, taxi, bus). Accepted fixes are exported as one GPX with a track per trip: in Arc, Import GPX File replaces the overlapping data. Keys: A accept, S skip, R re-route."
+  },
   "Tuk tuk": {
     "pt": "Tuk-tuk",
     "en": "Tuk tuk"
@@ -1190,6 +1594,18 @@
   "Undo": {
     "pt": "Desfazer",
     "en": "Undo"
+  },
+  "up to %.0f m from the rails": {
+    "pt": "até %.0f m dos trilhos",
+    "en": "up to %.0f m from the rails"
+  },
+  "Use the recorded path as is": {
+    "pt": "Usar o trajeto gravado como está",
+    "en": "Use the recorded path as is"
+  },
+  "Via the recording": {
+    "pt": "Pela gravação",
+    "en": "Via the recording"
   },
   "visit": {
     "pt": "visita",
