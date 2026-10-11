@@ -457,6 +457,21 @@ export_pane <- shiny::tagList(
     class = "pane-section",
     shiny::div(
       class = "pane-title",
+      t_("Day timeline GPX"),
+      help_icon("One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data.")
+    ),
+    if (icloud_available()) {
+      shiny::div(
+        class = "mb-1",
+        bslib::input_task_button("send_timeline_gpx_icloud", t_("Send timeline GPX to iCloud"), label_busy = t_("Sending..."), class = "btn-sm w-100")
+      )
+    },
+    shiny::downloadButton("download_timeline_gpx", t_("Download timeline GPX"), class = "btn-sm btn-outline-secondary w-100")
+  ),
+  shiny::div(
+    class = "pane-section",
+    shiny::div(
+      class = "pane-title",
       t_("Day timeline package"),
       help_icon("Export as a LocoKit2 JSON zip (items + samples + metadata), ready for Arc Editor import.")
     ),

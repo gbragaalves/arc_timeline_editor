@@ -87,11 +87,10 @@ With [iCloud sync](#icloud-sync-optional-via-rclone) set up, **Send Arc package 
 
 ### Other features
 
-- **My Location History overlay** — your own Google Location History export for the working date, as an optional map layer (off by default)
 - **Overlap detection** — prevents overlapping timeline items
 - **Auto-suggest times** — next item starts 1 minute after the previous one
 - **Multi-timezone** — detects timezone from coordinates
-- **GPX export** — for use with other tools (all samples: ⚙ menu)
+- **GPX export** — the day's trips (Export tab: **Send timeline GPX to iCloud** / **Download timeline GPX**), one track per trip with its activity type and altitude; all samples including visits: ⚙ menu
 - **OpenFreeMap base map** — vector base layer by default (falls back to OSM if it can't load); OSM, CartoDB, Satellite and Topo in the layers control
 - **No page scrolling** — the layout fits the browser window (1366×768 and up): Create / Edit / Export tabs on the left, the map in the middle, the day timeline on the right; both sidebars can be collapsed
 - **Portuguese / English** — see [Language](#language)
@@ -134,6 +133,8 @@ Verified on device (Arc Timeline 4): import a **GPX** of the corrected route wit
 3. In Arc, use **Import GPX File** and pick the file from `Arc Timeline/GPX`.
 
 The existing data is disabled and hidden, not deleted, and Arc can undo the import.
+
+The same works for any trip built in this app, e.g. a flight imported from a FlightRadar24 KML over a badly recorded one: in the **Export** tab, **Send timeline GPX to iCloud** (or **Download timeline GPX**) writes `arc_timeline_<date>_<HHMM>.gpx` with one `<trk>` per trip of the day timeline (visits are skipped), each with its activity type in `<trk><type>` and altitude in `<ele>` when known. Arc imports each track as its own item.
 
 The JSON **Disabled item** mode is not an alternative: the package imports fine (Arc logs the item and samples), but the item stays hidden and Arc has no UI to enable it.
 
@@ -211,11 +212,6 @@ FREQUENT_PLACES <- list(
   "Work" = list(lat = -23.5600, lon = -46.6500)
 )
 
-# Your own Google Location History export (optional). When set, the map's
-# layers control gets a "My Location History" overlay (off by default)
-# showing visits and trips for the working date.
-MY_LOCATION_HISTORY_FILE <- "path/to/location_history.json"
-
 # Default UI language (optional): "pt" (default) or "en"
 APP_LANGUAGE <- "pt"
 ```
@@ -239,7 +235,7 @@ app.R                          # Entry point
 i18n/translations.json         # UI translations (PT/EN) + check_translations.R
 R/
   utils_time.R                 # Time parsing, timezone detection, interval validation
-  utils_geo.R                  # Geographic calculations, FR24 KML parsing, Location History
+  utils_geo.R                  # Geographic calculations, FR24 KML parsing
   utils_osrm.R                # OSRM routing, snap-to-road, route smoothing
   utils_google.R              # Google Maps Directions API (transit routes)
   utils_arc.R                 # LocoKit2 data model: samples, items, places, activity types

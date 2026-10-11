@@ -84,7 +84,7 @@ server <- function(input, output, session) {
           style = "background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;",
           paste0(
             "# ", tr("If you use individual containers:"), "\ndocker start osrm-car osrm-foot osrm-bike osrm-bus\n\n",
-            "# ", tr("Or if you use docker-compose:"), "\ncd ~/location_history/osrm\ndocker-compose up -d"
+            "# ", tr("Or if you use docker-compose:"), "\ncd path/to/osrm\ndocker-compose up -d"
           )
         ),
         shiny::tags$hr(),
@@ -149,111 +149,6 @@ server <- function(input, output, session) {
                                selected = shiny::isolate(input[[id]]) %||% "car")
     }
   }, ignoreInit = TRUE)
-
-  # ---- My Location History (optional overlay) ----
-  # Your own Google Location History export, set by MY_LOCATION_HISTORY_FILE in
-  # config_local.R. Hidden when unset. Drawn for the working date in the
-  # MY_HISTORY_GROUP overlay (off by default), parsed once on first use.
-  MY_HISTORY_GROUP <- i18n_key("My Location History")  # label translated client-side
-  MY_HISTORY_COLOR <- "#E91E63"
-  my_history_file <- get0("MY_LOCATION_HISTORY_FILE", envir = globalenv(), ifnotfound = NULL)
-  has_my_history <- is.character(my_history_file) && length(my_history_file) == 1 &&
-    nzchar(my_history_file) && file.exists(my_history_file)
-  my_history_data <- NULL
-  my_history_failed <- FALSE
-
-  shiny::observe({
-    if (!has_my_history) return()
-    current_date <- input$work_date
-    visible <- MY_HISTORY_GROUP %in% input$map_groups
-
-    proxy <- leaflet::leafletProxy("map") %>% leaflet::clearGroup(MY_HISTORY_GROUP)
-    if (is.null(current_date) || !visible || my_history_failed) return()
-
-    if (is.null(my_history_data)) {
-      shiny::showNotification(tr("Loading Location History..."), id = "history_loading",
-                              type = "message", duration = NULL)
-      my_history_data <<- load_location_history(my_history_file)
-      shiny::removeNotification("history_loading")
-
-      if (is.null(my_history_data)) {
-        my_history_failed <<- TRUE
-        shiny::showNotification(tr("Failed to load Location History."), type = "error")
-        return()
-      }
-    }
-
-    df <- filter_location_history_by_date(my_history_data, current_date)
-    if (is.null(df) || nrow(df) == 0) return()
-    lang <- current_lang()
-
-    # Draw visits as circles
-    visits <- df[df$type == "visit", ]
-    for (i in seq_len(nrow(visits))) {
-      v <- visits[i, ]
-      proxy <- proxy %>%
-        leaflet::addCircleMarkers(
-          lng = v$lon, lat = v$lat,
-          radius = 10,
-          color = MY_HISTORY_COLOR, fillColor = MY_HISTORY_COLOR, fillOpacity = 0.6,
-          stroke = TRUE, weight = 2,
-          group = MY_HISTORY_GROUP,
-          label = paste0(format_history_time(v$start_time, lang), " - ", format_history_time(v$end_time, lang))
-        )
-    }
-
-    # Draw activities as lines with start/end markers
-    activities <- df[df$type == "activity", ]
-    for (i in seq_len(nrow(activities))) {
-      a <- activities[i, ]
-      datetime_start <- format_history_time(a$start_time, lang)
-      datetime_end <- format_history_time(a$end_time, lang)
-
-      proxy <- proxy %>%
-        leaflet::addPolylines(
-          lng = c(a$lon, a$lon_end),
-          lat = c(a$lat, a$lat_end),
-          color = MY_HISTORY_COLOR, weight = 3, opacity = 0.7,
-          group = MY_HISTORY_GROUP,
-          label = paste0(datetime_start, " -> ", datetime_end)
-        ) %>%
-        leaflet::addCircleMarkers(
-          lng = a$lon, lat = a$lat,
-          radius = 4,
-          color = "green", fillColor = "green", fillOpacity = 1,
-          stroke = FALSE,
-          group = MY_HISTORY_GROUP,
-          label = paste0(tr("Start"), ": ", datetime_start)
-        ) %>%
-        leaflet::addCircleMarkers(
-          lng = a$lon_end, lat = a$lat_end,
-          radius = 4,
-          color = "red", fillColor = "red", fillOpacity = 1,
-          stroke = FALSE,
-          group = MY_HISTORY_GROUP,
-          label = paste0(tr("End"), ": ", datetime_end)
-        )
-    }
-
-    # Fit the map only if no point is visible on the current screen
-    all_lats <- c(visits$lat, activities$lat, activities$lat_end)
-    all_lons <- c(visits$lon, activities$lon, activities$lon_end)
-    bounds <- shiny::isolate(input$map_bounds)  # isolate: avoid a loop with fitBounds
-    any_visible <- !is.null(bounds) && any(
-      all_lats >= bounds$south & all_lats <= bounds$north &
-        all_lons >= bounds$west & all_lons <= bounds$east,
-      na.rm = TRUE
-    )
-    if (!any_visible) {
-      proxy %>%
-        leaflet::fitBounds(
-          lng1 = min(all_lons, na.rm = TRUE) - 0.01,
-          lat1 = min(all_lats, na.rm = TRUE) - 0.01,
-          lng2 = max(all_lons, na.rm = TRUE) + 0.01,
-          lat2 = max(all_lats, na.rm = TRUE) + 0.01
-        )
-    }
-  })
 
   # Auto-format time inputs with debounce (gives time to type seconds)
   auto_format_time <- function(id) {
@@ -434,10 +329,8 @@ server <- function(input, output, session) {
       # First base group is the one shown by default
       leaflet::addLayersControl(
         baseGroups = c("OpenFreeMap", "OSM", "CartoDB", i18n_key("Satellite"), "Topo"),  # labels translated client-side
-        overlayGroups = if (has_my_history) MY_HISTORY_GROUP,
         options = leaflet::layersControlOptions(collapsed = TRUE)
       ) |>
-      (\(m) if (has_my_history) leaflet::hideGroup(m, MY_HISTORY_GROUP) else m)() |>
       leaflet::setView(lng = -43.2, lat = -22.9, zoom = 11) |>
       htmlwidgets::onRender(OPENFREEMAP_JS)
   })
@@ -1378,7 +1271,13 @@ server <- function(input, output, session) {
           lat2 = max(coords[, "lat"], na.rm = TRUE)
         )
 
-      shiny::showNotification(tr("FR24 flight added to timeline."), type = "message")
+      # Arc keeps its own recording of the flight: replacing it goes through GPX
+      hint <- if (icloud_available()) {
+        tr("Flight added. To replace the Arc data: Export → Send timeline GPX to iCloud, then in Arc use Import GPX File.")
+      } else {
+        tr("Flight added. To replace the Arc data: Export → Download timeline GPX, then in Arc use Import GPX File.")
+      }
+      shiny::showNotification(hint, type = "message", duration = 15)
       return()
     }
 
@@ -2789,7 +2688,81 @@ server <- function(input, output, session) {
     shiny::showNotification(import_sent_message(length(tl), length(s)), type = "message", duration = 15)
   })
 
-  # ---- Download GPX ----
+  # ---- Timeline GPX (Arc → Import GPX File) ----
+  # Trip items of the day timeline, one <trk> per item (visits skipped). Arc's
+  # Import GPX File disables/hides the overlapping data, so this replaces any
+  # recorded trip (e.g. a badly recorded flight with its FR24 track).
+  timeline_gpx_filename_or_default <- function() {
+    tracks <- gpx_tracks(timeline(), all_samples())
+    if (length(tracks) == 0) return("arc_timeline.gpx")
+    timeline_gpx_filename(input$work_date %||% Sys.Date(), tracks)
+  }
+
+  timeline_gpx_exported_message <- function(tracks) {
+    n_trips <- length(tracks)
+    n_points <- sum(vapply(tracks, function(t) length(t$samples), integer(1)))
+    sprintf(tr("Exported timeline GPX: %d %s, %d points"),
+            n_trips, if (n_trips == 1) tr("trip") else tr("trips"), n_points)
+  }
+
+  output$download_timeline_gpx <- shiny::downloadHandler(
+    filename = function() {
+      timeline_gpx_filename_or_default()
+    },
+    content = function(file) {
+      tl <- timeline()
+      s <- all_samples()
+      tracks <- gpx_tracks(tl, s)
+
+      if (length(tracks) == 0) {
+        shiny::showNotification(tr("No trips in the timeline to export."), type = "error")
+        return()
+      }
+
+      writeLines(build_gpx(tl, s), file)
+      shiny::showNotification(timeline_gpx_exported_message(tracks), type = "message")
+    }
+  )
+
+  shiny::observeEvent(input$send_timeline_gpx_icloud, {
+    if (!icloud_available()) {
+      shiny::showNotification(tr("iCloud (rclone) is not available."), type = "error")
+      return()
+    }
+
+    tl <- timeline()
+    s <- all_samples()
+    tracks <- gpx_tracks(tl, s)
+
+    if (length(tracks) == 0) {
+      shiny::showNotification(tr("No trips in the timeline to export."), type = "error")
+      return()
+    }
+
+    gpx_name <- timeline_gpx_filename(input$work_date %||% Sys.Date(), tracks)
+    gpx_path <- file.path(tempfile("arc_gpx_"), gpx_name)
+    dir.create(dirname(gpx_path))
+    writeLines(build_gpx(tl, s), gpx_path)
+
+    res <- shiny::withProgress(message = tr("Sending GPX to iCloud..."), value = 0.3, {
+      icloud_push_file(gpx_path, subdir = "GPX", lang = current_lang())
+    })
+    unlink(dirname(gpx_path), recursive = TRUE)
+
+    if (!isTRUE(res$ok)) {
+      shiny::showNotification(res$message, type = "error", duration = NULL)
+      return()
+    }
+    shiny::showNotification(
+      sprintf(tr("GPX sent to iCloud: %s/GPX/%s. On the iPhone: Arc → timeline → Import GPX File"),
+              ICLOUD_ARC_DIR, gpx_name),
+      type = "message", duration = 15
+    )
+  })
+
+  # ---- Download GPX (all samples, ⚙ menu) ----
+  # Same format as the timeline GPX, but visits (without <type>) and samples not
+  # linked to any item are kept too.
 
   output$download_gpx <- shiny::downloadHandler(
     filename = function() {
@@ -2802,19 +2775,7 @@ server <- function(input, output, session) {
         return()
       }
 
-      gpx_header <- '<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="ArcTimelineBuilder" xmlns="http://www.topografix.com/GPX/1/1">\n  <trk>\n    <name>Arc Samples</name>\n    <trkseg>\n'
-      gpx_footer <- '    </trkseg>\n  </trk>\n</gpx>\n'
-
-      trkpts <- vapply(s, function(x) {
-        lat <- x$latitude
-        lon <- x$longitude
-        time <- x$date
-        sprintf('      <trkpt lat="%.8f" lon="%.8f"><time>%s</time></trkpt>\n', lat, lon, time)
-      }, character(1))
-
-      cat(gpx_header, file = file)
-      cat(trkpts, file = file, append = TRUE)
-      cat(gpx_footer, file = file, append = TRUE)
+      writeLines(build_gpx(timeline(), s, include_all = TRUE), file)
     }
   )
 
@@ -3304,7 +3265,7 @@ server <- function(input, output, session) {
 
   # Download links can sit in collapsed panels, other tabs or the ⚙ menu:
   # keep their URLs set even while hidden
-  for (id in c("download_arc", "download_gpx", "download_edit_arc", "download_edit_gpx")) {
+  for (id in c("download_arc", "download_gpx", "download_timeline_gpx", "download_edit_arc", "download_edit_gpx")) {
     shiny::outputOptions(output, id, suspendWhenHidden = FALSE)
   }
 }

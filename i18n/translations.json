@@ -251,6 +251,10 @@
     "pt": "Linha do tempo do dia",
     "en": "Day timeline"
   },
+  "Day timeline GPX": {
+    "pt": "GPX da linha do tempo do dia",
+    "en": "Day timeline GPX"
+  },
   "Day timeline package": {
     "pt": "Pacote da linha do tempo do dia",
     "en": "Day timeline package"
@@ -286,6 +290,10 @@
   "Download GPX (all samples)": {
     "pt": "Baixar GPX (todas as amostras)",
     "en": "Download GPX (all samples)"
+  },
+  "Download timeline GPX": {
+    "pt": "Baixar GPX da linha do tempo",
+    "en": "Download timeline GPX"
   },
   "Drag: move node. Right-click: delete node.": {
     "pt": "Arrastar: move o nó. Botão direito: exclui o nó.",
@@ -395,6 +403,10 @@
     "pt": "GPX exportado com %d pontos",
     "en": "Exported GPX with %d points"
   },
+  "Exported timeline GPX: %d %s, %d points": {
+    "pt": "GPX da linha do tempo exportado: %d %s, %d pontos",
+    "en": "Exported timeline GPX: %d %s, %d points"
+  },
   "Failed to calculate OSRM route.": {
     "pt": "Falha ao calcular a rota OSRM.",
     "en": "Failed to calculate OSRM route."
@@ -410,10 +422,6 @@
   "Failed to interpolate OSRM route coordinates.": {
     "pt": "Falha ao interpolar as coordenadas da rota OSRM.",
     "en": "Failed to interpolate OSRM route coordinates."
-  },
-  "Failed to load Location History.": {
-    "pt": "Falha ao carregar o Histórico de Localização.",
-    "en": "Failed to load Location History."
   },
   "Fetch weeks from iCloud first": {
     "pt": "Buscar semanas no iCloud antes",
@@ -439,6 +447,14 @@
     "pt": "Corrija amostras existentes dos backups semanais.",
     "en": "Fix existing samples from the weekly backups."
   },
+  "Flight added. To replace the Arc data: Export → Download timeline GPX, then in Arc use Import GPX File.": {
+    "pt": "Voo adicionado. Para substituir os dados do Arc: Exportar → Baixar GPX da linha do tempo e, no Arc, use Import GPX File.",
+    "en": "Flight added. To replace the Arc data: Export → Download timeline GPX, then in Arc use Import GPX File."
+  },
+  "Flight added. To replace the Arc data: Export → Send timeline GPX to iCloud, then in Arc use Import GPX File.": {
+    "pt": "Voo adicionado. Para substituir os dados do Arc: Exportar → Enviar GPX da linha do tempo ao iCloud e, no Arc, use Import GPX File.",
+    "en": "Flight added. To replace the Arc data: Export → Send timeline GPX to iCloud, then in Arc use Import GPX File."
+  },
   "Foot": {
     "pt": "A pé",
     "en": "Foot"
@@ -454,10 +470,6 @@
   "FR24 flight (%.1f km)": {
     "pt": "Voo FR24 (%.1f km)",
     "en": "FR24 flight (%.1f km)"
-  },
-  "FR24 flight added to timeline.": {
-    "pt": "Voo FR24 adicionado à linha do tempo.",
-    "en": "FR24 flight added to timeline."
   },
   "Funicular": {
     "pt": "Funicular",
@@ -679,10 +691,6 @@
     "pt": "Carregar rota",
     "en": "Load route"
   },
-  "Loading Location History...": {
-    "pt": "Carregando o Histórico de Localização...",
-    "en": "Loading Location History..."
-  },
   "Longitude:": {
     "pt": "Longitude:",
     "en": "Longitude:"
@@ -718,10 +726,6 @@
   "Motorcycle": {
     "pt": "Moto",
     "en": "Motorcycle"
-  },
-  "My Location History": {
-    "pt": "Meu Histórico de Localização",
-    "en": "My Location History"
   },
   "New sample inserted.": {
     "pt": "Nova amostra inserida.",
@@ -783,6 +787,10 @@
     "pt": "Nenhuma amostra com coordenadas válidas.",
     "en": "No samples with valid coordinates."
   },
+  "No trips in the timeline to export.": {
+    "pt": "Nenhum trajeto na linha do tempo para exportar.",
+    "en": "No trips in the timeline to export."
+  },
   "Node %d": {
     "pt": "Nó %d",
     "en": "Node %d"
@@ -806,6 +814,10 @@
   "not configured": {
     "pt": "não configurado",
     "en": "not configured"
+  },
+  "One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data.": {
+    "pt": "Uma trilha por trajeto (as visitas ficam de fora). No Arc, o Import GPX File adiciona os trajetos e desativa e oculta os dados sobrepostos, então serve para substituir trajetos mal registrados. O pacote do Arc abaixo só adiciona dados.",
+    "en": "One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data."
   },
   "Or if you use docker-compose:": {
     "pt": "Ou, se você usa docker-compose:",
@@ -1011,6 +1023,10 @@
     "pt": "Enviar GPX ao iCloud",
     "en": "Send GPX to iCloud"
   },
+  "Send timeline GPX to iCloud": {
+    "pt": "Enviar GPX da linha do tempo ao iCloud",
+    "en": "Send timeline GPX to iCloud"
+  },
   "Send to iCloud (Import)": {
     "pt": "Enviar ao iCloud (Import)",
     "en": "Send to iCloud (Import)"
@@ -1158,6 +1174,14 @@
   "Tram/VLT": {
     "pt": "VLT",
     "en": "Tram/VLT"
+  },
+  "trip": {
+    "pt": "trajeto",
+    "en": "trip"
+  },
+  "trips": {
+    "pt": "trajetos",
+    "en": "trips"
   },
   "Tuk tuk": {
     "pt": "Tuk-tuk",

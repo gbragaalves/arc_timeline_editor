@@ -408,8 +408,76 @@ edit_gpx_filename <- function(pkg) {
   paste0("arc_edit_", format(sample_local_time(pkg$samples[[1]]), "%Y%m%d_%H%M"), ".gpx")
 }
 
-# GPX 1.1 track of an edit package (samples already sorted by date). Returns lines.
-build_edit_gpx <- function(pkg, now_utc) {
+# ---- GPX export (Arc → Import GPX File) ----
+# Arc imports each <trk> as its own item, reads the activity type from
+# <trk><type> and disables/hides the overlapping data (verified on device), so
+# a GPX can replace any recorded trip.
+
+# <trk><type> for an activity code, as LocoKit2's ActivityType(stringValue:)
+# expects: lowerCamelCase ("cable_car" -> "cableCar"); unknown codes -> "unknown"
+gpx_activity_string <- function(code) {
+  name <- unname(ACTIVITY_TYPE_NAMES[as.character(code)])
+  if (is.na(name)) return("unknown")
+  gsub("_([a-z])", "\\U\\1", name, perl = TRUE)
+}
+
+# Timeline items paired with their samples, one entry per GPX track:
+# list(name, type, samples), sorted by start. Samples are linked by item$samples
+# or sample$timelineItemId (as in export_arc_json), sorted by date and limited to
+# those with coordinates and a parseable date. Visits and items without points
+# are skipped. include_all keeps visits (no type) and adds samples not linked to
+# any item as a last track, so every sample is exported.
+gpx_tracks <- function(items, samples, include_all = FALSE) {
+  if (length(samples) == 0) return(list())
+
+  ids   <- vapply(samples, sample_id, character(1))
+  owner <- vapply(samples, function(s) as.character(s$timelineItemId %||% NA_character_)[1], character(1))
+  dates <- vapply(samples, function(s) as.character(s$date %||% NA_character_)[1], character(1))
+  ts <- as.POSIXct(dates, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+  usable <- !is.na(ts) & vapply(samples, sample_has_coords, logical(1))
+
+  make_track <- function(name, type, in_track) {
+    idx <- which(in_track & usable)
+    if (length(idx) == 0) return(NULL)
+    idx <- idx[order(ts[idx])]
+    trk_samples <- samples[idx]
+    list(
+      name    = paste(name, format(sample_local_time(trk_samples[[1]]), "%Y-%m-%d %H:%M")),
+      type    = type,
+      samples = trk_samples,
+      start   = ts[idx[1]]
+    )
+  }
+
+  linked <- rep(FALSE, length(samples))
+  tracks <- lapply(items, function(it) {
+    item_id <- it$.internalId %||% it$base$id %||% NA_character_
+    in_item <- ids %in% (it$samples %||% character(0)) | (!is.na(owner) & owner %in% item_id)
+    linked <<- linked | in_item
+
+    is_visit <- isTRUE(it$.isVisit) || isTRUE(it$base$isVisit)
+    if (is_visit && !include_all) return(NULL)
+
+    type <- NA_character_
+    if (!is_visit) {
+      at_code <- it$trip$confirmedActivityType %||% it$trip$classifiedActivityType %||%
+        activity_type_code(it$activityType %||% "car")
+      type <- gpx_activity_string(at_code)
+    }
+    name <- it$description %||% it$visit$customTitle %||% it$.place$name %||%
+      (if (is_visit) "Visit" else "Trip")
+    make_track(name, type, in_item)
+  })
+  if (include_all) tracks <- c(tracks, list(make_track("Arc samples", NA_character_, !linked)))
+
+  tracks <- Filter(Negate(is.null), tracks)
+  if (length(tracks) == 0) return(list())
+  tracks[order(vapply(tracks, function(t) as.numeric(t$start), numeric(1)))]
+}
+
+# GPX 1.1 with one <trk> per timeline item (see gpx_tracks). Returns lines.
+build_gpx <- function(items, samples, now_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+                      include_all = FALSE) {
   xml_escape <- function(x) {
     x <- gsub("&", "&amp;", x, fixed = TRUE)
     x <- gsub("<", "&lt;", x, fixed = TRUE)
@@ -418,33 +486,45 @@ build_edit_gpx <- function(pkg, now_utc) {
     gsub("'", "&apos;", x, fixed = TRUE)
   }
 
-  samples <- pkg$samples
-  at_code <- pkg$item$trip$confirmedActivityType
-  type_name <- unname(ACTIVITY_TYPE_NAMES[as.character(at_code)])
-  if (is.na(type_name)) type_name <- "unknown"
-  trk_name <- paste("Arc edit", format(sample_local_time(samples[[1]]), "%Y-%m-%d %H:%M"))
+  trk_lines <- lapply(gpx_tracks(items, samples, include_all), function(trk) {
+    trkpts <- vapply(trk$samples, function(s) {
+      time_str <- format(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+                         "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+      alt <- as.numeric(s$altitude %||% 0)[1]
+      ele <- if (!is.na(alt) && alt != 0) sprintf("<ele>%.2f</ele>", alt) else ""
+      sprintf('      <trkpt lat="%.8f" lon="%.8f">%s<time>%s</time></trkpt>',
+              sample_lat(s), sample_lon(s), ele, time_str)
+    }, character(1))
 
-  pts <- Filter(sample_has_coords, samples)
-  trkpts <- vapply(pts, function(s) {
-    time_str <- format(as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
-                       "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
-    alt <- as.numeric(s$altitude %||% 0)[1]
-    ele <- if (!is.na(alt) && alt != 0) sprintf("<ele>%.2f</ele>", alt) else ""
-    sprintf('      <trkpt lat="%.8f" lon="%.8f">%s<time>%s</time></trkpt>',
-            sample_lat(s), sample_lon(s), ele, time_str)
-  }, character(1))
+    c(
+      "  <trk>",
+      sprintf("    <name>%s</name>", xml_escape(trk$name)),
+      if (!is.na(trk$type)) sprintf("    <type>%s</type>", xml_escape(trk$type)),
+      "    <trkseg>",
+      trkpts,
+      "    </trkseg>",
+      "  </trk>"
+    )
+  })
 
   c(
     '<?xml version="1.0" encoding="UTF-8"?>',
     '<gpx version="1.1" creator="ArcTimelineBuilder" xmlns="http://www.topografix.com/GPX/1/1">',
     sprintf("  <metadata><time>%s</time></metadata>", now_utc),
-    "  <trk>",
-    sprintf("    <name>%s</name>", xml_escape(trk_name)),
-    sprintf("    <type>%s</type>", xml_escape(type_name)),
-    "    <trkseg>",
-    trkpts,
-    "    </trkseg>",
-    "  </trk>",
+    unlist(trk_lines),
     "</gpx>"
   )
+}
+
+# GPX of an edit package (corrected route): one track named "Arc edit <start>"
+build_edit_gpx <- function(pkg, now_utc) {
+  item <- pkg$item
+  item$description <- "Arc edit"
+  build_gpx(list(item), pkg$samples, now_utc)
+}
+
+# GPX filename for the day timeline: arc_timeline_<work_date>_<HHMM of first sample, local>.gpx
+timeline_gpx_filename <- function(work_date, tracks) {
+  paste0("arc_timeline_", format(as.Date(work_date), "%Y-%m-%d"), "_",
+         format(sample_local_time(tracks[[1]]$samples[[1]]), "%H%M"), ".gpx")
 }
