@@ -26,9 +26,17 @@ MAPLIBRE_DEPS <- list(
 
 
 PROFILE_CHOICES <- c(
-  "Car" = "car", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
+  "Car" = "car", "Official" = "official", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
   "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"
 )
+
+# Profile select choices: OSRM profiles not in OSRM_ENABLED_PROFILES are left out
+profile_choices <- function(choices = PROFILE_CHOICES) {
+  choices[!choices %in% names(OSRM_SERVERS) | choices %in% osrm_enabled_profiles()]
+}
+
+# Batch review: OSRM profile of a road trip
+REVIEW_PROFILE_CHOICES <- c("Car" = "car", "Official" = "official", "Bus" = "bus")
 
 # Batch review: activities, sort order (labels are translation keys)
 REVIEW_ACTIVITY_CHOICES <- c(
@@ -259,6 +267,10 @@ APP_CSS <- "
   .review-detail { font-size: 0.76rem; margin-bottom: 0.3rem; }
   .review-detail .rv-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .review-detail .rv-title .rv-stations { font-weight: 400; }
+  .review-detail .rv-title-row { display: flex; align-items: center; gap: 6px; }
+  .review-detail .rv-title-row .rv-title { flex: 1 1 auto; min-width: 0; }
+  .review-detail .review-profile { flex: 0 0 auto; font-weight: 400; }
+  .review-profile .selectize-input { line-height: 1.2; vertical-align: top; }
   .review-detail .rv-warn { color: var(--bs-danger-text-emphasis); }
   .review-detail .rv-clamp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .review-end {
@@ -268,15 +280,15 @@ APP_CSS <- "
     align-items: center;
     margin-top: 2px;
   }
-  .review-end .shiny-input-container { margin-bottom: 0 !important; }
-  .review-end .selectize-input, .review-toolbar .selectize-input {
+  .review-end .shiny-input-container, .review-profile .shiny-input-container { margin-bottom: 0 !important; }
+  .review-end .selectize-input, .review-toolbar .selectize-input, .review-profile .selectize-input {
     font-size: 0.72rem;
     min-height: 0;
     padding: 1px 18px 1px 4px;
     white-space: nowrap;
     overflow: hidden;
   }
-  .review-end .selectize-input > .item, .review-toolbar .selectize-input > .item {
+  .review-end .selectize-input > .item, .review-toolbar .selectize-input > .item, .review-profile .selectize-input > .item {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -397,7 +409,7 @@ osrm_pane <- shiny::tagList(
     "Click waypoints on the map.",
     "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
   ),
-  shiny::selectInput("osrm_profile", t_("Profile:"), choices = tr_choices(PROFILE_CHOICES), selected = "car", width = "100%"),
+  shiny::selectInput("osrm_profile", t_("Profile:"), choices = tr_choices(profile_choices()), selected = "car", width = "100%"),
   shiny::uiOutput("jae_list"),
   mode_actions(
     shiny::actionButton("undo_point_osrm", t_("Undo"), class = "btn-sm btn-outline-secondary"),
@@ -482,7 +494,7 @@ edit_samples_pane <- shiny::tagList(
       shiny::tagList("2 · ", t_("Clean & snap")), value = "clean",
       shiny::div(
         class = "btn-row",
-        shiny::selectInput("edit_osrm_profile", NULL, choices = tr_choices(PROFILE_CHOICES), selected = "car", width = "100%"),
+        shiny::selectInput("edit_osrm_profile", NULL, choices = tr_choices(profile_choices()), selected = "car", width = "100%"),
         bslib::input_task_button(
           "snap_to_road", t_("Snap"), label_busy = t_("Processing..."), type = "warning", class = "btn-sm",
           title = tr_lang("Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route"),

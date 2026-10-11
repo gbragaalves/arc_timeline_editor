@@ -83,7 +83,8 @@ OSRM_SERVERS <- list(
   car  = "http://127.0.0.1:5000",
   foot = "http://127.0.0.1:5001",
   bike = "http://127.0.0.1:5002",
-  bus  = "http://127.0.0.1:5003"
+  bus  = "http://127.0.0.1:5003",
+  official = "http://127.0.0.1:5005"  # car + bus/psv roads (official.lua)
 )
 
 # Mapping of app profiles to OSRM profiles
@@ -91,8 +92,17 @@ OSRM_PROFILES <- list(
   car  = "driving",
   foot = "foot",
   bike = "bicycle",
-  bus  = "driving"  # custom profile based on driving
+  bus  = "driving",  # custom profile based on driving
+  official = "driving"
 )
+
+# OSRM profiles in use (config_local.R can override). The others are hidden
+# from the profile selects and the status dot; add "bike" back to use the
+# bike server again. Cycling stays an activity type either way.
+OSRM_ENABLED_PROFILES <- if (exists("OSRM_ENABLED_PROFILES")) OSRM_ENABLED_PROFILES else c("car", "foot", "bus", "official")
+
+# Configured OSRM profiles that are enabled, in OSRM_SERVERS order
+osrm_enabled_profiles <- function() intersect(names(OSRM_SERVERS), OSRM_ENABLED_PROFILES)
 
 check_osrm_server <- function(base_url, profile = "car") {
   # try a minimal request just to check if the server responds
@@ -105,7 +115,7 @@ check_osrm_server <- function(base_url, profile = "car") {
   !is.null(res)
 }
 
-calculate_osrm_route <- function(points, profile = c("car", "foot", "bike", "bus")) {
+calculate_osrm_route <- function(points, profile = c("car", "official", "foot", "bike", "bus")) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
@@ -153,7 +163,7 @@ calculate_osrm_route <- function(points, profile = c("car", "foot", "bike", "bus
 # ref_time_utc: trip start, for transit profiles (see calculate_google_transit_route)
 # Returns: list(coords, distance_m)
 recalculate_segment <- function(from_lat, from_lng, to_lat, to_lng,
-                                profile = c("car", "foot", "bike", "bus",
+                                profile = c("car", "official", "foot", "bike", "bus",
                                            "metro", "train", "tram"),
                                 ref_time_utc = NULL) {
   profile <- match.arg(profile)
@@ -336,7 +346,7 @@ extract_coords_from_samples <- function(samples) {
 #   sent        = logical, point was sent to OSRM,
 #   confidence  = minimum over all matchings (NA when none),
 #   n_dropped   = points sent but not matched)
-osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "bus", "foot", "bike"),
+osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "official", "bus", "foot", "bike"),
                        chunk_size = 100) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]
@@ -423,7 +433,7 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "bus", "
 # waypoint. A chunk that fails with bearings is retried without them.
 # Returns list(coords = n x 2, distance_m, legs_m = one per consecutive pair)
 # or NULL.
-osrm_route_via <- function(coords, profile = c("car", "bus", "foot", "bike"),
+osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot", "bike"),
                            bearings = NULL, radiuses = NULL, bearing_range = 60, chunk_size = 80) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]

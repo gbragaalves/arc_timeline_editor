@@ -19,7 +19,8 @@ review_server <- function(input, output, session, tr, current_lang) {
   samples_cache <- new.env(parent = emptyenv())  # trip samples (this session)
   proposals <- new.env(parent = emptyenv())      # fixes by trip id: no repeated Google calls
   road_base <- new.env(parent = emptyenv())      # default road proposals by trip id (from the inventory)
-  overrides <- new.env(parent = emptyenv())      # by trip id: origin_idx, dest_idx, dep, arr, offsets, reroute, pick
+  road_alt <- new.env(parent = emptyenv())       # road match + proposal by "id profile", other OSRM profiles
+  overrides <- new.env(parent = emptyenv())      # by trip id: origin_idx, dest_idx, dep, arr, offsets, reroute, pick, profile
   bulk_pending <- new.env(parent = emptyenv())
   resume_state <- shiny::reactiveVal(NULL)
 
@@ -29,6 +30,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     trips[trips$id == id, , drop = FALSE]
   }
   family_of <- function(activity) REVIEW_ACTIVITIES[[activity]]$family
+  # OSRM profile of a road trip: chosen in the profile select, or the activity's
+  road_profile <- function(id) get_ov(id)$profile %||% REVIEW_ACTIVITIES[[trip_row(id)$activity]]$osrm
   local_time <- function(t, fmt) format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), fmt, tz = Sys.timezone())
 
   trip_samples <- function(id) {
@@ -72,7 +75,8 @@ review_server <- function(input, output, session, tr, current_lang) {
   # match, built by the inventory); after "Re-route" / "Set as start/end", an
   # OSRM route between the endpoints, or, when the default is a possible
   # detour, a route through the recorded path offered next to the match
-  # (fx$candidates; o$pick chooses).
+  # (fx$candidates; o$pick chooses). Another OSRM profile (profile select)
+  # matches the trip again with it.
   compute_proposal <- function(id, refresh_route = FALSE) {
     row <- trip_row(id)
     if (nrow(row) == 0) return(NULL)
@@ -110,23 +114,36 @@ review_server <- function(input, output, session, tr, current_lang) {
       fx$plan <- plan
       fx$route_key <- key
     } else {
-      m <- shiny::isolate(rv$matches[[id]])
-      profile <- REVIEW_ACTIVITIES[[act]]$osrm
-      base <- road_base[[id]]
-      if (is.null(base)) {
-        base <- road_proposal(s, m, act)
-        if (!is.null(base)) assign(id, base, envir = road_base)
+      profile <- o$profile %||% REVIEW_ACTIVITIES[[act]]$osrm
+      if (identical(profile, REVIEW_ACTIVITIES[[act]]$osrm)) {
+        m <- shiny::isolate(rv$matches[[id]])
+        base <- road_base[[id]]
+        if (is.null(base)) {
+          base <- road_proposal(s, m, act)
+          if (!is.null(base)) assign(id, base, envir = road_base)
+        }
+      } else {
+        alt <- road_alt[[paste(id, profile)]]
+        if (is.null(alt)) {
+          alt <- shiny::withProgress(message = tr("Matching to the roads..."), value = 0.5, {
+            m <- osrm_match(cbind(s$lon, s$lat), s$t, match_radiuses(s$acc), profile = profile)
+            list(match = m, base = road_proposal(s, m, act, profile = profile))
+          })
+          assign(paste(id, profile), alt, envir = road_alt)
+        }
+        m <- alt$match
+        base <- alt$base
       }
       from <- o$origin_idx %||% 1L
       to <- min(max(o$dest_idx %||% nrow(s), from + 1L), nrow(s))
       fx <- base
       if (isTRUE(o$reroute) && isTRUE(base$detour)) {
-        via <- if (!refresh_route && identical(prev$via_key, c(from, to))) prev$candidates$via else NULL
+        via <- if (!refresh_route && identical(prev$via_key, c(from, to, profile))) prev$candidates$via else NULL
         if (is.null(via)) {
           via <- shiny::withProgress(message = tr("Routing through the recorded path..."), value = 0.5, {
             via_timed_path(s, from, to, profile)
           })
-          if (!is.null(via)) via <- road_proposal_check(via, s, act, from, to)
+          if (!is.null(via)) via <- road_proposal_check(via, s, act, from, to, profile = profile)
         }
         if (is.null(via)) {
           notify(tr("Could not route through the recorded path (OSRM)."), type = "error")
@@ -135,13 +152,13 @@ review_server <- function(input, output, session, tr, current_lang) {
           fx <- if (pick == "via") via else base
           fx$candidates <- list(match = base, via = via)
           fx$pick <- pick
-          fx$via_key <- c(from, to)
+          fx$via_key <- c(from, to, profile)
         }
       } else if (isTRUE(o$reroute) || is.null(base)) {
         fx <- route_timed_path(s, from, to, profile)
         if (!is.null(fx)) {
           if (!isTRUE(o$reroute)) fx$method <- "route_fallback"
-          fx <- road_proposal_check(fx, s, act, from, to)
+          fx <- road_proposal_check(fx, s, act, from, to, profile = profile)
         }
       }
       if (is.null(fx)) {
@@ -151,6 +168,7 @@ review_server <- function(input, output, session, tr, current_lang) {
       matched <- startsWith(fx$method, "match")
       fx$plan <- list(origin_idx = if (matched) 1L else from, dest_idx = if (matched) nrow(s) else to)
       fx$confidence <- m$confidence %||% NA_real_
+      fx$profile <- profile
     }
     fx$id <- id
     fx$activity <- act
@@ -424,6 +442,15 @@ review_server <- function(input, output, session, tr, current_lang) {
       paste(REVIEW_ACTIVITIES[[act]]$icon, when),
       if (!is.null(stations)) shiny::span(class = "rv-stations", paste0("· ", stations))
     )
+    # Road trips: their OSRM profile, on the title line
+    if (family_of(act) == "road") {
+      title <- shiny::div(
+        class = "rv-title-row", title,
+        shiny::div(class = "review-profile", title = tr("Routing profile for this trip"),
+                   shiny::selectInput("review_profile", NULL, choices = tr_choices(profile_choices(REVIEW_PROFILE_CHOICES), lang),
+                                      selected = road_profile(id), width = "84px"))
+      )
+    }
     fragment <- isTRUE(row$fragment)
     parts <- list(
       title,
@@ -629,6 +656,15 @@ review_server <- function(input, output, session, tr, current_lang) {
     if (family_of(trip_row(id)$activity) == "road") set_ov(id, list(reroute = TRUE))
     recompute_selected(refresh_route = TRUE)
   })
+
+  # OSRM profile of the selected road trip (select on the detail's title line)
+  shiny::observeEvent(input$review_profile, {
+    id <- rv$selected
+    if (is.null(id) || nrow(trip_row(id)) == 0 || family_of(trip_row(id)$activity) != "road") return()
+    if (identical(input$review_profile, road_profile(id))) return()
+    set_ov(id, list(profile = input$review_profile, pick = NULL))
+    recompute_selected()
+  }, ignoreInit = TRUE)
 
   # ---- Bulk accept (road activities only) ----
 

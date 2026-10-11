@@ -58,7 +58,7 @@ check_services <- function(force = FALSE) {
 
   safe <- function(expr) isTRUE(tryCatch(expr, error = function(e) FALSE))
   value <- list(
-    osrm   = vapply(names(OSRM_SERVERS), function(p) safe(check_osrm_server(OSRM_SERVERS[[p]], p)), logical(1)),
+    osrm   = vapply(osrm_enabled_profiles(), function(p) safe(check_osrm_server(OSRM_SERVERS[[p]], p)), logical(1)),
     google = safe(check_google_api()),
     icloud = safe(icloud_available())
   )
@@ -96,12 +96,11 @@ server <- function(input, output, session) {
         shiny::tags$hr(),
         shiny::tags$p(
           shiny::tags$strong(tr("Expected ports:")),
-          shiny::tags$ul(
-            shiny::tags$li(tr("Car"), ": ", shiny::tags$code("localhost:5000")),
-            shiny::tags$li(tr("Foot"), ": ", shiny::tags$code("localhost:5001")),
-            shiny::tags$li(tr("Bike"), ": ", shiny::tags$code("localhost:5002")),
-            shiny::tags$li(tr("Bus"), ": ", shiny::tags$code("localhost:5003"))
-          )
+          shiny::tags$ul(lapply(osrm_enabled_profiles(), function(p) {
+            label <- names(PROFILE_CHOICES)[match(p, PROFILE_CHOICES)]
+            shiny::tags$li(if (is.na(label)) p else tr(label), ": ",
+                           shiny::tags$code(sub("^https?://", "", OSRM_SERVERS[[p]])))
+          }))
         ),
         easyClose = TRUE,
         footer = shiny::modalButton("OK")
@@ -146,7 +145,7 @@ server <- function(input, output, session) {
   shiny::observeEvent(current_lang(), {
     lang <- current_lang()
     for (id in c("osrm_profile", "edit_osrm_profile")) {
-      shiny::updateSelectInput(session, id, choices = tr_choices(PROFILE_CHOICES, lang),
+      shiny::updateSelectInput(session, id, choices = tr_choices(profile_choices(), lang),
                                selected = shiny::isolate(input[[id]]) %||% "car")
     }
     for (id in c("manual_activity_type", "import_activity_type")) {
@@ -297,7 +296,7 @@ server <- function(input, output, session) {
     refresh <- tr("Click to re-check.")
     shiny::tagList(
       dot(any(st$osrm), "OSRM",
-          paste0(tr("OSRM local routing (car/foot/bike/bus):"), " ", osrm_detail, ". ", refresh)),
+          paste0(tr("OSRM local routing:"), " ", osrm_detail, ". ", refresh)),
       dot(st$google, "Google",
           paste0(tr("Google Maps Directions API (metro/train/tram):"), " ",
                  if (st$google) tr("key OK") else tr("key missing or invalid"), ". ", refresh)),
@@ -973,6 +972,7 @@ server <- function(input, output, session) {
           foot  = "walking",
           bike  = "cycling",
           bus   = "bus",
+          official = "car",
           metro = "metro",
           train = "train",
           tram  = "tram"

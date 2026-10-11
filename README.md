@@ -25,7 +25,7 @@ This tool originally exported in the LocoKit format used by Arc Timeline. It now
 
 | Mode | Description |
 |------|-------------|
-| **Route** | Click waypoints, select a transport profile (car/foot/bike/bus via OSRM, or metro/train/tram via Google Maps), calculate a snap-to-road route. Can start from a Jaé fare card boarding, see [Jaé boardings](#jaé-boardings-optional). |
+| **Route** | Click waypoints, select a transport profile (car/official/foot/bike/bus via OSRM, or metro/train/tram via Google Maps), calculate a snap-to-road route. Can start from a Jaé fare card boarding, see [Jaé boardings](#jaé-boardings-optional). |
 | **Visit** | Mark a point, name it, set entry/exit times. Frequent places auto-fill coordinates. |
 | **Manual Route** | Click points for a polyline, set times, pick an activity type. |
 | **Import File** | Import GeoJSON, GPX, KML, or GPKG. Special handling for FlightRadar24 KML. |
@@ -145,7 +145,7 @@ The JSON **Disabled item** mode is not an alternative: the package imports fine 
 
 1. **Find**: pick the activities (metro, train, tram, car, taxi, bus) and a date range. Trips come from the backup's monthly `items/` files (tick *Fetch everything from iCloud first* to copy `samples/` and `items/` with rclone; nothing is written to iCloud). Each trip's recorded path is densified every 20 m and compared with its network:
    - **rails** for metro/train/tram, from `reference/rails.gpkg` (built from the OSM extract on first use, or via ⚙ → *Rebuild rail reference*; osmium when installed, otherwise GDAL's OSM driver);
-   - **roads** for car/taxi/bus, via OSRM `/match` on the local server (car profile for car and taxi, bus profile for bus).
+   - **roads** for car/taxi/bus, via OSRM `/match` on the local server (official profile for car, car profile for taxi, bus profile for bus; see [OSRM](#osrm-optional)).
 
    A trip is flagged on `off_share` (share of the path farther than the tolerance), `longest_off_m` (longest stretch off the network), `max_offset_m` (rail), no road match at all, or a recorded path under 0.5 km (a *fragment*; round trips with a real path are not fragments). A GPX import can't remove data, so fragments get a *fragment* badge suggesting to delete them or mark them as bogus in Arc, and are never accepted in bulk. Road trips are judged on geometry only, with a 35 m tolerance for urban-canyon noise; OSRM's match confidence is shown but doesn't flag (it is often near 0 on dense recordings, as the minimum over 100-point chunks). All thresholds are in `REVIEW_THRESHOLDS` at the top of `R/utils_review.R`. Trips imported from GPX (source other than LocoKit2) show as *already fixed*. Results are cached per trip in `scratch/review_cache.rds`, so a second Find is instant. No Google calls happen here.
 2. **Review**: the list scrolls on its own; click a row to see on the map the reference network, the recorded path coloured by offset (grey within the tolerance, red beyond) and the proposed clean path. **A** accepts, **S** skips, **R** re-routes; *Use the recorded path as is* marks the trip OK.
@@ -167,7 +167,7 @@ install.packages(c(
 
 ### OSRM (optional)
 
-Local OSRM servers via Docker for snap-to-road (car, foot, bike, bus profiles):
+Local OSRM servers via Docker for snap-to-road (car, foot, bike, bus, official profiles):
 
 | Profile | Port | OSRM profile |
 |---------|------|--------------|
@@ -175,6 +175,11 @@ Local OSRM servers via Docker for snap-to-road (car, foot, bike, bus profiles):
 | Foot | 5001 | foot |
 | Bike | 5002 | bicycle |
 | Bus | 5003 | driving |
+| Official | 5005 | driving |
+
+*Official* is a car that may also use bus/psv roads: the stock car profile, plus busways, `service=bus` roads and any way or barrier where a `bus`/`psv` permission overrides the car's access (BRT corridors and terminals, for example). Batch review matches car trips with it (`ROAD_PROFILE_FOR_CAR`, default `"official"`, or `"car"` when the official server isn't enabled); taxi trips use car and bus trips use bus. A profile select next to **Re-route** matches the selected road trip again with Car, Official or Bus.
+
+`OSRM_ENABLED_PROFILES` in `config_local.R` lists the servers in use (default `c("car", "foot", "bus", "official")`; a profile without a server is ignored). The others are left out of the profile selects and the OSRM status dot, so a stopped server doesn't show as an error. Add `"bike"` back to use the bike server again. Cycling remains an activity type for manual routes and GPX export either way.
 
 See the [OSRM backend guide](https://github.com/Project-OSRM/osrm-backend#using-docker) for setup.
 
@@ -241,9 +246,13 @@ APP_LANGUAGE <- "pt"
 # Jaé fare history CSV (optional): boardings listed in the Route pane
 JAE_CSV_PATH <- "path/to/jae_history.csv"
 
+# OSRM servers in use (optional; default shown). Add "bike" to use the bike server
+OSRM_ENABLED_PROFILES <- c("car", "foot", "bus", "official")
+
 # Batch review (optional; defaults shown)
 ITEMS_BACKUP_DIR    <- file.path(dirname(WEEKLY_BACKUP_DIR), "items")  # monthly items from the backup
-OSM_PBF_FILE        <- "~/osrm-data/merged_south_america.osm.pbf"     # source of reference/rails.gpkg
+OSM_PBF_FILE        <- "~/osrm-data/clipped.osm.pbf"                  # source of reference/rails.gpkg
+ROAD_PROFILE_FOR_CAR <- "official"                                     # OSRM profile for car trips
 RAIL_REFERENCE_FILE <- "reference/rails.gpkg"
 REVIEW_SCRATCH_DIR  <- "scratch"                                     # review_cache.rds, review_state.rds
 ```

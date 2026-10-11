@@ -5,9 +5,13 @@
 # (Arc → Import GPX File disables and hides the overlapping data).
 
 # Config (config_local.R can override any of these)
-OSM_PBF_FILE        <- if (exists("OSM_PBF_FILE")) OSM_PBF_FILE else path.expand("~/osrm-data/merged_south_america.osm.pbf")
+OSM_PBF_FILE        <- if (exists("OSM_PBF_FILE")) OSM_PBF_FILE else path.expand("~/osrm-data/clipped.osm.pbf")
 RAIL_REFERENCE_FILE <- if (exists("RAIL_REFERENCE_FILE")) RAIL_REFERENCE_FILE else file.path("reference", "rails.gpkg")
 REVIEW_SCRATCH_DIR  <- if (exists("REVIEW_SCRATCH_DIR")) REVIEW_SCRATCH_DIR else "scratch"
+# OSRM profile for car trips: "official" also uses bus/psv roads (busways, BRT
+# terminals); "car" when the official server is not enabled. Taxi stays on car.
+ROAD_PROFILE_FOR_CAR <- if (exists("ROAD_PROFILE_FOR_CAR")) ROAD_PROFILE_FOR_CAR else
+  if ("official" %in% osrm_enabled_profiles()) "official" else "car"
 
 # All thresholds in one place. Distances in metres unless named otherwise.
 REVIEW_THRESHOLDS <- list(
@@ -43,7 +47,7 @@ REVIEW_ACTIVITIES <- list(
                rail_types = "rail", station_modes = "train", google = "train"),
   tram  = list(code = 24L, family = "rail", label = "Tram", icon = "\U0001F68A", color = "#00838F",
                rail_types = c("tram", "light_rail"), station_modes = c("tram", "light_rail"), google = "tram"),
-  car   = list(code = 5L,  family = "road", label = "Car", icon = "\U0001F697", color = "#1565C0", osrm = "car"),
+  car   = list(code = 5L,  family = "road", label = "Car", icon = "\U0001F697", color = "#1565C0", osrm = ROAD_PROFILE_FOR_CAR),
   taxi  = list(code = 34L, family = "road", label = "Taxi", icon = "\U0001F695", color = "#F9A825", osrm = "car"),
   bus   = list(code = 21L, family = "road", label = "Bus", icon = "\U0001F68C", color = "#2E7D32", osrm = "bus")
 )
@@ -630,7 +634,7 @@ review_cache_file <- function() file.path(REVIEW_SCRATCH_DIR, "review_cache.rds"
 review_cache_key <- function(trip, th = REVIEW_THRESHOLDS, rails_mtime = NA) {
   fam <- REVIEW_ACTIVITIES[[trip$activity]]$family
   paste(trip$id, trip$last_saved, fam, th[[fam]]$tol_m, th$densify_m,
-        if (fam == "rail") rails_mtime else "", REVIEW_CACHE_VERSION[[fam]], sep = "|")
+        if (fam == "rail") rails_mtime else REVIEW_ACTIVITIES[[trip$activity]]$osrm, REVIEW_CACHE_VERSION[[fam]], sep = "|")
 }
 
 # Metrics for every trip of a trip_inventory(..., with_samples = FALSE) table.
@@ -1166,17 +1170,17 @@ via_waypoints <- function(s, from_i, to_i, every_m = 300, th = REVIEW_THRESHOLDS
 
 # Default proposal for a road trip (s: review_clean_samples()): the OSRM match
 # with its gaps routed, or a route between the ends when nothing matched; with
-# the checks of road_proposal_check()
+# the checks of road_proposal_check(). profile: OSRM profile (default: the activity's)
 road_proposal <- function(s, match, activity, th = REVIEW_THRESHOLDS,
-                          route_fn = calculate_osrm_route, match_fn = osrm_match) {
-  profile <- REVIEW_ACTIVITIES[[activity]]$osrm
+                          route_fn = calculate_osrm_route, match_fn = osrm_match,
+                          profile = REVIEW_ACTIVITIES[[activity]]$osrm) {
   fx <- if (isTRUE(match$ok)) road_timed_path(s, match, profile, th, route_fn) else NULL
   if (is.null(fx)) {
     fx <- route_timed_path(s, 1L, nrow(s), profile, th, route_fn)
     if (!is.null(fx)) fx$method <- "route_fallback"
   }
   if (is.null(fx)) return(NULL)
-  road_proposal_check(fx, s, activity, 1L, nrow(s), th, match_fn)
+  road_proposal_check(fx, s, activity, 1L, nrow(s), th, match_fn, profile)
 }
 
 # Checks of a road proposal (fx with path) against the recorded samples
@@ -1186,14 +1190,13 @@ road_proposal <- function(s, match, activity, th = REVIEW_THRESHOLDS,
 # Adds proposed_km, recorded_km, len_ratio, rematch_off_share,
 # rematch_longest_off_m, detour, bulk_ok.
 road_proposal_check <- function(fx, s, activity, from_i = 1L, to_i = nrow(s), th = REVIEW_THRESHOLDS,
-                                match_fn = osrm_match) {
+                                match_fn = osrm_match, profile = REVIEW_ACTIVITIES[[activity]]$osrm) {
   p <- fx$path
   fx$proposed_km <- path_cumulative_m(cbind(p$lon, p$lat))[nrow(p)] / 1000
   fx$recorded_km <- trip_secondary_metrics(s[from_i:to_i, , drop = FALSE], th)$path_km
   fx$len_ratio <- if (fx$recorded_km > 0) fx$proposed_km / fx$recorded_km else NA_real_
   pts <- data.frame(lon = p$lon, lat = p$lat, t = p$t, acc = 10)
-  m <- tryCatch(match_fn(cbind(pts$lon, pts$lat), pts$t, match_radiuses(pts$acc, th),
-                         profile = REVIEW_ACTIVITIES[[activity]]$osrm),
+  m <- tryCatch(match_fn(cbind(pts$lon, pts$lat), pts$t, match_radiuses(pts$acc, th), profile = profile),
                 error = function(e) NULL)
   cf <- if (is.null(m)) NULL else conformity(pts, activity, match = m, th = th)$metrics
   fx$rematch_off_share <- if (is.null(cf) || isTRUE(cf$no_match)) NA_real_ else cf$off_share
@@ -1229,6 +1232,162 @@ road_proposal_summary <- function(trip_samples, match, activity, th = REVIEW_THR
   })
   if (is.null(fx)) return(list(failed = TRUE))
   c(fx[ROAD_PROPOSAL_FIELDS], list(path = fx$path[, c("lon", "lat", "t")]))
+}
+
+
+# ---- Multimodal split (experiment): walk -> wait -> bus -> walk / visit ----
+
+# Splits a bus trip that Arc started at the front door, using the Jaé boarding
+# (time and place of the card tap) and the alighting point clicked on the map.
+# trip_samples: data.frame(lon, lat, t, acc); boarding: lon, lat, t (epoch s or
+# POSIXct; a jae_boardings row also works) and an optional label;
+# alighting_point: c(lon, lat); after_mode: "walk" (OSRM foot to the trip's
+# last sample) or "visit" (stationary at the last sample, as part of the
+# destination visit).
+# Times: the walk leaves at the first sample and arrives after the OSRM foot
+# duration, capped at the boarding; the wait at the stop ends exactly at the
+# boarding time; the bus runs until the alighting time, which is the time of
+# the recorded sample nearest the click along the recording after the boarding;
+# the remainder runs until the last sample. Returns a list of segments, each
+# list(role, type, t_start, t_end, path = data.frame(lon, lat, t), info),
+# continuous in time; zero-length walks and waits are left out.
+build_multimodal_segments <- function(trip_samples, boarding, alighting_point, after_mode = c("walk", "visit"),
+                                      th = REVIEW_THRESHOLDS, route_fn = calculate_osrm_route, match_fn = osrm_match,
+                                      wait_point_s = 30, walk_mps = 1.3) {
+  after_mode <- match.arg(after_mode)
+  s <- review_clean_samples(trip_samples)
+  if (is.null(s$acc)) s$acc <- NA_real_
+  if (nrow(s) < 2) stop("the trip needs at least 2 samples")
+  b <- multimodal_point(boarding)
+  t0 <- s$t[1]
+  t_end <- s$t[nrow(s)]
+  if (!isTRUE(b$t >= t0 && b$t < t_end)) stop("the boarding time is outside the trip")
+
+  ib <- which(s$t >= b$t)[1]
+  ia <- multimodal_alighting_index(s, ib, alighting_point)
+  t_alight <- s$t[ia]
+  if (t_alight <= b$t) stop("the alighting point must come after the boarding along the recording")
+
+  segs <- list()
+  stop_xy <- c(b$lon, b$lat)
+
+  # 1. Walk to the stop, 2. wait there until the tap
+  walk <- multimodal_walk(c(s$lon[1], s$lat[1]), stop_xy, route_fn, walk_mps)
+  t_arrive <- min(t0 + walk$duration_s, b$t)
+  if (t_arrive > t0) {
+    segs[[length(segs) + 1L]] <- multimodal_moving("walk_to_stop", "walking", walk, t0, t_arrive, th)
+  }
+  if (b$t > t_arrive) {
+    segs[[length(segs) + 1L]] <- multimodal_stationary("wait", stop_xy, t_arrive, b$t, wait_point_s, list(name = b$label))
+  }
+
+  # 3. Bus: the recording between boarding and alighting, matched on the bus profile
+  segs[[length(segs) + 1L]] <- multimodal_bus(s, b, alighting_point, t_alight, th, route_fn, match_fn)
+
+  # 4. After alighting, until the trip's original end
+  if (t_end > t_alight) {
+    dest <- c(s$lon[nrow(s)], s$lat[nrow(s)])
+    segs[[length(segs) + 1L]] <- if (after_mode == "walk") {
+      multimodal_moving("walk_from_stop", "walking", multimodal_walk(alighting_point, dest, route_fn, walk_mps),
+                        t_alight, t_end, th)
+    } else {
+      multimodal_stationary("at_destination", dest, t_alight, t_end, wait_point_s)
+    }
+  }
+  segs
+}
+
+# lon, lat, t (epoch s), label from a list / one-row data.frame, or a jae_boardings row.
+# Exact names: `$` on a data.frame would partially match t to tipo_transacao.
+multimodal_point <- function(b) {
+  field <- function(...) {
+    for (k in c(...)) if (!is.null(b[[k]])) return(b[[k]])
+    NULL
+  }
+  list(lon = as.numeric(field("lon", "longitude"))[1], lat = as.numeric(field("lat", "latitude"))[1],
+       t = as.numeric(field("t", "datetime_utc"))[1], label = as.character(field("label") %||% NA_character_)[1])
+}
+
+# Alighting sample: the click is projected onto the recorded path from sample
+# ib on, and the sample closest to that position along the path is taken. A
+# sample that is merely close on the map (an earlier pass, or the way back) is
+# not picked.
+multimodal_alighting_index <- function(s, ib, point) {
+  sub <- ib:nrow(s)
+  if (length(sub) < 2) return(sub[1])
+  coords <- cbind(s$lon[sub], s$lat[sub])
+  cum <- path_cumulative_m(coords)
+  d_click <- project_along(coords, cum, matrix(point[1:2], nrow = 1))
+  sub[which.min(abs(cum - d_click))]
+}
+
+# Walking geometry from -> to: OSRM foot, joined to the exact end points;
+# straight line at walk_mps when OSRM has no route
+multimodal_walk <- function(from, to, route_fn, walk_mps) {
+  r <- tryCatch(route_fn(data.frame(lat = c(from[2], to[2]), lng = c(from[1], to[1])), "foot"), error = function(e) NULL)
+  if (!is.null(r$coords) && nrow(r$coords) >= 2) {
+    coords <- rbind(from[1:2], r$coords[, 1:2], to[1:2])
+    coords <- coords[c(TRUE, rowSums(abs(diff(coords))) > 0), , drop = FALSE]
+    return(list(coords = coords, duration_s = as.numeric(r$duration_s), method = "osrm_foot"))
+  }
+  coords <- rbind(from[1:2], to[1:2])
+  list(coords = coords, duration_s = path_cumulative_m(coords)[2] / walk_mps, method = "straight")
+}
+
+# Moving segment over walk$coords from t_start to t_end, timed by distance
+multimodal_moving <- function(role, type, walk, t_start, t_end, th) {
+  coords <- walk$coords
+  colnames(coords) <- c("lon", "lat")
+  total <- path_cumulative_m(coords)[nrow(coords)]
+  path <- if (total > 0) {
+    resample_timed_path(timed_path_from_anchors(coords, c(0, total), c(t_start, t_end)), th$point_every_m, th$point_every_s)
+  } else {
+    data.frame(lon = coords[1, 1], lat = coords[1, 2], t = c(t_start, t_end))
+  }
+  list(role = role, type = type, t_start = t_start, t_end = t_end, path = multimodal_path(path, t_start, t_end),
+       info = list(method = walk$method, distance_m = total, osrm_duration_s = walk$duration_s))
+}
+
+# Stationary segment at point: one point every every_s, the last at t_end
+multimodal_stationary <- function(role, point, t_start, t_end, every_s, info = list()) {
+  t <- unique(c(seq(t_start, t_end, by = every_s), t_end))
+  list(role = role, type = "stationary", t_start = t_start, t_end = t_end,
+       path = data.frame(lon = point[1], lat = point[2], t = t), info = info)
+}
+
+# Bus segment: boarding point (tap time), the samples in between, the clicked
+# alighting point (alighting time); OSRM /match on the bus profile, /route
+# when matching fails, a straight line as a last resort
+multimodal_bus <- function(s, b, alighting_point, t_alight, th, route_fn, match_fn) {
+  inner <- s[s$t > b$t & s$t < t_alight, c("lon", "lat", "t", "acc")]
+  pts <- rbind(data.frame(lon = b$lon, lat = b$lat, t = b$t, acc = 10), inner,
+               data.frame(lon = alighting_point[1], lat = alighting_point[2], t = t_alight, acc = 10))
+  m <- tryCatch(match_fn(cbind(pts$lon, pts$lat), pts$t, match_radiuses(pts$acc, th), profile = "bus"),
+                error = function(e) NULL)
+  fx <- if (isTRUE(m$ok)) tryCatch(road_timed_path(pts, m, "bus", th, route_fn), error = function(e) NULL)
+  if (is.null(fx)) fx <- route_timed_path(pts, 1L, nrow(pts), "bus", th, route_fn)
+  if (is.null(fx)) {
+    coords <- cbind(lon = pts$lon[c(1, nrow(pts))], lat = pts$lat[c(1, nrow(pts))])
+    fx <- list(path = timed_path_from_anchors(coords, c(0, path_cumulative_m(coords)[2]), c(b$t, t_alight)),
+               method = "straight")
+  }
+  p <- multimodal_path(fx$path, b$t, t_alight)
+  list(role = "bus", type = "bus", t_start = b$t, t_end = t_alight, path = p,
+       info = list(method = fx$method, distance_m = path_cumulative_m(cbind(p$lon, p$lat))[nrow(p)],
+                   samples = nrow(inner)))
+}
+
+# lon, lat, t with strictly increasing times, starting at t_start and ending at t_end exactly
+multimodal_path <- function(path, t_start, t_end) {
+  p <- path[path$t >= t_start & path$t <= t_end, c("lon", "lat", "t")]
+  p$t[1] <- t_start
+  p$t[nrow(p)] <- t_end
+  keep <- c(TRUE, diff(p$t) > 0)
+  keep[nrow(p)] <- TRUE
+  p <- p[keep, ]
+  if (nrow(p) > 2 && p$t[nrow(p)] <= p$t[nrow(p) - 1L]) p <- p[-(nrow(p) - 1L), ]
+  rownames(p) <- NULL
+  p
 }
 
 

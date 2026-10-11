@@ -915,6 +915,10 @@
     "pt": "Ajustado às ruas (confiança %.2f), lacunas roteadas",
     "en": "Matched to the roads (confidence %.2f), gaps routed"
   },
+  "Matching to the roads...": {
+    "pt": "Ajustando às vias...",
+    "en": "Matching to the roads..."
+  },
   "Measuring trips...": {
     "pt": "Medindo as viagens...",
     "en": "Measuring trips..."
@@ -1067,6 +1071,10 @@
     "pt": "fora da rede",
     "en": "off-network"
   },
+  "Official": {
+    "pt": "Oficial",
+    "en": "Official"
+  },
   "OK": {
     "pt": "OK",
     "en": "OK"
@@ -1087,9 +1095,9 @@
     "pt": "ID original",
     "en": "original ID"
   },
-  "OSRM local routing (car/foot/bike/bus):": {
-    "pt": "Roteamento OSRM local (carro/a pé/bicicleta/ônibus):",
-    "en": "OSRM local routing (car/foot/bike/bus):"
+  "OSRM local routing:": {
+    "pt": "Roteamento OSRM local:",
+    "en": "OSRM local routing:"
   },
   "OSRM profile '%s' not configured.": {
     "pt": "Perfil OSRM '%s' não configurado.",
@@ -1290,6 +1298,10 @@
   "Routed through the recorded path (%d waypoints)": {
     "pt": "Roteado pelo trajeto gravado (%d pontos de passagem)",
     "en": "Routed through the recorded path (%d waypoints)"
+  },
+  "Routing profile for this trip": {
+    "pt": "Perfil de roteamento desta viagem",
+    "en": "Routing profile for this trip"
   },
   "Routing through the recorded path...": {
     "pt": "Roteando pelo trajeto gravado...",
