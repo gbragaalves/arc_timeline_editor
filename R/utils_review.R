@@ -501,14 +501,17 @@ project_along <- function(coords, cum, pts) {
   lat0 <- mean(coords[, 2])
   kx <- 111320 * cos(lat0 * pi / 180)
   ky <- 110540
-  ax <- coords[-n, 1] * kx; ay <- coords[-n, 2] * ky
-  dx <- coords[-1, 1] * kx - ax; dy <- coords[-1, 2] * ky - ay
+  ax <- coords[-n, 1] * kx
+  ay <- coords[-n, 2] * ky
+  dx <- coords[-1, 1] * kx - ax
+  dy <- coords[-1, 2] * ky - ay
   len2 <- dx^2 + dy^2
   out <- numeric(nrow(pts))
   start <- 1L
   for (k in seq_len(nrow(pts))) {
     segs <- start:(n - 1L)
-    px <- pts[k, 1] * kx; py <- pts[k, 2] * ky
+    px <- pts[k, 1] * kx
+    py <- pts[k, 2] * ky
     f <- ifelse(len2[segs] > 0, ((px - ax[segs]) * dx[segs] + (py - ay[segs]) * dy[segs]) / len2[segs], 0)
     f <- pmax(0, pmin(1, f))
     d2 <- (px - ax[segs] - f * dx[segs])^2 + (py - ay[segs] - f * dy[segs])^2
@@ -1349,10 +1352,13 @@ polyline_segment_projection <- function(coords, cum, pt) {
   lat0 <- mean(coords[, 2])
   kx <- 111320 * cos(lat0 * pi / 180)
   ky <- 110540
-  ax <- coords[-n, 1] * kx; ay <- coords[-n, 2] * ky
-  dx <- coords[-1, 1] * kx - ax; dy <- coords[-1, 2] * ky - ay
+  ax <- coords[-n, 1] * kx
+  ay <- coords[-n, 2] * ky
+  dx <- coords[-1, 1] * kx - ax
+  dy <- coords[-1, 2] * ky - ay
   len2 <- dx^2 + dy^2
-  px <- pt[1] * kx; py <- pt[2] * ky
+  px <- pt[1] * kx
+  py <- pt[2] * ky
   f <- ifelse(len2 > 0, ((px - ax) * dx + (py - ay) * dy) / len2, 0)
   f <- pmax(0, pmin(1, f))
   list(d = cum[-n] + f * (cum[-1] - cum[-n]), off = sqrt((px - ax - f * dx)^2 + (py - ay - f * dy)^2))
@@ -1386,7 +1392,10 @@ order_pins <- function(s, pins, th = REVIEW_THRESHOLDS) {
     c(d = sp$d[j], off_m = sp$off[j], ambiguous = passes >= 2, bearing = bearing)
   })
   info <- do.call(rbind, info)
-  pins$d <- info[, "d"]; pins$off_m <- info[, "off_m"]; pins$ambiguous <- info[, "ambiguous"] == 1; pins$bearing <- info[, "bearing"]
+  pins$d <- info[, "d"]
+  pins$off_m <- info[, "off_m"]
+  pins$ambiguous <- info[, "ambiguous"] == 1
+  pins$bearing <- info[, "bearing"]
   ordered <- pins$id[order(pins$d)]
   # Placements by hand, in the sorted order
   for (id in ordered[ordered %in% pins$id[!is.na(pins$after)]]) {

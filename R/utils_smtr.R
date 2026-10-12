@@ -233,7 +233,10 @@ smtr_prefetch <- function(taps, cache_file = SMTR_NOTE_CACHE_FILE, fetch_fn = sm
   todo <- tp[smtr_key(tp$date, tp$vehicle) %in% keys[stale], , drop = FALSE]
   dates <- sort(unique(todo$date))
   if (length(dates) == 0) return(list(cache = cache, fetched = 0L, error = NULL))
-  err <- tryCatch({ auth_fn(); NULL }, error = function(e) conditionMessage(e))
+  err <- tryCatch({
+    auth_fn()
+    NULL
+  }, error = function(e) conditionMessage(e))
   if (!is.null(err)) return(list(cache = cache, fetched = 0L, error = err))
   done <- 0L
   for (d in dates) {
