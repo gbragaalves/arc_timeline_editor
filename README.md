@@ -2,6 +2,52 @@
 
 A [Shiny](https://shiny.posit.co/) web app for manually constructing and editing [Arc App](https://www.bigpaua.com/arcapp) timeline data — visits, trips, and locomotion samples.
 
+## Em português: novidades e rotina
+
+Resumo das funções adicionadas em outubro de 2026 (o resto do README segue em inglês; as âncoras usadas pela ajuda do app ficam iguais).
+
+### Revisão em lote (Editar → Revisar em lote)
+
+- **Editar a rota arrastando (P).** Com o botão 📍 ligado, arraste a linha proposta para criar um pino de passagem; arraste o início ou o fim (por exemplo, da rua para a saída do prédio — o horário da viagem não muda) e os pinos. A rota só é recalculada ao soltar; um clique simples não faz nada. Clique direito ou duplo num pino o remove. **Ctrl+Z** desfaz (pinos, pontas e exclusões compartilham um histórico por viagem, salvo em `scratch/review_state.rds`).
+- **Laço de exclusão (L).** Com o botão ➰, circule amostras com tremor do GPS (por exemplo, parado num sinal): elas saem da entrada do `/match`, mas continuam contando no tempo do trajeto. Ficam cinza com contorno; "Limpar exclusões" desfaz tudo.
+- **Correções automáticas do casamento.** Esporas de ida e volta de até 150 m (o tremor parado num cruzamento que faz a rota entrar numa transversal e voltar) são cortadas do casamento; os blocos de 100 pontos do `/match` agora se sobrepõem em 20 pontos e cada um usa só o seu miolo (antes, o fim de um bloco às vezes grudava numa via paralela). O agrupamento de amostras paradas existe (`REVIEW_THRESHOLDS$match_fixes$collapse_stops`), mas fica desligado: no inventário de setembro de 2026 ele marcou mais viagens.
+- **Notas Jaé e opções do Enviar.** Ao lado de "Enviar GPX em lote ao iCloud": "Adicionar notas Jaé" e "Nota da espera". A perna de ônibus recebe uma nota com dados da SMTR (linha e destino, carro e placa, consórcio e operadora, carroceria/chassi/ano, horários da viagem e embarques Jaé + RioCard), consultados no BigQuery com limite de custo e guardados em `reference/smtr_note_cache.rds`; a espera recebe o nome do ponto (GTFS da SMTR, depois Google Places), que pode ser editado antes de aceitar. As notas vão como um pacote só de notas para `Import/` no iCloud: no Arc, importe primeiro o GPX e depois a pasta Import.
+
+### Editar amostras
+
+- Pinos também por arrasto da linha (P), "Excluir do ajuste" para as amostras selecionadas no laço (elas não viram pontos de passagem, mas são posicionadas na rota) e Ctrl+Z. Pinos e exclusões valem no próximo "Ajustar".
+
+### Camadas do mapa (controle de camadas, desligadas por padrão)
+
+- **Infra de ônibus:** busways, `service=bus`, vias com `bus`/`psv` = yes|designated, faixas exclusivas (`busway:*=lane`, `lanes:bus`, `lanes:psv`), com setas nas mãos únicas; em cinza tracejado, vias `access=no|private` próximas sem permissão para ônibus. Clique numa via para ver as tags e o link para o OSM. Gerada de `~/osrm-data/clipped-custom.osm.pbf` por `tools/refresh_bus_infra.py` (manual) e refeita pela atualização noturna.
+- **Rede do roteador:** as tiles vetoriais do OSRM (`/tile/v1`) do perfil escolhido na viagem (Carro / Oficial / Ônibus), a partir do zoom 14, coloridas pela velocidade e com setas de sentido.
+
+### Atualização noturna do OSM (`~/osrm-data/nightly_refresh.sh`, cron às 04:00)
+
+- Semanal: baixa a Geofabrik, recorta e monta a base (`clipped.osm.pbf` + `base_timestamp`) quando a última tem 7 dias (`refresh.conf`) e há arquivos novos. Diária: aplica **todos** os meus changesets desde a base − 2 dias sobre a base intocada e refaz só os perfis afetados (tags que não afetam roteamento não refazem nada). `.force_next` força uma atualização completa.
+- Testes de fumaça depois de cada reconstrução (`smoke_tests/`): servidor fora do ar ou rota sem resultado volta ao dataset anterior (FAILED); rota que muda mais de 20% gera WARN.
+- O perfil `official` trata `highway=busway` como liberado para ônibus/psv (a menos que `bus=no`/`psv=no`), anda na contramão em vias menores e respeita a mão em primary/secondary/trunk/motorway.
+- Status em `~/osrm-data/last_refresh.json`; logs em `~/osrm-data/logs/` (últimos 14).
+
+### Limpeza do iCloud (`tools/icloud_cleanup.R`, cron às 03:30)
+
+- Só mexe em `GPX/` e `Import/` (qualquer outro caminho é recusado no código). Um pacote de notas em `Import/` é apagado quando todas as notas já estão no backup do Arc; GPX enviados pelo app (registrados em `exports/gpx_send_log.csv`, cópia em `exports/sent_gpx/`) são apagados depois de `GPX_RETENTION_DAYS` — desligado por padrão (`GPX_CLEANUP_ENABLED`). `--dry-run` mostra o que seria apagado.
+
+### Bolinhas de status (barra superior)
+
+- **OSRM:** verde = servidores no ar; a dica mostra "Base OSM: dd/mm/aaaa · minhas edições até dd/mm hh:mm"; **laranja** = a última atualização noturna falhou (motivo na dica).
+- **Google:** chave da API Directions válida.
+- **iCloud:** rclone configurado; **laranja** = "Reconecte: rclone reconnect icloud:" ou "Pacote de notas aguardando Restore desde dd/mm" (há mais de 2 dias).
+
+### Rotina: revisar um mês
+
+1. **Buscar.** Editar → Revisar em lote → 1 · Buscar: escolha os tipos e o mês (o cache em `scratch/` deixa a segunda vez rápida).
+2. **Aceitar em lote.** "Aceitar em lote" pega as propostas seguras (0,9–1,2× o comprimento gravado e sem sair das vias no novo casamento).
+3. **Revisar o resto, da pior para a melhor** (ordenar por gravidade): desvios possíveis → "Nova rota (R)"; trechos com tremor → laço (L); rota errada → editar arrastando (P) e soltar; fragmentos → apagar ou marcar como bogus no próprio Arc.
+4. **Viagens com Jaé:** "Dividir" (caminhada → espera → ônibus/metrô), clicar onde desceu, conferir o nome do ponto e aceitar.
+5. **Enviar.** 3 · Exportar → "Enviar GPX em lote ao iCloud" com "Adicionar notas Jaé"; no Arc: importar o GPX, depois a pasta Import.
+6. **Conferir no dia seguinte** as bolinhas: iCloud laranja = pacote de notas ainda não importado.
+
 ## Why?
 
 Arc is great at automatic recording, but sometimes you need to fix or build timeline data manually:
@@ -255,6 +301,9 @@ APP_LANGUAGE <- "pt"
 # Jaé fare history CSV (optional): boardings listed in the Route pane
 JAE_CSV_PATH <- "path/to/jae_history.csv"
 
+# Stop names for split waits (optional): Google account for tools/refresh_gtfs_stops.R
+GTFS_BQ_EMAIL <- "you@example.com"
+
 # OSRM servers in use (optional; default shown). Add "bike" to use the bike server
 OSRM_ENABLED_PROFILES <- c("car", "foot", "bus", "official")
 
@@ -294,11 +343,23 @@ R/
   utils_icloud.R              # iCloud Drive round-trip via rclone (fetch backups, send imports/GPX)
   utils_i18n.R                # UI language (PT/EN): translation lookup, date formats
   utils_review.R              # Batch review: items, rail reference, conformity metrics, fixes
+  utils_stops.R               # Stop names for split waits: SMTR GTFS, Google Places, generic
+  utils_smtr.R                # SMTR bus note for Jaé bus legs (BigQuery, cached per date and vehicle)
+  utils_icloud_cleanup.R      # Cleanup of GPX/ and Import/ in iCloud, GPX send log, status for the iCloud dot
+  utils_layers.R              # Map overlays: bus infrastructure (by bounds), OSRM router network tiles
+  ui_route_edit_js.R          # Client: route editing by dragging, sample lasso, Ctrl+Z, overlays
   server_review.R             # Batch review server (Edit → Batch review)
   export_arc.R                # LocoKit2 JSON export (zip package generation)
   ui.R                        # Shiny UI layout and controls
   server.R                    # Shiny server logic, editing modes, import/export handlers
 reference/rails.gpkg           # Rails + stations from OSM (built locally, not tracked)
+reference/gtfs_stops_rio.csv   # SMTR GTFS stops, latest feed (tools/refresh_gtfs_stops.R; not tracked)
+reference/places_cache.rds     # Google Places stop names by rounded coordinates (not tracked)
+tools/refresh_gtfs_stops.R     # Refreshes reference/gtfs_stops_rio.csv from BigQuery (bigrquery)
+tools/refresh_bus_infra.py     # Builds reference/bus_infra.geojson (bus infrastructure layer) from the routing extract
+tools/refresh_rails.R          # Rebuilds reference/rails.gpkg from an extract (nightly refresh)
+tools/icloud_cleanup.R         # Daily iCloud cleanup (cron 03:30, --dry-run)
+tests/test_review_unit.R       # Unit tests on synthetic data (Rscript tests/test_review_unit.R)
 scratch/                       # Batch review cache and saved review (not tracked)
 ```
 
