@@ -195,6 +195,10 @@
     "pt": "Ônibus",
     "en": "Bus"
   },
+  "Bus stop": {
+    "pt": "Ponto de Ônibus",
+    "en": "Bus stop"
+  },
   "By date": {
     "pt": "Por data",
     "en": "By date"
@@ -262,6 +266,10 @@
   "Clear all": {
     "pt": "Limpar tudo",
     "en": "Clear all"
+  },
+  "Clear pins": {
+    "pt": "Limpar pinos",
+    "en": "Clear pins"
   },
   "Clear sel.": {
     "pt": "Limpar sel.",
@@ -334,6 +342,10 @@
   "Could not read file as geographic layer.": {
     "pt": "Não foi possível ler o arquivo como camada geográfica.",
     "en": "Could not read file as geographic layer."
+  },
+  "Could not route through the pins (OSRM).": {
+    "pt": "Não foi possível rotear pelos pinos (OSRM).",
+    "en": "Could not route through the pins (OSRM)."
   },
   "Could not route through the recorded path (OSRM).": {
     "pt": "Não foi possível rotear pelo trajeto gravado (OSRM).",
@@ -674,6 +686,10 @@
   "Funicular": {
     "pt": "Funicular",
     "en": "Funicular"
+  },
+  "generic": {
+    "pt": "genérico",
+    "en": "generic"
   },
   "Geographic file imported. Green = start, Red = end.": {
     "pt": "Arquivo geográfico importado. Verde = início, vermelho = fim.",
@@ -1179,6 +1195,26 @@
     "pt": "Parte do trajeto é uma linha reta (a rota do OSRM falhou).",
     "en": "Part of the path is a straight line (OSRM route failed)."
   },
+  "Pin %d": {
+    "pt": "Pino %d",
+    "en": "Pin %d"
+  },
+  "Pin %d is near two passes; after:": {
+    "pt": "Pino %d perto de duas passagens; depois de:",
+    "en": "Pin %d is near two passes; after:"
+  },
+  "Pin mode (P): click the map to add a pin; drag to move, right-click to remove.": {
+    "pt": "Modo pino (P): clique no mapa para adicionar um pino; arraste para mover, botão direito para remover.",
+    "en": "Pin mode (P): click the map to add a pin; drag to move, right-click to remove."
+  },
+  "Pin mode: click the map to add pins (P to leave).": {
+    "pt": "Modo pino: clique no mapa para adicionar pinos (P para sair).",
+    "en": "Pin mode: click the map to add pins (P to leave)."
+  },
+  "Pins": {
+    "pt": "Pinos",
+    "en": "Pins"
+  },
   "Place": {
     "pt": "Local",
     "en": "Place"
@@ -1331,6 +1367,10 @@
     "pt": "Roteado entre início e fim",
     "en": "Routed between start and end"
   },
+  "Routed through the pins (%d)": {
+    "pt": "Roteado pelos pinos (%d)",
+    "en": "Routed through the pins (%d)"
+  },
   "Routed through the recorded path (%d waypoints)": {
     "pt": "Roteado pelo trajeto gravado (%d pontos de passagem)",
     "en": "Routed through the recorded path (%d waypoints)"
@@ -1338,6 +1378,10 @@
   "Routing profile for this trip": {
     "pt": "Perfil de roteamento desta viagem",
     "en": "Routing profile for this trip"
+  },
+  "Routing through the pins...": {
+    "pt": "Roteando pelos pinos...",
+    "en": "Routing through the pins..."
   },
   "Routing through the recorded path...": {
     "pt": "Roteando pelo trajeto gravado...",
@@ -1559,6 +1603,10 @@
     "pt": "Hora de início",
     "en": "Start time"
   },
+  "station": {
+    "pt": "estação",
+    "en": "station"
+  },
   "Surfing": {
     "pt": "Surfe",
     "en": "Surfing"
@@ -1730,5 +1778,133 @@
   "Zoom out": {
     "pt": "Afastar",
     "en": "Zoom out"
+  },
+  "Add Jaé notes": {
+    "pt": "Adicionar notas Jaé",
+    "en": "Add Jaé notes"
+  },
+  "Wait note": {
+    "pt": "Nota da espera",
+    "en": "Wait note"
+  },
+  "With Send: the split trips' Jaé notes (bus: SMTR data) go to iCloud Import as a notes package.": {
+    "pt": "Com Enviar: as notas Jaé das viagens divididas (ônibus: dados SMTR) vão para o Import do iCloud como pacote de notas.",
+    "en": "With Send: the split trips' Jaé notes (bus: SMTR data) go to iCloud Import as a notes package."
+  },
+  "Stop": {
+    "pt": "Ponto",
+    "en": "Stop"
+  },
+  "Name source": {
+    "pt": "Origem do nome",
+    "en": "Name source"
+  },
+  "edited": {
+    "pt": "editado",
+    "en": "edited"
+  },
+  "Fetching SMTR bus data...": {
+    "pt": "Buscando dados SMTR dos ônibus...",
+    "en": "Fetching SMTR bus data..."
+  },
+  "SMTR data unavailable, bus notes keep the Jaé line text:": {
+    "pt": "Dados SMTR indisponíveis, as notas de ônibus ficam com o texto da linha Jaé:",
+    "en": "SMTR data unavailable, bus notes keep the Jaé line text:"
+  },
+  "No Jaé notes to send (no accepted split trips).": {
+    "pt": "Nenhuma nota Jaé para enviar (nenhuma viagem dividida aceita).",
+    "en": "No Jaé notes to send (no accepted split trips)."
+  },
+  "Sending notes to iCloud...": {
+    "pt": "Enviando notas ao iCloud...",
+    "en": "Sending notes to iCloud..."
+  },
+  "%d notes sent to %s/Import. In Arc, import the GPX first, then the Import folder.": {
+    "pt": "%d notas enviadas para %s/Import. No Arc, importe primeiro o GPX, depois a pasta Import.",
+    "en": "%d notes sent to %s/Import. In Arc, import the GPX first, then the Import folder."
+  },
+  "OSM base: %s": {
+    "pt": "Base OSM: %s",
+    "en": "OSM base: %s"
+  },
+  "OSM base: %s · my edits up to %s": {
+    "pt": "Base OSM: %s · minhas edições até %s",
+    "en": "OSM base: %s · my edits up to %s"
+  },
+  "Last data refresh FAILED (%s): %s": {
+    "pt": "A última atualização dos dados FALHOU (%s): %s",
+    "en": "Last data refresh FAILED (%s): %s"
+  },
+  "Reconnect: rclone reconnect %s:": {
+    "pt": "Reconecte: rclone reconnect %s:",
+    "en": "Reconnect: rclone reconnect %s:"
+  },
+  "Notes package waiting for Restore since %s": {
+    "pt": "Pacote de notas aguardando Restore desde %s",
+    "en": "Notes package waiting for Restore since %s"
+  },
+  "Edit the route (P): drag the line to add a via pin, drag the start, the end or a pin; right-click or double-click a pin to remove it; Ctrl+Z undoes.": {
+    "pt": "Editar a rota (P): arraste a linha para criar um pino de passagem, arraste o início, o fim ou um pino; clique direito ou duplo num pino o remove; Ctrl+Z desfaz.",
+    "en": "Edit the route (P): drag the line to add a via pin, drag the start, the end or a pin; right-click or double-click a pin to remove it; Ctrl+Z undoes."
+  },
+  "Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes.": {
+    "pt": "Excluir amostras do casamento (L): circule as amostras com tremor do GPS (ex.: parado num sinal); elas ainda contam no tempo do trajeto. Ctrl+Z desfaz.",
+    "en": "Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes."
+  },
+  "Clear exclusions": {
+    "pt": "Limpar exclusões",
+    "en": "Clear exclusions"
+  },
+  "Nothing to undo.": {
+    "pt": "Nada para desfazer.",
+    "en": "Nothing to undo."
+  },
+  "%d samples kept out of the matching (Ctrl+Z undoes).": {
+    "pt": "%d amostras fora do casamento (Ctrl+Z desfaz).",
+    "en": "%d samples kept out of the matching (Ctrl+Z undoes)."
+  },
+  "Route editing: drag the line to add a via pin, drag the start or the end; right-click or double-click a pin removes it (P to leave).": {
+    "pt": "Edição da rota: arraste a linha para criar um pino de passagem, arraste o início ou o fim; clique direito ou duplo num pino o remove (P para sair).",
+    "en": "Route editing: drag the line to add a via pin, drag the start or the end; right-click or double-click a pin removes it (P to leave)."
+  },
+  "Lasso: circle the jittery samples to keep them out of the matching (L to leave).": {
+    "pt": "Laço: circule as amostras com tremor para tirá-las do casamento (L para sair).",
+    "en": "Lasso: circle the jittery samples to keep them out of the matching (L to leave)."
+  },
+  "kept out of the matching": {
+    "pt": "fora do casamento",
+    "en": "kept out of the matching"
+  },
+  "Route editing: drag the line to add a via pin; Snap routes through the pins (P to leave).": {
+    "pt": "Edição da rota: arraste a linha para criar um pino de passagem; Ajustar passa pelos pinos (P para sair).",
+    "en": "Route editing: drag the line to add a via pin; Snap routes through the pins (P to leave)."
+  },
+  "%d samples kept out of the Snap routing (still placed on the route).": {
+    "pt": "%d amostras fora do roteamento do Ajustar (ainda posicionadas na rota).",
+    "en": "%d samples kept out of the Snap routing (still placed on the route)."
+  },
+  "Edit the route (P): drag the line to add a via pin, drag a pin to move it; right-click or double-click a pin to remove it; Ctrl+Z undoes. Snap routes through the pins.": {
+    "pt": "Editar a rota (P): arraste a linha para criar um pino de passagem, arraste um pino para movê-lo; clique direito ou duplo num pino o remove; Ctrl+Z desfaz. Ajustar passa pelos pinos.",
+    "en": "Edit the route (P): drag the line to add a via pin, drag a pin to move it; right-click or double-click a pin to remove it; Ctrl+Z undoes. Snap routes through the pins."
+  },
+  "Keep the selected samples out of the Snap routing (GPS jitter, e.g. stopped at a light); they are still placed on the route. Ctrl+Z undoes.": {
+    "pt": "Tirar as amostras selecionadas do roteamento do Ajustar (tremor do GPS, ex.: parado num sinal); elas ainda são posicionadas na rota. Ctrl+Z desfaz.",
+    "en": "Keep the selected samples out of the Snap routing (GPS jitter, e.g. stopped at a light); they are still placed on the route. Ctrl+Z undoes."
+  },
+  "Exclude from snap": {
+    "pt": "Excluir do ajuste",
+    "en": "Exclude from snap"
+  },
+  "Draw a lasso on the map to select multiple samples at once for bulk ignore, discard or exclusion from the Snap routing.": {
+    "pt": "Desenhe um laço no mapa para selecionar várias amostras de uma vez e ignorar, descartar ou excluir do roteamento do Ajustar.",
+    "en": "Draw a lasso on the map to select multiple samples at once for bulk ignore, discard or exclusion from the Snap routing."
+  },
+  "Bus infrastructure": {
+    "pt": "Infra de ônibus",
+    "en": "Bus infrastructure"
+  },
+  "Router network": {
+    "pt": "Rede do roteador",
+    "en": "Router network"
   }
 }
