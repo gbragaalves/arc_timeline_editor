@@ -398,6 +398,56 @@ write_edit_package_dir <- function(pkg, dir) {
   invisible(dir)
 }
 
+# Notes-only LocoKit2 import package in dir. notes: list of list(body,
+# start_utc, end_utc) (POSIXct or epoch s; end_utc NULL = an instant). Each
+# becomes a new Arc note (new UUID, source "LocoKit2", no timelineItemId: the
+# items it belongs to come from a GPX import, with ids unknown here) in
+# notes/{YYYY-MM}.json by its UTC start month, as in Arc's backups.
+# ImportManager copies only the package's files and then requires places/,
+# items/ and samples/, so each holds an empty array file (as places/0.json in
+# the edit package). metadata.json: incremental, extensions.notes.recordCount.
+write_notes_package_dir <- function(notes, dir, now_utc = format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")) {
+  iso <- function(t) format(as.POSIXct(round(as.numeric(t)), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+  for (sub in c("items", "places", "samples", "notes")) dir.create(file.path(dir, sub), recursive = TRUE, showWarnings = FALSE)
+
+  records <- lapply(notes, function(n) list(
+    id = toupper(uuid::UUIDgenerate()), timelineItemId = NA, body = n$body, source = "LocoKit2",
+    startDate = iso(n$start_utc), endDate = iso(n$end_utc %||% n$start_utc),
+    creationDate = now_utc, lastSaved = now_utc, deleted = FALSE
+  ))
+  months <- vapply(records, function(r) substr(r$startDate, 1, 7), "")
+  for (m in unique(months)) {
+    jsonlite::write_json(records[months == m], file.path(dir, "notes", paste0(m, ".json")),
+                         auto_unbox = TRUE, pretty = TRUE, na = "null")
+  }
+
+  # Empty buckets so the required folders survive the copy
+  first <- as.POSIXct(if (length(notes)) as.numeric(notes[[1]]$start_utc) else as.numeric(Sys.time()),
+                      origin = "1970-01-01", tz = "UTC")
+  jsonlite::write_json(list(), file.path(dir, "places", "0.json"))
+  jsonlite::write_json(list(), file.path(dir, "items", paste0(format(first, "%Y-%m", tz = "UTC"), ".json")))
+  con <- gzfile(file.path(dir, "samples", paste0(strftime(first, "%G-W%V", tz = "UTC"), ".json.gz")), "w")
+  writeLines("[]", con)
+  close(con)
+
+  metadata <- list(
+    exportId = toupper(uuid::UUIDgenerate()),
+    lastBackupDate = now_utc,
+    sessionStartDate = now_utc,
+    sessionFinishDate = now_utc,
+    exportMode = "bucketed",
+    exportType = "incremental",
+    schemaVersion = "2.4.0",
+    stats = list(itemCount = 0L, sampleCount = 0L, placeCount = 0L),
+    itemsCompleted = TRUE,
+    samplesCompleted = TRUE,
+    placesCompleted = TRUE,
+    extensions = list(notes = list(recordCount = length(records)))
+  )
+  jsonlite::write_json(metadata, file.path(dir, "metadata.json"), auto_unbox = TRUE, pretty = TRUE)
+  invisible(dir)
+}
+
 # Local wall-clock time of a sample (UTC date shifted by secondsFromGMT)
 sample_local_time <- function(s) {
   as.POSIXct(s$date, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC") + as.numeric(s$secondsFromGMT %||% 0)[1]
@@ -422,7 +472,9 @@ gpx_activity_string <- function(code) {
 }
 
 # Timeline items paired with their samples, one entry per GPX track:
-# list(name, type, samples), sorted by start. Samples are linked by item$samples
+# list(name, type, desc, samples), sorted by start. An item's .gpxName is used
+# as the track name as is (otherwise its description plus the start time);
+# .gpxDesc becomes the track's <desc>. Samples are linked by item$samples
 # or sample$timelineItemId (as in export_arc_json), sorted by date and limited to
 # those with coordinates and a parseable date. Visits and items without points
 # are skipped. include_all keeps visits (no type) and adds samples not linked to
@@ -436,14 +488,15 @@ gpx_tracks <- function(items, samples, include_all = FALSE) {
   ts <- as.POSIXct(dates, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
   usable <- !is.na(ts) & vapply(samples, sample_has_coords, logical(1))
 
-  make_track <- function(name, type, in_track) {
+  make_track <- function(name, type, in_track, exact_name = NULL, desc = NULL) {
     idx <- which(in_track & usable)
     if (length(idx) == 0) return(NULL)
     idx <- idx[order(ts[idx])]
     trk_samples <- samples[idx]
     list(
-      name    = paste(name, format(sample_local_time(trk_samples[[1]]), "%Y-%m-%d %H:%M")),
+      name    = exact_name %||% paste(name, format(sample_local_time(trk_samples[[1]]), "%Y-%m-%d %H:%M")),
       type    = type,
+      desc    = desc,
       samples = trk_samples,
       start   = ts[idx[1]]
     )
@@ -466,7 +519,7 @@ gpx_tracks <- function(items, samples, include_all = FALSE) {
     }
     name <- it$description %||% it$visit$customTitle %||% it$.place$name %||%
       (if (is_visit) "Visit" else "Trip")
-    make_track(name, type, in_item)
+    make_track(name, type, in_item, it$.gpxName, it$.gpxDesc)
   })
   if (include_all) tracks <- c(tracks, list(make_track("Arc samples", NA_character_, !linked)))
 
@@ -499,6 +552,7 @@ build_gpx <- function(items, samples, now_utc = format(Sys.time(), "%Y-%m-%dT%H:
     c(
       "  <trk>",
       sprintf("    <name>%s</name>", xml_escape(trk$name)),
+      if (!is.null(trk$desc) && nzchar(trk$desc)) sprintf("    <desc>%s</desc>", xml_escape(trk$desc)),
       if (!is.na(trk$type)) sprintf("    <type>%s</type>", xml_escape(trk$type)),
       "    <trkseg>",
       trkpts,

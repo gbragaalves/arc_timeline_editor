@@ -75,6 +75,20 @@ jae_label <- function(modo, line, desc, vehicle) {
   }, character(1))
 }
 
+# Text of a Jaé leg for Arc notes and the GPX <desc>: "<modo> <linha> ·
+# <descricao> · veículo <id>", empty parts left out. Exact names: `$` on a
+# data.frame row would partially match.
+jae_leg_text <- function(b) {
+  get <- function(k) {
+    v <- b[[k]]
+    if (is.null(v) || length(v) == 0 || is.na(v[1])) "" else trimws(as.character(v[1]))
+  }
+  vehicle <- get("id_veiculo")
+  parts <- c(trimws(paste(get("modo"), get("linha_ou_estacao"))), get("descricao"),
+             if (nzchar(vehicle)) paste("veículo", vehicle) else "")
+  paste(parts[nzchar(parts)], collapse = " · ")
+}
+
 # Boardings on a local (America/Sao_Paulo) date, by time. as.Date() needs the
 # tz: on a POSIXct it otherwise returns the UTC date (wrong after 21:00 local).
 jae_on_date <- function(boardings, date) {
