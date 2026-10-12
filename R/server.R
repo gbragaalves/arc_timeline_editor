@@ -1220,7 +1220,7 @@ server <- function(input, output, session) {
     if (isTRUE(fr24_enriched())) {
       coords <- cbind(geo$lon, geo$lat)
       if (input$file_direction == "reverse") {
-        coords <- coords[nrow(coords):1, , drop = FALSE]
+        coords <- coords[rev(seq_len(nrow(coords))), , drop = FALSE]
       }
       leaflet::leafletProxy("map") %>%
         leaflet::addPolylines(
@@ -1445,7 +1445,7 @@ server <- function(input, output, session) {
     }
 
     if (input$file_direction == "reverse") {
-      coords_list <- coords_list[nrow(coords_list):1, , drop = FALSE]
+      coords_list <- coords_list[rev(seq_len(nrow(coords_list))), , drop = FALSE]
     }
 
     lat1 <- coords_list[1, "Y"]
