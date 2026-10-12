@@ -85,7 +85,7 @@ server <- function(input, output, session) {
         shiny::tags$pre(
           style = "background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;",
           paste0(
-            "# ", tr("If you use individual containers:"), "\ndocker start osrm-car osrm-foot osrm-bike osrm-bus\n\n",
+            "# ", tr("If you use individual containers:"), "\ndocker start osrm-car osrm-foot osrm-bus osrm-official\n\n",
             "# ", tr("Or if you use docker-compose:"), "\ncd path/to/osrm\ndocker-compose up -d"
           )
         ),

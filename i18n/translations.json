@@ -307,9 +307,9 @@
     "pt": "Clique para verificar de novo.",
     "en": "Click to re-check."
   },
-  "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).": {
-    "pt": "Clique nos pontos de passagem no mapa e calcule uma rota ajustada às vias. Carro/A pé/Bicicleta/Ônibus usam o OSRM local (Docker, portas 5000-5003). Metrô/Trem/VLT usam a Google Maps Directions API (requer GOOGLE_MAPS_API_KEY).",
-    "en": "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
+  "Click waypoints on the map, then calculate a snap-to-road route. Car/Official/Foot/Bus use local OSRM (Docker ports 5000-5005). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).": {
+    "pt": "Clique nos pontos de passagem no mapa e calcule uma rota ajustada às vias. Carro/Oficial/A pé/Ônibus usam o OSRM local (Docker, portas 5000-5005). Metrô/Trem/VLT usam a Google Maps Directions API (requer GOOGLE_MAPS_API_KEY).",
+    "en": "Click waypoints on the map, then calculate a snap-to-road route. Car/Official/Foot/Bus use local OSRM (Docker ports 5000-5005). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
   },
   "Click waypoints on the map.": {
     "pt": "Clique nos pontos de passagem no mapa.",

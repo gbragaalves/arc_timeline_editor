@@ -445,7 +445,7 @@ APP_CSS <- "
 osrm_pane <- shiny::tagList(
   mode_hint(
     "Click waypoints on the map.",
-    "Click waypoints on the map, then calculate a snap-to-road route. Car/Foot/Bike/Bus use local OSRM (Docker ports 5000-5003). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
+    "Click waypoints on the map, then calculate a snap-to-road route. Car/Official/Foot/Bus use local OSRM (Docker ports 5000-5005). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
   ),
   shiny::selectInput("osrm_profile", t_("Profile:"), choices = tr_choices(profile_choices()), selected = "car", width = "100%"),
   shiny::uiOutput("jae_list"),
