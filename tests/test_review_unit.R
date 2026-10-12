@@ -1080,9 +1080,18 @@ check(sprintf("official.lua: OFFICIAL_WRONG_WAY_SPEED = 10 at line %s (top), han
 turn <- paste(lua[grep("^function process_turn", lua):length(lua)], collapse = "\n")
 check("official.lua: entering a wrong-way stretch adds OFFICIAL_WRONG_WAY_PENALTY; other restricted roads keep max_turn_weight",
       grepl("turn.target_access_turn_classification == OFFICIAL_WRONG_WAY_CLASS then\\s+turn.weight = turn.weight \\+ OFFICIAL_WRONG_WAY_PENALTY\\s+else\\s+turn.weight = constants.max_turn_weight", turn))
+lua_txt <- paste(lua, collapse = "\n")
+noturn <- readLines(path.expand("~/osrm-data/official-noturn.lua"))
+check("official.lua: wrong-way classes wwminor / wwmajor (primary, secondary and links), excludable {wwmajor} and {wwminor, wwmajor}, set after WayHandlers.classes; motorways / trunks stay one-way; official-noturn.lua = official without turn restrictions",
+      grepl("'wwminor', 'wwmajor'", lua_txt, fixed = TRUE) && grepl("Set {'wwmajor'},", lua_txt, fixed = TRUE) &&
+        grepl("Set {'wwminor', 'wwmajor'}", lua_txt, fixed = TRUE) &&
+        grepl("OFFICIAL_WRONG_WAY_MAJOR = { primary = true, primary_link = true, secondary = true, secondary_link = true }", lua_txt, fixed = TRUE) &&
+        grepl("OFFICIAL_WRONG_WAY_EXCLUDED = { motorway = true, motorway_link = true, trunk = true, trunk_link = true }", lua_txt, fixed = TRUE) &&
+        grepl("WayHandlers.classes,\\s+wrong_way_classes,", lua_txt) &&
+        any(grepl("require('official')", noturn, fixed = TRUE)) && any(grepl("use_turn_restrictions = false", noturn, fixed = TRUE)))
 md5 <- unname(tools::md5sum(path.expand(c("~/osrm-data/car.lua", "~/osrm-data/bus.lua"))))
-check(sprintf("car.lua / bus.lua unchanged (md5 %s / %s)", substr(md5[1], 1, 8), substr(md5[2], 1, 8)),
-      identical(md5, c("1b9d7b7a49525e51619892c7c49cefac", "21fe6d1ceab7607cdf05f207966a2d06")))
+check(sprintf("car.lua unchanged, bus.lua as of the busway rule (9be4917) (md5 %s / %s)", substr(md5[1], 1, 8), substr(md5[2], 1, 8)),
+      identical(md5, c("1b9d7b7a49525e51619892c7c49cefac", "2e29abf91e49862210793bad7d4e4223")))
 
 # ---- 17. OSRM data refresh status (last_refresh.json) in the status-dot tooltip ----
 rs_ok <- list(date = "2026-10-12T07:40:00Z", type = "patch", status = "OK", base_osm_timestamp = "2026-10-10T20:21:21Z",
@@ -1103,6 +1112,13 @@ check("refresh status file: read, FAILED -> orange; missing / broken file -> no 
         { writeLines("{broken", st_file); is.null(osrm_refresh_status(st_file)) } && !osrm_refresh_failed(rs_ok))
 
 # ---- 18. iCloud cleanup: guard, send log, plans, end to end on a fake iCloud (rclone :local:) ----
+# The real exports/ and logs/ (the app's own send log and cleanup logs) must come out unchanged
+real_snapshot <- function() {
+  f <- list.files(c("exports", "logs"), recursive = TRUE, full.names = TRUE, all.files = TRUE)
+  i <- file.info(f)
+  data.frame(file = f, size = i$size, mtime = as.numeric(i$mtime))
+}
+real_before <- real_snapshot()
 ok_paths <- c("icloud:Arc Timeline/GPX/a.gpx", "icloud:Arc Timeline/Import/notes/2026-06.json", "icloud:Arc Timeline/Import/metadata.json")
 bad_paths <- c("icloud:Arc Timeline/Backup/X/notes/2026-06.json", "icloud:Arc Timeline/GPX", "icloud:Arc Timeline/GPX/",
                "icloud:Arc Timeline/GPX/sub/a.gpx", "icloud:Arc Timeline/Import", "icloud:Arc Timeline", "icloud:",
@@ -1246,7 +1262,8 @@ check(sprintf("push hook: sent %s, send log %d row (%s), archived %s", pr$ok, nr
         file.exists(file.path(GPX_ARCHIVE_DIR, basename(gp))))
 GPX_SEND_LOG_FILE <- keep_log$GPX_SEND_LOG_FILE; GPX_ARCHIVE_DIR <- keep_log$GPX_ARCHIVE_DIR
 ICLOUD_REMOTE <- keep_globals$ICLOUD_REMOTE; ICLOUD_ARC_DIR <- keep_globals$ICLOUD_ARC_DIR; .icloud_state$backup_id <- NULL
-check("real exports/ and logs/ untouched by the tests", !file.exists(file.path("exports", "gpx_send_log.csv")) && !file.exists(file.path("logs", "icloud_cleanup_status.json")))
+check(sprintf("real exports/ and logs/ untouched by the tests (%d files, same sizes and times)", nrow(real_before)),
+      identical(real_snapshot(), real_before))
 
 # ---- 19. Stationary jitter, spurs, lasso exclusions, moved route ends, map layers ----
 # A street along x (UTM metres around Rio); a stop at x = 500 with GPS jitter, 70 s
@@ -1378,6 +1395,174 @@ pyc <- system2("python3", c("-I", "-c", shQuote(paste(
   "s = b.simplify([[0, 0], [0.0001, 0.000001], [0.0002, 0]]); assert len(s) == 2;",
   "print('ok')"))), stdout = TRUE, stderr = TRUE)
 check(sprintf("bus layer builder (Python): kinds, oneway, simplification: %s", paste(pyc, collapse = " ")), identical(pyc, "ok"))
+
+# ---- Pins as local splices, per-pin rules, free legs, maintenance flag ----
+# Base path: 4 km east along y = 0 (a vertex every 50 m), driven at 10 m/s.
+# Fake router: a straight line between the leg's ends (calls recorded).
+sx <- seq(0, 4000, by = 50)
+sp_base <- samples_at(sx, rep(0, length(sx)), sx / 10)
+sp_path <- sp_base[, c("lon", "lat", "t")]
+sp_s <- sp_base[seq(1, nrow(sp_base), by = 2), ]
+legs_seen <- list()
+straight_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+  legs_seen[[length(legs_seen) + 1L]] <<- opts
+  xy
+}
+pin_at <- function(id, x, y, gx = x, gy = 0, ...) {
+  p <- ll(x, y); g <- ll(gx, gy)
+  data.frame(id = id, lon = p[1, 1], lat = p[1, 2], after = NA_character_, grab_lon = g[1, 1], grab_lat = g[1, 2], ...)
+}
+base_xy <- as.matrix(sp_path[, c("lon", "lat")])
+base_cum <- path_cumulative_m(base_xy)
+# rows of the result equal to base vertices before lo / after hi, exactly
+outside_same <- function(fx, lo, hi) {
+  co <- fx$coords
+  before <- base_xy[base_cum < lo - 0.5, , drop = FALSE]
+  after <- base_xy[base_cum > hi + 0.5, , drop = FALSE]
+  isTRUE(all.equal(unname(co[seq_len(nrow(before)), ]), unname(before), tolerance = 0)) &&
+    isTRUE(all.equal(unname(co[nrow(co) - rev(seq_len(nrow(after))) + 1L, ]), unname(after), tolerance = 0))
+}
+f1 <- splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120), "car", route_fn = straight_route)
+g1 <- f1$splices[[1]]
+check(sprintf("splice: one pin replaces only [%.0f, %.0f] m of the 4 km base (window 300 m), outside identical: %.0f%% of the base unchanged",
+              g1$lo, g1$hi, 100 * (1 - (g1$hi - g1$lo) / 4000)),
+      length(f1$splices) == 1 && abs(g1$lo - (f1$pins$base_d - 300)) < 1e-6 && abs(g1$hi - (f1$pins$base_d + 300)) < 1e-6 &&
+        abs(f1$pins$base_d - 2000) < 5 && outside_same(f1, g1$lo, g1$hi) &&
+        identical(vapply(g1$legs, `[[`, "", "key"), c("a:1>1", "1>b:1")))
+check("splice: the path goes through the pin", min(geosphere::distHaversine(f1$coords, ll(2000, 120))) < 1)
+wig_base <- samples_at(sx, ifelse(sx %% 100 == 50, 0.3, 0), sx / 10)   # a base with sub-2-degree bends
+wb_path <- wig_base[, c("lon", "lat", "t")]
+fw <- splice_route_fix(wig_base[seq(1, nrow(wig_base), 2), ], wb_path, pin_at("1", 2000, 120), "car", route_fn = straight_route)
+wb_xy <- as.matrix(wb_path[, c("lon", "lat")]); wb_cum <- path_cumulative_m(wb_xy)
+out_v <- wb_xy[wb_cum < fw$splices[[1]]$lo - 1 | wb_cum > fw$splices[[1]]$hi + 1, , drop = FALSE]
+fp <- as.matrix(fw$path[, c("lon", "lat")]); fp_cum <- path_cumulative_m(fp)
+off_v <- vapply(seq_len(nrow(out_v)), function(k) min(polyline_segment_projection(fp, fp_cum, out_v[k, ])$off), numeric(1))
+check(sprintf("splice: the timed path keeps every base vertex outside the window, small bends included (max off %.1e m over %d vertices)",
+              max(off_v), length(off_v)), max(off_v) < 0.01)
+f2 <- splice_route_fix(sp_s, sp_path, rbind(pin_at("1", 1000, 120), pin_at("2", 3000, -120)), "car", route_fn = straight_route)
+fa <- splice_route_fix(sp_s, sp_path, pin_at("1", 1000, 120), "car", route_fn = straight_route)
+fb <- splice_route_fix(sp_s, sp_path, pin_at("2", 3000, -120), "car", route_fn = straight_route)
+same_legs <- function(x, y) isTRUE(all.equal(lapply(x$legs, `[[`, "coords"), lapply(y$legs, `[[`, "coords")))
+check(sprintf("two pins 2 km apart: two splices [%s], each equal to that pin alone",
+              paste(vapply(f2$splices, function(g) sprintf("%.0f-%.0f", g$lo, g$hi), ""), collapse = ", ")),
+      length(f2$splices) == 2 && same_legs(f2$splices[[1]], fa$splices[[1]]) && same_legs(f2$splices[[2]], fb$splices[[1]]) &&
+        outside_same(f2, 700, 3300))
+f3 <- splice_route_fix(sp_s, sp_path, rbind(pin_at("1", 1800, 120), pin_at("2", 2200, 120)), "car", route_fn = straight_route)
+check(sprintf("two pins 400 m apart chain: one splice, legs %s", paste(vapply(f3$splices[[1]]$legs, `[[`, "", "key"), collapse = " ")),
+      length(f3$splices) == 1 && identical(vapply(f3$splices[[1]]$legs, `[[`, "", "key"), c("a:1>1", "1>2", "2>b:2")))
+# Widening: legs shorter than 450 m take a 1 km loop north; longer ones are straight
+loop_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+  if (geosphere::distHaversine(xy[1, ], xy[2, ]) >= 450) return(xy)
+  m <- to_metric(xy[, 1], xy[, 2], CRS)
+  rbind(xy[1, ], from_metric(m[1, 1], m[1, 2] + 1000, CRS), from_metric(m[2, 1], m[2, 2] + 1000, CRS), xy[2, ])
+}
+f4 <- splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120), "car", route_fn = loop_route)
+check(sprintf("widening: a splice over 3x its stretch at 300 m is redone at %.0f m (lo %.0f, no warning)",
+              f4$splices[[1]]$window_m, f4$splices[[1]]$lo),
+      f4$splices[[1]]$window_m == 600 && abs(f4$splices[[1]]$lo - (f4$pins$base_d - 600)) < 1e-6 && length(f4$warn) == 0 &&
+        outside_same(f4, f4$splices[[1]]$lo, f4$splices[[1]]$hi))
+always_loop <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+  m <- to_metric(xy[, 1], xy[, 2], CRS)
+  rbind(xy[1, ], from_metric(m[1, 1], m[1, 2] + 5000, CRS), from_metric(m[2, 1], m[2, 2] + 5000, CRS), xy[2, ])
+}
+f5 <- splice_route_fix(sp_s, sp_path, pin_at("7", 2000, 120), "car", route_fn = always_loop)
+check(sprintf("widening: still over 3x at 1200 m -> kept (window %.0f m) with a warning on pin %s",
+              f5$splices[[1]]$window_m, paste(f5$warn, collapse = ",")),
+      f5$splices[[1]]$window_m == 1200 && identical(f5$warn, "7") && isTRUE(f5$pins$warn[1]))
+# Moved start: spliced up to an anchor 300 m along the path
+st <- ll(0, -200)
+f6 <- splice_route_fix(sp_s, sp_path, NULL, "car", ends = list(start = st[1, ]), route_fn = straight_route)
+check(sprintf("start drag: moved start -> anchor at %.0f m, the rest of the base identical, starts at the new start",
+              f6$splices[[1]]$hi),
+      abs(f6$splices[[1]]$hi - 300) < 1 && outside_same(f6, 0, 300) && all(abs(f6$coords[1, ] - st[1, ]) < 1e-9) &&
+        identical(f6$splices[[1]]$legs[[1]]$key, "start>b:start"))
+en <- ll(4000, 200)
+f6b <- splice_route_fix(sp_s, sp_path, pin_at("1", 3900, 50), "car", ends = list(end = en[1, ]), route_fn = straight_route)
+check(sprintf("end drag with a pin 100 m before the end: one splice, legs %s",
+              paste(vapply(f6b$splices[[1]]$legs, `[[`, "", "key"), collapse = " ")),
+      length(f6b$splices) == 1 && identical(vapply(f6b$splices[[1]]$legs, `[[`, "", "key"), c("a:1>1", "1>end")) &&
+        all(abs(f6b$coords[nrow(f6b$coords), ] - en[1, ]) < 1e-9))
+# Free legs: the recorded samples / a straight line, timing monotonic on whole seconds
+wig <- samples_at(sx, ifelse(sx > 1700 & sx < 2000, 60, 0), sx / 10)
+f7 <- splice_route_fix(wig, sp_path, pin_at("1", 2000, 120), "car", legs = c("a:1>1" = "recorded", "1>b:1" = "straight"),
+                       route_fn = straight_route)
+lg7 <- f7$splices[[1]]$legs
+p7 <- f7$path
+check(sprintf("free legs: %s; recorded leg has %d points through the samples; times whole seconds, strictly increasing, %s-%s",
+              paste(vapply(lg7, `[[`, "", "mode"), collapse = "/"), nrow(lg7[[1]]$coords), p7$t[1], p7$t[nrow(p7)]),
+      identical(vapply(lg7, `[[`, "", "mode"), c("recorded", "straight")) && nrow(lg7[[1]]$coords) > 2 &&
+        nrow(lg7[[2]]$coords) == 2 && all(diff(p7$t) > 0) && all(p7$t == round(p7$t)) &&
+        p7$t[1] == round(wig$t[1]) && p7$t[nrow(p7)] == round(wig$t[nrow(wig)]) && isTRUE(f7$on_network))
+f7b <- splice_route_fix(wig, sp_path, pin_at("1", 2000, 120), "car", route_fn = function(...) NULL)
+check("a failed routed leg: straight line, on_network FALSE", isFALSE(f7b$on_network) && nrow(f7b$splices[[1]]$legs[[1]]$coords) == 2)
+# Pin snapping: with the recorded bearing the router ends off_m from the pin (another road); without it, at the pin
+snap_router <- function(off_with, off_without) {
+  calls <- list()
+  f <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+    calls[[length(calls) + 1L]] <<- bearings
+    off <- if (!is.na(bearings[2])) off_with else off_without
+    m <- to_metric(xy[, 1], xy[, 2], CRS)
+    rbind(xy[1, ], from_metric(m[2, 1] + off, m[2, 2], CRS))
+  }
+  list(f = f, calls = function() calls)
+}
+pin_near <- pin_at("1", 2000, 40)                       # near the recording: it gets the recording's bearing
+r1 <- snap_router(9, 0.5)
+fs1 <- splice_route_fix(sp_s, sp_path, pin_near, "car", route_fn = r1$f)
+r2 <- snap_router(6, 4)
+fs2 <- splice_route_fix(sp_s, sp_path, pin_near, "car", route_fn = r2$f)
+leg2_start <- r1$calls()[[length(r1$calls())]][1]
+leg1_end <- function(fx) { co <- fx$splices[[1]]$legs[[1]]$coords; geosphere::distHaversine(co[nrow(co), ], ll(2000, 40)[1, ]) }
+check(sprintf("pin snap: 9 m off with the recorded bearing, 0.5 m without -> without (leg ends %.1f m from the pin); 6 m vs 4 m -> keeps the bearing (%.1f m); the next leg leaves the pin as the first arrived (bearing %.0f)",
+              leg1_end(fs1), leg1_end(fs2), leg2_start),
+      abs(leg1_end(fs1) - 0.5) < 0.1 && abs(leg1_end(fs2) - 6) < 0.1 && !is.na(fs1$pins$bearing[1]) && !is.na(leg2_start) && abs(leg2_start - 90) < 10)
+# A splice doesn't re-time the base outside its window
+tb <- splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120), "car", route_fn = straight_route)
+far <- sp_path[base_cum < tb$splices[[1]]$lo - 50 | base_cum > tb$splices[[1]]$hi + 50, ]
+t_far <- vapply(seq_len(nrow(far)), function(k) tb$path$t[which.min(geosphere::distHaversine(as.matrix(tb$path[, c("lon", "lat")]), c(far$lon[k], far$lat[k])))], numeric(1))
+check(sprintf("splice timing: outside the window the base keeps its times (max difference %.1f s over %d vertices)", max(abs(t_far - round(far$t))), nrow(far)),
+      max(abs(t_far - round(far$t))) <= 1)
+
+# Per-pin rules -> server and exclude
+r_no <- pin_osrm_options("official", "no", "respect"); r_mi <- pin_osrm_options("official", "minor", "respect")
+r_all <- pin_osrm_options("official", "all", "ignore"); r_car <- pin_osrm_options("car", "all", "ignore")
+check(sprintf("rules: no -> %s/%s, minor -> %s/%s, all+ignore -> %s/'%s', car -> %s/default",
+              r_no$profile, r_no$exclude, r_mi$profile, r_mi$exclude, r_all$profile, r_all$exclude, r_car$profile),
+      identical(r_no, list(profile = "official", exclude = "wwminor,wwmajor")) &&
+        identical(r_mi, list(profile = "official", exclude = "wwmajor")) &&
+        identical(r_all, list(profile = "official-noturn", exclude = "")) && identical(r_car, list(profile = "car", exclude = NULL)) &&
+        identical(osrm_exclude_for("official"), "wwmajor") && identical(osrm_exclude_for("official", ""), "") &&
+        identical(osrm_exclude_for("car"), "") && identical(osrm_exclude_for("official-noturn"), "wwmajor"))
+lr <- leg_rules("minor", "respect", "all", "ignore")
+check("rules: a leg between two pins takes the more permissive (all, ignore); anchors (NA) don't count",
+      identical(lr, list(ww = "all", turns = "ignore")) && identical(leg_rules(NA, NA, "no", "respect"), list(ww = "no", turns = "respect")))
+legs_seen <- list()
+invisible(splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120, ww = "all", turns = "ignore"), "official", route_fn = straight_route))
+check(sprintf("official trip: a pin's legs are asked with %s",
+              paste(unique(vapply(legs_seen, function(o) paste0(o$profile, " exclude='", o$exclude, "'"), "")), collapse = "; ")),
+      length(legs_seen) == 2 && all(vapply(legs_seen, function(o) identical(o, list(profile = "official-noturn", exclude = "")), TRUE)))
+legs_seen <- list()
+invisible(splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120, ww = "all", turns = "ignore"), "bus", route_fn = straight_route))
+check("bus trip: the rules don't apply (bus server, its default)",
+      all(vapply(legs_seen, function(o) identical(o, list(profile = "bus", exclude = NULL)), TRUE)))
+check("old pins (no grab, no rules) get the defaults", {
+  pn <- pins_normalize(data.frame(id = "1", lon = 0, lat = 0))
+  identical(pn$ww, "minor") && identical(pn$turns, "respect") && is.na(pn$grab_lon) && is.na(pn$after)
+})
+# Maintenance flag
+mf <- tempfile()
+writeLines('{"since": "2026-10-12T18:05:00Z", "reason": "nightly", "profiles": ["car", "official"], "pid": 1}', mf)
+m_on <- osrm_maintenance(mf, pid_alive = function(pid) TRUE)
+m_dead <- osrm_maintenance(mf, pid_alive = function(pid) FALSE)
+check(sprintf("maintenance: PT \"%s\" / EN \"%s\"", osrm_maintenance_text(m_on, "pt"), osrm_maintenance_text(m_on, "en")),
+      !is.null(m_on) && identical(osrm_maintenance_text(m_on, "pt"), "Roteamento em manutenção desde 15:05 (atualização noturna dos dados: car, official)") &&
+        identical(osrm_maintenance_text(m_on, "en"), "Routing under maintenance since 15:05 (nightly data refresh: car, official)"))
+writeLines("{not json", mf)
+m_bad <- osrm_maintenance(mf)
+check("maintenance: its process gone -> stale (no maintenance); no file -> none; half-written file -> maintenance since its mtime",
+      is.null(m_dead) && is.null(osrm_maintenance(tempfile())) && !is.null(m_bad) && inherits(m_bad$since, "POSIXct") &&
+        grepl("^Routing under maintenance since", osrm_maintenance_notice(m_bad, "en")))
+unlink(mf)
 
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)
