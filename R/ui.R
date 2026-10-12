@@ -312,6 +312,17 @@ APP_CSS <- "
   .bus-popup td { padding: 0 6px 0 0; vertical-align: top; }
   .bus-popup td:first-child { color: #616161; white-space: nowrap; }
   .leaflet-tooltip.pin-label { font-weight: 700; padding: 0 4px; }
+  .pin-popup .leaflet-popup-content { margin: 8px 10px; }
+  .pin-rules { display: flex; flex-direction: column; gap: 4px; min-width: 210px; }
+  .pin-rule-title { font-size: 0.75rem; font-weight: 600; color: #455A64; }
+  .pin-rule-group .btn { font-size: 0.75rem; padding: 1px 8px; }
+  .pin-rule-warn { font-size: 0.75rem; color: #E65100; max-width: 240px; }
+  .leg-menu-popup .leaflet-popup-content { margin: 4px; }
+  .leg-menu { display: flex; flex-direction: column; min-width: 150px; }
+  .leg-menu button { border: 0; background: none; text-align: left; padding: 4px 8px; font-size: 0.8rem; border-radius: 3px; }
+  .leg-menu button:hover { background: #ECEFF1; }
+  .leg-menu button.active { font-weight: 600; }
+  .leg-menu-hint { font-size: 0.75rem; color: #546E7A; max-width: 200px; padding: 2px 4px; }
   .review-detail .rv-seg { border-left: 4px solid; padding-left: 3px; white-space: nowrap; }
   .review-detail .rv-warn { color: var(--bs-danger-text-emphasis); }
   .review-detail .rv-clamp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -969,21 +980,9 @@ ui <- bslib::page_fillable(
         Shiny.setInputValue('review_pin_after', {pin: $(this).attr('data-review-pin-after'), after: $(this).val(), ts: Date.now()},
                             {priority: 'event'});
       });
-      // Pin markers (Batch review: review_pins; Edit Samples: edit_pins): drag moves, right-click removes
-      window.bindPinMarker = function(layer, prefix) {
-        var pinId = String(layer.options.layerId).replace(/^pin_/, '');
-        layer.off('dragend');
-        layer.off('contextmenu');
-        layer.on('dragend', function() {
-          var ll = layer.getLatLng();
-          Shiny.setInputValue(prefix + '_moved', {id: pinId, lat: ll.lat, lng: ll.lng, ts: Date.now()}, {priority: 'event'});
-        });
-        layer.on('contextmenu', function(e) {
-          L.DomEvent.stopPropagation(e);
-          L.DomEvent.preventDefault(e);
-          Shiny.setInputValue(prefix + '_remove', {id: pinId, ts: Date.now()}, {priority: 'event'});
-        });
-      };
+      // Pin markers (Batch review: review_pins; Edit Samples: edit_pins): window.bindPinMarker is
+      // defined by ROUTE_EDIT_JS (ui_route_edit_js.R: drag preview, popup, removal); defining
+      // it here, at document ready, would replace that one
       Shiny.addCustomMessageHandler('pin_mode', function(msg) {
         $('#map').toggleClass('pin-mode', !!msg.on);
         if (msg.scope === 'edit') $('#edit_pin_toggle').toggleClass('btn-primary', !!msg.on).toggleClass('btn-outline-secondary', !msg.on);

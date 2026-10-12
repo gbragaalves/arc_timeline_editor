@@ -1,11 +1,17 @@
 # ---- Client: route editing by dragging, sample lasso, undo, map overlays ----
-# Loaded after the main script (ui.R), so bindPinMarker here replaces the
-# earlier one.
+# Loaded after the main script (ui.R); window.bindPinMarker is defined only here
+# (ui.R binds pin markers with it as they are added).
 #   Route editing (Batch review, Edit Samples; "route_edit" messages): the
 #     proposed line can be dragged (the drop point becomes a via pin), the
 #     start / end markers moved (Batch review), the pins dragged; a light
 #     straight-line preview follows the drag and the server re-routes on drop
-#     only. A plain click does nothing. Right-click or double-click removes a pin.
+#     only. Batch review pins are local splices: the preview runs between the
+#     splice's anchors (window_m along the path, or the neighbouring pin), and
+#     the drop sends where the drag started (glat/glng). A click on a pin
+#     opens its popup (official trips: wrong-way and restricted-turn rules,
+#     review_pin_rule; a splice warning) and never re-routes; right-click on a
+#     spliced stretch opens the leg menu (OSRM route, recorded path, straight
+#     line: review_leg_mode). Right-click or double-click removes a pin.
 #   Lasso (Batch review, "lasso_mode"): the recorded samples circled are sent
 #     as review_lasso_samples (kept out of /match).
 #   Ctrl+Z: route_undo (pins, moved ends and exclusions share one history).
@@ -14,7 +20,8 @@
 #     by a MapLibre GL layer of its own, so any base layer works).
 ROUTE_EDIT_JS <- "
 (function() {
-  var RE = {scope: null, on: false, layer: null, ctrl: [], fixedEnds: false};
+  var RE = {scope: null, on: false, layer: null, ctrl: [], fixedEnds: false, path: [], cum: [], info: {}, legs: [],
+            rules: false, labels: {}, windowM: 300};
   window.__routeEdit = RE;  // read by the browser tests
   function getMap() { var w = HTMLWidgets.find('#map'); return w && w.getMap(); }
   function mode() { return $('#mode input:checked').val(); }
@@ -32,6 +39,44 @@ ROUTE_EDIT_JS <- "
     return best;
   }
   function previewStyle() { return {color: '#37474F', weight: 2, opacity: 0.8, dashArray: '6 6', interactive: false}; }
+
+  // Distances along the path (metres) and points at them
+  function pathCum(path) {
+    var c = [0];
+    for (var i = 1; i < path.length; i++) c.push(c[i - 1] + path[i - 1].distanceTo(path[i]));
+    return c;
+  }
+  function projectOnPath(map, ll) {
+    var p = map.latLngToLayerPoint(ll), best = 0, bestD = Infinity;
+    for (var i = 0; i + 1 < RE.path.length; i++) {
+      var a = map.latLngToLayerPoint(RE.path[i]), b = map.latLngToLayerPoint(RE.path[i + 1]);
+      var cp = L.LineUtil.closestPointOnSegment(p, a, b), dd = cp.distanceTo(p), len = a.distanceTo(b);
+      if (dd < bestD) { bestD = dd; best = RE.cum[i] + (len > 0 ? a.distanceTo(cp) / len : 0) * (RE.cum[i + 1] - RE.cum[i]); }
+    }
+    return best;
+  }
+  function pointAt(d) {
+    var c = RE.cum, n = RE.path.length;
+    if (d <= 0) return RE.path[0];
+    if (d >= c[n - 1]) return RE.path[n - 1];
+    for (var i = 0; i + 1 < n; i++) {
+      if (c[i + 1] >= d) {
+        var f = c[i + 1] > c[i] ? (d - c[i]) / (c[i + 1] - c[i]) : 0, a = RE.path[i], b = RE.path[i + 1];
+        return L.latLng(a.lat + f * (b.lat - a.lat), a.lng + f * (b.lng - a.lng));
+      }
+    }
+    return RE.path[n - 1];
+  }
+  // Splice anchors around distance d: window_m each way, or the neighbouring pin / route end
+  function spliceAnchors(d) {
+    var total = RE.cum[RE.cum.length - 1], lo = Math.max(0, d - RE.windowM), hi = Math.min(total, d + RE.windowM);
+    RE.ctrl.forEach(function(c) {
+      if (c.d === undefined) return;
+      if (c.d <= d) lo = Math.max(lo, c.d); else hi = Math.min(hi, c.d);
+    });
+    return [pointAt(lo), pointAt(hi)];
+  }
+  function pinCtrl() { return RE.ctrl.filter(function(c) { return c.id !== 'start' && c.id !== 'end'; }); }
   function endIcon(kind) {
     return L.divIcon({className: 'route-end route-end-' + kind, html: '', iconSize: [16, 16], iconAnchor: [8, 8]});
   }
@@ -63,9 +108,25 @@ ROUTE_EDIT_JS <- "
     map.doubleClickZoom.disable();
     if (RE.scope === 'edit') samplesPassThrough(map, true);
     RE.fixedEnds = !!msg.fixed_ends;
-    RE.ctrl = (msg.ctrl || []).map(function(c) { var ll = L.latLng(c.lat, c.lng); ll.id = String(c.id); return ll; });
+    RE.info = {};
+    RE.ctrl = (msg.ctrl || []).map(function(c) {
+      var ll = L.latLng(c.lat, c.lng);
+      ll.id = String(c.id);
+      RE.info[ll.id] = c;
+      return ll;
+    });
     var path = (msg.path || []).map(function(p) { return L.latLng(p[0], p[1]); });
     if (path.length < 2) return;
+    RE.path = path;
+    RE.cum = pathCum(path);
+    RE.windowM = msg.window_m || 300;
+    RE.rules = !!msg.rules;
+    RE.labels = msg.labels || {};
+    RE.legs = (msg.legs || []).map(function(l) {
+      return {key: l.key, mode: l.mode, path: (l.path || []).map(function(p) { return L.latLng(p[0], p[1]); })};
+    });
+    var splices = RE.scope === 'review';
+    if (splices) pinCtrl().forEach(function(c) { c.d = projectOnPath(map, c); });
     // A wide invisible line to grab the route anywhere
     var hit = L.polyline(path, {color: '#000', weight: 18, opacity: 0.01, className: 'route-hit', bubblingMouseEvents: false});
     hit.addTo(RE.layer);
@@ -75,14 +136,18 @@ ROUTE_EDIT_JS <- "
       L.DomEvent.stop(e);
       map.dragging.disable();
       var start = e.containerPoint, moved = false, leg = nearestLeg(map, e.latlng);
+      // Batch review: a local splice between anchors around the grab point
+      var gd = splices ? projectOnPath(map, e.latlng) : null;
+      var grab = splices ? pointAt(gd) : null;
+      var ends = splices ? spliceAnchors(gd) : [RE.ctrl[leg], RE.ctrl[leg + 1]];
       var ghost = L.circleMarker(e.latlng, {radius: 6, color: '#fff', weight: 2, fillColor: '#37474F', fillOpacity: 1,
                                             interactive: false}).addTo(RE.layer);
-      var preview = L.polyline([RE.ctrl[leg], e.latlng, RE.ctrl[leg + 1]], previewStyle()).addTo(RE.layer);
+      var preview = L.polyline([ends[0], e.latlng, ends[1]], previewStyle()).addTo(RE.layer);
       function move(ev) {
         if (!moved && ev.containerPoint.distanceTo(start) < 5) return;
         moved = true;
         ghost.setLatLng(ev.latlng);
-        preview.setLatLngs([RE.ctrl[leg], ev.latlng, RE.ctrl[leg + 1]]);
+        preview.setLatLngs([ends[0], ev.latlng, ends[1]]);
       }
       function up(ev) {
         map.off('mousemove', move);
@@ -91,17 +156,35 @@ ROUTE_EDIT_JS <- "
         map.dragging.enable();
         RE.layer.removeLayer(ghost);
         RE.layer.removeLayer(preview);
-        if (moved && ev && ev.latlng) send(prefix(RE.scope) + '_route_drag', {kind: 'line', lat: ev.latlng.lat, lng: ev.latlng.lng});
+        if (moved && ev && ev.latlng) {
+          var v = {kind: 'line', lat: ev.latlng.lat, lng: ev.latlng.lng};
+          if (grab) { v.glat = grab.lat; v.glng = grab.lng; }
+          send(prefix(RE.scope) + '_route_drag', v);
+        }
       }
       map.on('mousemove', move);
       map.on('mouseup', up);
       $(document).on('mouseup.routeedit', function() { if (!moved) up(null); });
+    });
+    // Right-click on a spliced stretch: how that leg is drawn (Batch review)
+    hit.on('contextmenu', function(e) {
+      L.DomEvent.stop(e);
+      if (!splices) return;
+      var l = nearestSplicedLeg(map, e.latlng);
+      L.popup({closeButton: false, className: 'leg-menu-popup', autoPanPadding: [20, 20]})
+        .setLatLng(e.latlng).setContent(l ? legMenu(l) : '<div class=\"leg-menu-hint\">' + esc(RE.labels.leg_hint || '') + '</div>')
+        .openOn(map);
     });
     // Draggable start / end (Batch review)
     if (!RE.fixedEnds) {
       ['start', 'end'].forEach(function(kind) {
         var ll = kind === 'start' ? RE.ctrl[0] : RE.ctrl[RE.ctrl.length - 1];
         var nb = kind === 'start' ? RE.ctrl[1] : RE.ctrl[RE.ctrl.length - 2];
+        if (splices) {  // up to an anchor window_m along the path, or the nearest pin
+          var total = RE.cum[RE.cum.length - 1], pd = pinCtrl().map(function(c) { return c.d; });
+          nb = kind === 'start' ? pointAt(Math.min.apply(null, [RE.windowM].concat(pd))) :
+            pointAt(Math.max.apply(null, [total - RE.windowM].concat(pd)));
+        }
         var m = L.marker(ll, {draggable: true, icon: endIcon(kind), zIndexOffset: 1000, keyboard: false});
         m.options.routeEnd = kind;
         var preview = null;
@@ -125,6 +208,8 @@ ROUTE_EDIT_JS <- "
     layer.off('dragstart drag dragend contextmenu dblclick click');
     var preview = null;
     function neighbours() {
+      var c = RE.info[pinId];
+      if (pfx === 'review_pin' && c && c.prev && c.next) return [L.latLng(c.prev.lat, c.prev.lng), L.latLng(c.next.lat, c.next.lng)];
       var k = -1;
       for (var i = 0; i < RE.ctrl.length; i++) if (RE.ctrl[i].id === pinId) k = i;
       return k > 0 && k + 1 < RE.ctrl.length ? [RE.ctrl[k - 1], RE.ctrl[k + 1]] : null;
@@ -149,8 +234,62 @@ ROUTE_EDIT_JS <- "
     }
     layer.on('contextmenu', remove);
     layer.on('dblclick', remove);
-    layer.on('click', function(e) { L.DomEvent.stop(e); });
+    // Click: the pin's popup (rules on official trips, a splice warning); never re-routes
+    layer.on('click', function(e) {
+      L.DomEvent.stop(e);
+      if (pfx !== 'review_pin') return;
+      var html = pinPopup(pinId), map = getMap();
+      if (html && map) L.popup({className: 'pin-popup', offset: [0, -30]}).setLatLng(layer.getLatLng()).setContent(html).openOn(map);
+    });
   };
+
+  // ---- Pin popup and leg menu (Batch review) ----
+  function pinPopup(pinId) {
+    var c = RE.info[pinId], t = RE.labels;
+    if (!c || (!RE.rules && !c.warn)) return null;
+    function group(rule, opts, cur) {
+      return '<div class=\"btn-group btn-group-sm pin-rule-group\" role=\"group\">' + opts.map(function(o) {
+        return '<button type=\"button\" class=\"btn ' + (o[0] === cur ? 'btn-primary' : 'btn-outline-secondary') +
+          ' pin-rule\" data-pin=\"' + esc(pinId) + '\" data-rule=\"' + rule + '\" data-value=\"' + o[0] + '\">' + esc(o[1]) + '</button>';
+      }).join('') + '</div>';
+    }
+    var html = '<div class=\"pin-rules\" data-pin=\"' + esc(pinId) + '\">';
+    if (RE.rules) {
+      html += '<div class=\"pin-rule-title\">' + esc(t.ww) + '</div>' +
+        group('ww', [['no', t.ww_no], ['minor', t.ww_minor], ['all', t.ww_all]], c.ww || 'minor') +
+        '<div class=\"pin-rule-title\">' + esc(t.turns) + '</div>' +
+        group('turns', [['respect', t.turns_respect], ['ignore', t.turns_ignore]], c.turns || 'respect');
+    }
+    if (c.warn) html += '<div class=\"pin-rule-warn\">&#9888; ' + esc(t.warn) + '</div>';
+    return html + '</div>';
+  }
+  function nearestSplicedLeg(map, ll) {
+    var p = map.latLngToLayerPoint(ll), best = null, bestD = 15;
+    RE.legs.forEach(function(l) {
+      for (var i = 0; i + 1 < l.path.length; i++) {
+        var d = L.LineUtil.pointToSegmentDistance(p, map.latLngToLayerPoint(l.path[i]), map.latLngToLayerPoint(l.path[i + 1]));
+        if (d < bestD) { bestD = d; best = l; }
+      }
+    });
+    return best;
+  }
+  function legMenu(l) {
+    var t = RE.labels;
+    return '<div class=\"leg-menu\">' + [['route', t.route], ['recorded', t.recorded], ['straight', t.straight]].map(function(o) {
+      return '<button type=\"button\" class=\"leg-mode' + (o[0] === l.mode ? ' active' : '') + '\" data-leg=\"' + esc(l.key) +
+        '\" data-mode=\"' + o[0] + '\">' + (o[0] === l.mode ? '&#10003; ' : '') + esc(o[1]) + '</button>';
+    }).join('') + '</div>';
+  }
+  $(document).on('click', '.pin-rule', function() {
+    var b = $(this), map = getMap();
+    send('review_pin_rule', {id: String(b.data('pin')), rule: String(b.data('rule')), value: String(b.data('value'))});
+    if (map) map.closePopup();
+  });
+  $(document).on('click', '.leg-mode', function() {
+    var b = $(this), map = getMap();
+    send('review_leg_mode', {key: String(b.attr('data-leg')), mode: String(b.data('mode'))});
+    if (map) map.closePopup();
+  });
 
   // ---- Lasso (Batch review): circle samples to keep them out of /match ----
   var lasso = {on: false, svg: null, pts: []};

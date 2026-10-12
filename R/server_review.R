@@ -13,7 +13,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     status = character(0),  # by trip id: flagged, ok, fixed, accepted, skipped
     accepted = list(),      # by trip id: list(activity, path = data.frame(lon, lat, t), method)
     checked = character(0),
-    pins = list(),          # control pins by trip id: data.frame(id, lon, lat, after) (road trips)
+    pins = list(),          # control pins by trip id: data.frame(id, lon, lat, after, grab_lon, grab_lat, ww, turns)
+    legs = list(),          # leg modes by trip id: c("<from>><to>" = "recorded" | "straight") (default: route)
     route_ends = list(),    # moved route ends by trip id: list(start = c(lon, lat), end = c(lon, lat))
     exclusions = list(),    # samples kept out of /match by trip id: their times (epoch s)
     pin_mode = FALSE,       # route editing: drag the route, its ends and the pins
@@ -71,7 +72,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     shiny::isolate(save_review_state(list(
       params = rv$params, trips = rv$trips, status = rv$status,
       accepted = rv$accepted, checked = rv$checked, pins = rv$pins, route_ends = rv$route_ends,
-      exclusions = rv$exclusions
+      exclusions = rv$exclusions, legs = rv$legs
     )))
   }
 
@@ -184,12 +185,18 @@ review_server <- function(input, output, session, tr, current_lang) {
       pins <- shiny::isolate(rv$pins[[id]])
       ends <- shiny::isolate(rv$route_ends[[id]])
       if ((!is.null(pins) && nrow(pins) > 0) || length(ends)) {
-        # Control pins / moved ends: OSRM /route start -> pins -> end, timed by the recording
+        # Control pins / moved ends: local splices of the base path (the match
+        # proposal), each leg routed once (leg_cache); timed by the recording
         pf <- shiny::withProgress(message = tr("Routing through the pins..."), value = 0.5, {
-          pinned_route_fix(s, pins, profile, start = ends$start, end = ends$end)
+          if (!is.null(base$path) && nrow(base$path) >= 2) {
+            splice_route_fix(s, base$path, pins, profile, ends = ends, legs = shiny::isolate(rv$legs[[id]]),
+                             route_fn = cached_leg_route)
+          } else {
+            pinned_route_fix(s, pins, profile, start = ends$start, end = ends$end)
+          }
         })
         if (is.null(pf)) {
-          notify(tr("Could not route through the pins (OSRM)."), type = "error")
+          osrm_fail(tr("Could not route through the pins (OSRM)."))
         } else {
           fx <- road_proposal_check(pf, s, act, 1L, nrow(s), profile = profile)
         }
@@ -406,6 +413,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     rv$accepted <- st$accepted
     rv$checked <- st$checked %||% character(0)
     rv$pins <- st$pins %||% list()
+    rv$legs <- st$legs %||% list()
     rv$route_ends <- st$route_ends %||% list()
     rv$exclusions <- st$exclusions %||% list()
     rv$params <- st$params
@@ -673,7 +681,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         shiny::tags$button(
           id = "review_pin_toggle", type = "button", `data-review-pin` = "toggle",
           class = paste("btn btn-sm rv-pin-btn", if (isTRUE(rv$pin_mode)) "btn-primary" else "btn-outline-secondary"),
-          title = tr("Edit the route (P): drag the line to add a via pin, drag the start, the end or a pin; right-click or double-click a pin to remove it; Ctrl+Z undoes."),
+          title = tr("Edit the route (P): drag the line to add a pin (only the stretch around it changes), drag the start, the end or a pin; click a pin for its options; right-click a stretch next to a pin to choose how it is drawn; right-click or double-click a pin removes it; Ctrl+Z undoes."),
           paste0("\U0001F4CD", if (n_pins > 0) n_pins else "")
         ),
         shiny::tags$button(
@@ -774,6 +782,10 @@ review_server <- function(input, output, session, tr, current_lang) {
                    }),
         pin_order_rows(fx),
         if (!isTRUE(fx$on_network)) shiny::div(class = "rv-warn", tr("Part of the path is a straight line (OSRM route failed).")),
+        if (length(fx$warn)) {
+          shiny::div(class = "rv-warn", sprintf(tr("Pin %s: the route through it is much longer than the stretch it replaces, even with wider windows."),
+                                                paste(match(fx$warn, fx$pins$id), collapse = ", ")))
+        },
         shiny::div(
           class = "text-secondary rv-clamp", title = rematch,
           if (!fragment && isTRUE(fx$detour)) {
@@ -1027,25 +1039,38 @@ review_server <- function(input, output, session, tr, current_lang) {
     all[!vapply(all, is.null, logical(1))]
   }
   set_route_edits <- function(id, pins = rv$pins[[id]], ends = rv$route_ends[[id]], excl = rv$exclusions[[id]],
-                              record = TRUE) {
+                              legs = rv$legs[[id]], record = TRUE) {
     if (record) {
       h <- edit_hist[[id]] %||% list()
-      h[[length(h) + 1L]] <- list(pins = rv$pins[[id]], ends = rv$route_ends[[id]], excl = rv$exclusions[[id]])
+      h[[length(h) + 1L]] <- list(pins = rv$pins[[id]], ends = rv$route_ends[[id]], excl = rv$exclusions[[id]],
+                                  legs = rv$legs[[id]])
       assign(id, utils::tail(h, 30), envir = edit_hist)
     }
     rv$pins <- set_named(rv$pins, id, if (is.null(pins) || nrow(pins) == 0) NULL else pins)
+    rv$legs <- set_named(rv$legs, id, if (length(legs)) legs else NULL)
     rv$route_ends <- set_named(rv$route_ends, id, if (length(ends)) ends else NULL)
     rv$exclusions <- set_named(rv$exclusions, id, if (length(excl)) sort(unique(excl)) else NULL)
     save_state()
     recompute_selected()
   }
   set_pins <- function(id, pins) set_route_edits(id, pins = pins)
-  add_pin <- function(lon, lat) {
+  # A new pin; grab: where its drag started on the path (its splice's centre)
+  add_pin <- function(lon, lat, grab = c(NA_real_, NA_real_)) {
     id <- pin_trip()
     if (is.null(id) || is.null(lon) || is.null(lat)) return()
-    pins <- rv$pins[[id]] %||% data.frame(id = character(0), lon = numeric(0), lat = numeric(0), after = character(0))
+    pins <- pins_normalize(rv$pins[[id]])
     new_id <- as.character(max(c(0L, suppressWarnings(as.integer(pins$id))), na.rm = TRUE) + 1L)
-    set_pins(id, rbind(pins, data.frame(id = new_id, lon = lon, lat = lat, after = NA_character_)))
+    set_pins(id, rbind(pins, data.frame(id = new_id, lon = lon, lat = lat, after = NA_character_, grab_lon = grab[1],
+                                        grab_lat = grab[2], ww = "minor", turns = "respect")))
+  }
+  # Routed legs of the splices, by their request (a moved pin re-routes only its own legs)
+  leg_cache <- new.env(parent = emptyenv())
+  cached_leg_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+    key <- paste(c(sprintf("%.6f", xy), round(bearings), round(radiuses), opts$profile, opts$exclude %||% "-"), collapse = "|")
+    if (!is.null(leg_cache[[key]])) return(leg_cache[[key]])
+    r <- splice_leg_route(xy, opts, bearings, radiuses)
+    if (!is.null(r)) assign(key, r, envir = leg_cache)
+    r
   }
   # Drag ends (route editing): the line -> a new via pin; the start / end markers -> moved route ends
   shiny::observeEvent(input$review_route_drag, {
@@ -1055,7 +1080,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     lon <- as.numeric(ev$lng)
     lat <- as.numeric(ev$lat)
     if (identical(ev$kind, "line")) {
-      add_pin(lon, lat)
+      add_pin(lon, lat, grab = c(as.numeric(ev$glng %||% NA), as.numeric(ev$glat %||% NA)))
     } else if (ev$kind %in% c("start", "end")) {
       ends <- rv$route_ends[[id]] %||% list()
       ends[[ev$kind]] <- c(lon, lat)
@@ -1072,7 +1097,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     last <- h[[length(h)]]
     assign(id, h[-length(h)], envir = edit_hist)
-    set_route_edits(id, pins = last$pins, ends = last$ends, excl = last$excl, record = FALSE)
+    set_route_edits(id, pins = last$pins, ends = last$ends, excl = last$excl, legs = last$legs, record = FALSE)
   })
   # Lasso: the samples inside are kept out of /match (they still time the path)
   shiny::observeEvent(input$review_lasso_samples, {
@@ -1097,11 +1122,35 @@ review_server <- function(input, output, session, tr, current_lang) {
     if (on) {
       p <- fx$path
       n <- nrow(p)
-      pins <- fx$pins %||% data.frame(id = character(0), lon = numeric(0), lat = numeric(0))
+      pins <- pins_normalize(fx$pins)
+      legs <- unlist(lapply(fx$splices, `[[`, "legs"), recursive = FALSE)
+      leg_end <- function(pattern, last) {   # the other end of the leg into / out of a pin (drag preview)
+        l <- Filter(function(l) grepl(pattern, l$key), legs)
+        if (!length(l)) return(NULL)
+        xy <- l[[1]]$coords[if (last) nrow(l[[1]]$coords) else 1L, ]
+        list(lat = xy[["lat"]], lng = xy[["lon"]])
+      }
       msg$ctrl <- c(list(list(id = "start", lat = p$lat[1], lng = p$lon[1])),
-                    lapply(seq_len(nrow(pins)), function(k) list(id = as.character(pins$id[k]), lat = pins$lat[k], lng = pins$lon[k])),
+                    lapply(seq_len(nrow(pins)), function(k) {
+                      pid <- as.character(pins$id[k])
+                      list(id = pid, lat = pins$lat[k], lng = pins$lon[k], ww = pins$ww[k], turns = pins$turns[k],
+                           warn = isTRUE(pins$warn[k]),
+                           prev = leg_end(paste0(">", pid, "$"), FALSE), `next` = leg_end(paste0("^", pid, ">"), TRUE))
+                    }),
                     list(list(id = "end", lat = p$lat[n], lng = p$lon[n])))
       msg$path <- lapply(seq_len(n), function(k) c(p$lat[k], p$lon[k]))
+      msg$window_m <- REVIEW_THRESHOLDS$pins$splice$window_m
+      msg$rules <- identical(fx$profile, "official")
+      msg$legs <- lapply(legs, function(l) {
+        list(key = l$key, mode = l$mode, path = lapply(seq_len(nrow(l$coords)), function(k) unname(l$coords[k, 2:1])))
+      })
+      msg$labels <- list(
+        ww = tr("Wrong-way"), ww_no = tr("No"), ww_minor = tr("Minor streets"), ww_all = tr("All"),
+        turns = tr("Restricted turns"), turns_respect = tr("Respect"), turns_ignore = tr("Ignore"),
+        warn = tr("The route through this pin is much longer than the stretch it replaces, even with wider windows."),
+        route = tr("Route (OSRM)"), recorded = tr("Recorded path"), straight = tr("Straight line"),
+        leg_hint = tr("Right-click a stretch next to a pin to change how it is drawn.")
+      )
     }
     session$sendCustomMessage("route_edit", msg)
   }
@@ -1123,12 +1172,12 @@ review_server <- function(input, output, session, tr, current_lang) {
       }
       set_pin_mode(!isTRUE(rv$pin_mode))
       if (isTRUE(rv$pin_mode)) {
-        notify(tr("Route editing: drag the line to add a via pin, drag the start or the end; right-click or double-click a pin removes it (P to leave)."),
+        notify(tr("Route editing: drag the line to add a pin (only the stretch around it changes), drag the start or the end; click a pin for its options; right-click or double-click a pin removes it (P to leave)."),
                duration = 5)
       }
     } else if (identical(action, "clear") && !is.null(id)) {
       set_pin_mode(FALSE)
-      set_route_edits(id, pins = NULL, ends = NULL)
+      set_route_edits(id, pins = NULL, ends = NULL, legs = NULL)
     } else if (identical(action, "lasso")) {
       if (is.null(id)) {
         if (isTRUE(rv$lasso_mode)) set_lasso_mode(FALSE)
@@ -1152,6 +1201,23 @@ review_server <- function(input, output, session, tr, current_lang) {
     p$after[k] <- as.character(input$review_pin_after$after)
     p
   }))
+  # Pin popup (official trips): wrong-way and restricted-turn rules of its splice
+  shiny::observeEvent(input$review_pin_rule, edit_pin(input$review_pin_rule, function(p, k) {
+    ev <- input$review_pin_rule
+    p <- pins_normalize(p)
+    if (identical(ev$rule, "ww") && isTRUE(ev$value %in% PIN_RULES_WW)) p$ww[k] <- ev$value
+    if (identical(ev$rule, "turns") && isTRUE(ev$value %in% PIN_RULES_TURNS)) p$turns[k] <- ev$value
+    p
+  }))
+  # Leg menu (right-click on a spliced stretch): OSRM route, recorded path or straight line
+  shiny::observeEvent(input$review_leg_mode, {
+    ev <- input$review_leg_mode
+    id <- pin_trip()
+    if (is.null(id) || !isTRUE(ev$mode %in% LEG_MODES) || !is.character(ev$key)) return()
+    legs <- rv$legs[[id]] %||% character(0)
+    legs[ev$key] <- ev$mode
+    set_route_edits(id, legs = legs[legs != "route"])
+  })
 
   # ---- Bulk accept (road activities only) ----
 
@@ -1304,9 +1370,10 @@ review_server <- function(input, output, session, tr, current_lang) {
     pins <- rv$pins[[id]]
     if (!is.null(pins) && nrow(pins) > 0 && family_of(act) == "road") {
       ord <- if (!is.null(fx) && identical(fx$id, id) && !is.null(fx$pins)) fx$pins$id else pins$id
+      warn <- if (!is.null(fx) && identical(fx$id, id)) fx$warn else character(0)
       proxy <- leaflet::addMarkers(
         proxy, lng = pins$lon, lat = pins$lat, layerId = paste0("pin_", pins$id), group = "review_pins",
-        label = as.character(match(pins$id, ord)),
+        label = paste0(match(pins$id, ord), ifelse(pins$id %in% warn, " \u26A0", "")),
         labelOptions = leaflet::labelOptions(noHide = TRUE, direction = "top", offset = c(-15, -18), className = "pin-label"),
         options = leaflet::markerOptions(draggable = TRUE)
       )
@@ -1346,6 +1413,16 @@ review_server <- function(input, output, session, tr, current_lang) {
       }
       proxy <- leaflet::addPolylines(proxy, lng = p$lon, lat = p$lat, color = color, weight = 5, opacity = 0.85,
                                      group = "review_proposed")
+      # Free legs (recorded path, straight line): dashed over a white gap
+      for (sg in fx$splices) for (l in sg$legs) {
+        if (l$mode == "route") next
+        proxy <- leaflet::addPolylines(proxy, lng = l$coords[, 1], lat = l$coords[, 2], color = "white", weight = 6, opacity = 1,
+                                       group = "review_proposed", options = leaflet::pathOptions(interactive = FALSE))
+        proxy <- leaflet::addPolylines(proxy, lng = l$coords[, 1], lat = l$coords[, 2], color = color, weight = 5, opacity = 0.95,
+                                       dashArray = if (l$mode == "recorded") "2 7" else "12 8", group = "review_proposed",
+                                       label = tr(if (l$mode == "recorded") "Recorded path" else "Straight line"),
+                                       options = leaflet::pathOptions(interactive = FALSE, className = paste0("free-leg free-leg-", l$mode)))
+      }
       plan <- fx$plan
       label_end <- function(st, t) paste0(if (!is.null(st)) paste0(st$name, " · ") else "", local_time(t, "%H:%M:%S"))
       proxy <- leaflet::addCircleMarkers(
@@ -1376,6 +1453,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     rv$selected
     rv$proposal
     rv$pins
+    rv$legs
     rv$exclusions
     input$mode
     shiny::isolate(draw_selected())

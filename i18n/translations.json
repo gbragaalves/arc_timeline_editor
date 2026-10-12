@@ -1843,10 +1843,6 @@
     "pt": "Pacote de notas aguardando Restore desde %s",
     "en": "Notes package waiting for Restore since %s"
   },
-  "Edit the route (P): drag the line to add a via pin, drag the start, the end or a pin; right-click or double-click a pin to remove it; Ctrl+Z undoes.": {
-    "pt": "Editar a rota (P): arraste a linha para criar um pino de passagem, arraste o início, o fim ou um pino; clique direito ou duplo num pino o remove; Ctrl+Z desfaz.",
-    "en": "Edit the route (P): drag the line to add a via pin, drag the start, the end or a pin; right-click or double-click a pin to remove it; Ctrl+Z undoes."
-  },
   "Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes.": {
     "pt": "Excluir amostras do casamento (L): circule as amostras com tremor do GPS (ex.: parado num sinal); elas ainda contam no tempo do trajeto. Ctrl+Z desfaz.",
     "en": "Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes."
@@ -1862,10 +1858,6 @@
   "%d samples kept out of the matching (Ctrl+Z undoes).": {
     "pt": "%d amostras fora do casamento (Ctrl+Z desfaz).",
     "en": "%d samples kept out of the matching (Ctrl+Z undoes)."
-  },
-  "Route editing: drag the line to add a via pin, drag the start or the end; right-click or double-click a pin removes it (P to leave).": {
-    "pt": "Edição da rota: arraste a linha para criar um pino de passagem, arraste o início ou o fim; clique direito ou duplo num pino o remove (P para sair).",
-    "en": "Route editing: drag the line to add a via pin, drag the start or the end; right-click or double-click a pin removes it (P to leave)."
   },
   "Lasso: circle the jittery samples to keep them out of the matching (L to leave).": {
     "pt": "Laço: circule as amostras com tremor para tirá-las do casamento (L para sair).",
@@ -1934,5 +1926,61 @@
   "Official (turn restrictions ignored)": {
     "pt": "Oficial (ignorando conversões proibidas)",
     "en": "Official (turn restrictions ignored)"
+  },
+  "Edit the route (P): drag the line to add a pin (only the stretch around it changes), drag the start, the end or a pin; click a pin for its options; right-click a stretch next to a pin to choose how it is drawn; right-click or double-click a pin removes it; Ctrl+Z undoes.": {
+    "pt": "Editar a rota (P): arraste a linha para criar um pino (só o trecho em volta dele muda), arraste o início, o fim ou um pino; clique num pino para as opções dele; clique direito num trecho junto a um pino para escolher como ele é traçado; clique direito ou duplo num pino o remove; Ctrl+Z desfaz.",
+    "en": "Edit the route (P): drag the line to add a pin (only the stretch around it changes), drag the start, the end or a pin; click a pin for its options; right-click a stretch next to a pin to choose how it is drawn; right-click or double-click a pin removes it; Ctrl+Z undoes."
+  },
+  "Route editing: drag the line to add a pin (only the stretch around it changes), drag the start or the end; click a pin for its options; right-click or double-click a pin removes it (P to leave).": {
+    "pt": "Edição da rota: arraste a linha para criar um pino (só o trecho em volta dele muda), arraste o início ou o fim; clique num pino para as opções dele; clique direito ou duplo num pino o remove (P para sair).",
+    "en": "Route editing: drag the line to add a pin (only the stretch around it changes), drag the start or the end; click a pin for its options; right-click or double-click a pin removes it (P to leave)."
+  },
+  "Wrong-way": {
+    "pt": "Contramão",
+    "en": "Wrong-way"
+  },
+  "No": {
+    "pt": "Não",
+    "en": "No"
+  },
+  "Minor streets": {
+    "pt": "Ruas menores",
+    "en": "Minor streets"
+  },
+  "All": {
+    "pt": "Todas",
+    "en": "All"
+  },
+  "Restricted turns": {
+    "pt": "Conversões proibidas",
+    "en": "Restricted turns"
+  },
+  "Respect": {
+    "pt": "Respeitar",
+    "en": "Respect"
+  },
+  "The route through this pin is much longer than the stretch it replaces, even with wider windows.": {
+    "pt": "A rota por este pino é bem mais longa que o trecho que ela substitui, mesmo com janelas maiores.",
+    "en": "The route through this pin is much longer than the stretch it replaces, even with wider windows."
+  },
+  "Route (OSRM)": {
+    "pt": "Rota (OSRM)",
+    "en": "Route (OSRM)"
+  },
+  "Recorded path": {
+    "pt": "Trajeto gravado",
+    "en": "Recorded path"
+  },
+  "Straight line": {
+    "pt": "Linha reta",
+    "en": "Straight line"
+  },
+  "Right-click a stretch next to a pin to change how it is drawn.": {
+    "pt": "Clique com o botão direito num trecho junto a um pino para mudar como ele é traçado.",
+    "en": "Right-click a stretch next to a pin to change how it is drawn."
+  },
+  "Pin %s: the route through it is much longer than the stretch it replaces, even with wider windows.": {
+    "pt": "Pino %s: a rota por ele é bem mais longa que o trecho que substitui, mesmo com janelas maiores.",
+    "en": "Pin %s: the route through it is much longer than the stretch it replaces, even with wider windows."
   }
 }

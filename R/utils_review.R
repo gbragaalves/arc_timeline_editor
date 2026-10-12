@@ -42,7 +42,16 @@ REVIEW_THRESHOLDS <- list(
   # radius_m (with the recording's bearing); samples become time anchors on
   # the pinned route within max_off_m, searching ahead at most
   # max(min_reach_m, max_speed_mps x the time since the last anchor)
-  pins = list(near_m = 100, pass_gap_m = 300, radius_m = 50, max_off_m = 100, max_speed_mps = 50, min_reach_m = 300),
+  # Pins as local splices (splice_route_fix): each replaces the base path
+  # window_m before and after it (or up to the neighbouring pin / route end);
+  # a splice longer than max_ratio x the stretch it replaces is tried again
+  # with the wider windows; anchors snap within anchor_radius_m; a recorded
+  # leg is simplified to recorded_tol_m; a leg ending farther than pin_snap_m
+  # from its pin (the recorded bearing chose another road) is asked again
+  # without the bearing there, kept when it ends under a third as far
+  pins = list(near_m = 100, pass_gap_m = 300, radius_m = 50, max_off_m = 100, max_speed_mps = 50, min_reach_m = 300,
+              splice = list(window_m = 300, widen_m = c(600, 1200), max_ratio = 3, anchor_radius_m = 30,
+                            recorded_tol_m = 10, pin_snap_m = 5)),
   # Road matching (review_match): collapse_stops sends a run of at least
   # stop_min_samples slow samples (< stop_speed_mps) staying within
   # stop_radius_m of their centroid as one point there (GPS jitter while
@@ -1438,13 +1447,50 @@ project_samples_monotonic <- function(coords, cum, s, max_off_m = 100, max_speed
   out
 }
 
+# A timed path on whole seconds, strictly increasing (as the GPX writes them),
+# keeping its shape: points that round into the same second are spaced one
+# second apart (later points move on until there is slack, the end time
+# stays), so no point is dropped; only where the points outnumber the seconds
+# are some dropped, those where the path turns least (the ends stay). Times
+# outside [t_start, t_end] dropped.
+whole_second_path <- function(path, t_start, t_end) {
+  p <- path[path$t >= t_start - 0.5 & path$t <= t_end + 0.5, c("lon", "lat", "t")]
+  n <- nrow(p)
+  if (n <= 2) return(multimodal_path(path, t_start, t_end))
+  t0 <- round(t_start)
+  t1 <- round(t_end)
+  if (n > t1 - t0 + 1) {   # more points than seconds: keep the most turning ones
+    xy <- cbind(p$lon, p$lat)
+    b <- suppressWarnings(geosphere::bearing(xy[-n, , drop = FALSE], xy[-1, , drop = FALSE]))
+    turn <- c(Inf, abs((b[-1] - b[-length(b)] + 180) %% 360 - 180), Inf)
+    turn[is.na(turn)] <- 0
+    p <- p[sort(order(-turn)[seq_len(t1 - t0 + 1)]), ]
+    n <- nrow(p)
+  }
+  t <- round(p$t)
+  t[1] <- t0
+  t[n] <- t1
+  for (i in 2:n) if (t[i] <= t[i - 1]) t[i] <- t[i - 1] + 1      # forward: one second apart
+  if (t[n] > t1) {                                                  # the end stays: back from it
+    t[n] <- t1
+    for (i in (n - 1):1) if (t[i] >= t[i + 1]) t[i] <- t[i + 1] - 1
+  }
+  p$t <- t
+  rownames(p) <- NULL
+  p
+}
+
 # Timed path over coords (a pinned route) from the recording: each sample
 # projected onto it (project_samples_monotonic) is a time anchor; the route's
 # ends take the trip's first and last sample times; times in between are
 # linear by distance (timed_path_from_anchors), then resampled, on whole
 # seconds strictly increasing (as the GPX writes them; multimodal_path).
-# Attribute "anchored": the samples used.
-pinned_timed_path <- function(s, coords, th = REVIEW_THRESHOLDS) {
+# angle_deg: bends kept by the resampling; keep_shape: the whole-second
+# rounding keeps, of the points falling in the same second, the one where the
+# path turns most (whole_second_path). A spliced path uses both (0, TRUE) so
+# the base outside its windows keeps its geometry. Attribute "anchored": the
+# samples used.
+pinned_timed_path <- function(s, coords, th = REVIEW_THRESHOLDS, angle_deg = 2, keep_shape = FALSE) {
   pt <- th$pins
   coords <- as.matrix(coords[, 1:2])
   colnames(coords) <- c("lon", "lat")
@@ -1455,7 +1501,8 @@ pinned_timed_path <- function(s, coords, th = REVIEW_THRESHOLDS) {
   anchor_d <- c(0, d[ok], total)
   anchor_t <- c(s$t[1], s$t[ok], s$t[nrow(s)])
   path <- timed_path_from_anchors(coords, anchor_d, anchor_t)
-  out <- multimodal_path(resample_timed_path(path, th$point_every_m, th$point_every_s), s$t[1], s$t[nrow(s)])
+  rs <- resample_timed_path(path, th$point_every_m, th$point_every_s, angle_deg = angle_deg)
+  out <- if (keep_shape) whole_second_path(rs, s$t[1], s$t[nrow(s)]) else multimodal_path(rs, s$t[1], s$t[nrow(s)])
   attr(out, "anchored") <- length(ok) + 2L
   out
 }
@@ -1476,6 +1523,278 @@ pinned_route_fix <- function(s, pins, profile, th = REVIEW_THRESHOLDS, route_via
   if (is.null(r$coords) || nrow(r$coords) < 2) return(NULL)
   path <- pinned_timed_path(s, r$coords, th)
   list(path = path, method = "pins", on_network = TRUE, n_pins = nrow(op), pins = op, anchored = attr(path, "anchored"))
+}
+
+# ---- Control pins as local splices (Batch review) ----
+# The base path stays the match proposal: a pin replaces only a window of it
+# around where its drag started, through the pin. Pins closer than two windows
+# chain (the leg between them goes pin to pin); a moved start or end splices
+# the same way up to an anchor along the path. Each piece between two control
+# points is a leg: routed by OSRM (default), the recorded samples between the
+# two points, or a straight line.
+
+PIN_RULES_WW <- c("no", "minor", "all")     # wrong-way: none, minor streets (default), all but motorways / trunks
+PIN_RULES_TURNS <- c("respect", "ignore")   # turn restrictions
+LEG_MODES <- c("route", "recorded", "straight")
+
+# Pins with the columns of the splice model: grab_lon / grab_lat (where the
+# drag that made the pin started; NA: the pin itself), ww and turns (rules,
+# used on official trips), after (placement by hand)
+pins_normalize <- function(pins) {
+  if (is.null(pins)) pins <- data.frame(id = character(0), lon = numeric(0), lat = numeric(0))
+  n <- nrow(pins)
+  if (is.null(pins$after)) pins$after <- rep(NA_character_, n)
+  if (is.null(pins$grab_lon)) pins$grab_lon <- rep(NA_real_, n)
+  if (is.null(pins$grab_lat)) pins$grab_lat <- rep(NA_real_, n)
+  if (is.null(pins$ww)) pins$ww <- rep("minor", n)
+  if (is.null(pins$turns)) pins$turns <- rep("respect", n)
+  pins$ww[!pins$ww %in% PIN_RULES_WW] <- "minor"
+  pins$turns[!pins$turns %in% PIN_RULES_TURNS] <- "respect"
+  pins
+}
+
+# OSRM server and exclude for a routed leg. Official trips follow the rules:
+# wrong-way no -> exclude=wwminor,wwmajor, minor -> wwmajor (the default),
+# all -> none; restricted turns ignore -> the official-noturn server. Other
+# profiles: their own server and default.
+pin_osrm_options <- function(profile, ww = "minor", turns = "respect") {
+  if (!identical(profile, "official")) return(list(profile = profile, exclude = NULL))
+  if (!isTRUE(ww %in% PIN_RULES_WW)) ww <- "minor"
+  list(profile = if (identical(turns, "ignore")) "official-noturn" else "official",
+       exclude = switch(ww, no = "wwminor,wwmajor", minor = "wwmajor", all = ""))
+}
+
+# Rules of a leg between two control points (rows with ww, turns; anchors NA):
+# the more permissive of the pins at its ends
+leg_rules <- function(a_ww, a_turns, b_ww, b_turns) {
+  ww <- c(a_ww, b_ww)
+  ww <- ww[!is.na(ww)]
+  turns <- c(a_turns, b_turns)
+  list(ww = if (length(ww)) PIN_RULES_WW[max(match(ww, PIN_RULES_WW), na.rm = TRUE)] else "minor",
+       turns = if (any(turns %in% "ignore")) "ignore" else "respect")
+}
+
+# Where each pin sits on the base path (coords, cum): the projection of its grab
+# point (the pin when unknown), pins in travel order (op: order_pins()); with
+# several passes near it (a loop), the first not before the previous pin.
+# Non-decreasing.
+pins_on_base <- function(coords, cum, op) {
+  d <- numeric(nrow(op))
+  last <- 0
+  for (k in seq_len(nrow(op))) {
+    g <- if (is.na(op$grab_lon[k]) || is.na(op$grab_lat[k])) c(op$lon[k], op$lat[k]) else c(op$grab_lon[k], op$grab_lat[k])
+    sp <- polyline_segment_projection(coords, cum, g)
+    near <- sp$d[sp$off <= min(sp$off) + 5]
+    later <- near[near >= last]
+    d[k] <- if (length(later)) min(later) else last
+    last <- d[k]
+  }
+  d
+}
+
+# Bearing of a path at distance d along it (cum), over +-15 m
+path_bearing_at <- function(coords, cum, d) {
+  total <- cum[length(cum)]
+  e <- path_points_at(coords, cum, c(max(0, d - 15), min(total, d + 15)))
+  if (all(e[1, ] == e[2, ])) NA_real_ else geosphere::bearing(e[1, ], e[2, ])
+}
+
+# A routed leg: OSRM /route from xy[1, ] to xy[2, ] on opts$profile with
+# opts$exclude; coords or NULL
+splice_leg_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+  r <- tryCatch(osrm_route_via(xy, opts$profile, bearings = bearings, radiuses = radiuses, exclude = opts$exclude),
+                error = function(e) NULL)
+  r$coords
+}
+
+# The recorded samples between times t1 and t2 (exclusive), simplified, between
+# points a and b (c(lon, lat))
+recorded_leg <- function(s, t1, t2, a, b, tol_m = 10) {
+  k <- which(s$t > min(t1, t2) & s$t < max(t1, t2))
+  mid <- if (length(k)) cbind(s$lon[k], s$lat[k]) else NULL
+  xy <- rbind(a, mid, b)
+  colnames(xy) <- c("lon", "lat")
+  if (nrow(xy) > 2) xy <- smooth_osrm_route(xy, tolerance_m = tol_m, angle_min = 3)
+  xy[1, ] <- a
+  xy[nrow(xy), ] <- b
+  xy
+}
+
+# The base path between distances d1 and d2 (cut exactly there)
+base_between <- function(coords, cum, d1, d2) {
+  if (d2 <= d1) return(path_points_at(coords, cum, d1))
+  inner <- coords[cum > d1 & cum < d2, , drop = FALSE]
+  out <- rbind(path_points_at(coords, cum, d1), inner, path_points_at(coords, cum, d2))
+  colnames(out) <- c("lon", "lat")
+  out
+}
+
+# Road fix with the pins as local splices of the base path (base_path:
+# data.frame lon, lat, t, the match proposal's path). pins: pins_normalize()
+# columns; ends: moved start / end, c(lon, lat) each; legs: leg modes by key
+# ("<from>><to>", control point keys: a pin's id, "start", "end", and the
+# group's anchors "a:<first>" / "b:<last>"; default "route"). route_fn(xy,
+# opts, bearings, radiuses): a routed leg's coords (opts: pin_osrm_options).
+# Timed by the recording (pinned_timed_path). Returns the fix (method "pins")
+# with pins (op: d along the recording, base_d, warn), splices (lo, hi, keys,
+# legs: key, mode, coords, failed), warn (pin ids whose splice stayed over
+# max_ratio x after widening), coords (the untimed geometry); NULL without
+# any pin or moved end.
+splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NULL, th = REVIEW_THRESHOLDS,
+                             route_fn = splice_leg_route) {
+  sp <- th$pins$splice
+  base <- as.matrix(base_path[, c("lon", "lat")])
+  colnames(base) <- c("lon", "lat")
+  cum <- path_cumulative_m(base)
+  total <- cum[length(cum)]
+  base_t <- base_path$t
+  t_at <- function(d) if (is.null(base_t)) NA_real_ else stats::approx(cum, base_t, xout = d, rule = 2, ties = "ordered")$y
+  pins <- pins_normalize(pins)
+  op <- if (nrow(pins)) order_pins(s, pins, th) else pins
+  op$base_d <- if (nrow(op)) pins_on_base(base, cum, op) else numeric(0)
+  cp <- data.frame(key = character(0), kind = character(0), lon = numeric(0), lat = numeric(0), d = numeric(0),
+                   bearing = numeric(0), radius = numeric(0), ww = character(0), turns = character(0))
+  add_cp <- function(cp, key, kind, lon, lat, d, bearing, radius, ww, turns) {
+    rbind(cp, data.frame(key = key, kind = kind, lon = lon, lat = lat, d = d, bearing = bearing, radius = radius,
+                         ww = ww, turns = turns))
+  }
+  if (!is.null(ends$start)) cp <- add_cp(cp, "start", "start", ends$start[1], ends$start[2], 0, NA, NA, NA, NA)
+  if (nrow(op)) {
+    cp <- add_cp(cp, as.character(op$id), "pin", op$lon, op$lat, op$base_d, op$bearing, th$pins$radius_m, op$ww, op$turns)
+  }
+  if (!is.null(ends$end)) cp <- add_cp(cp, "end", "end", ends$end[1], ends$end[2], total, NA, NA, NA, NA)
+  if (nrow(cp) == 0 || total <= 0) return(NULL)
+  cp$d <- cummax(cp$d)
+  grp <- cumsum(c(TRUE, diff(cp$d) > 2 * sp$window_m))
+  anchor <- function(key, d) {
+    xy <- path_points_at(base, cum, d)
+    data.frame(key = key, kind = "anchor", lon = xy[1, 1], lat = xy[1, 2], d = d, bearing = path_bearing_at(base, cum, d),
+               radius = sp$anchor_radius_m, ww = NA, turns = NA)
+  }
+  # A routed leg. At a pin, the recording's bearing picks the carriageway; when
+  # the route then ends farther than pin_snap_m from the pin (a pin dropped on
+  # a side street at a junction, where the recording still runs along the
+  # avenue) it is asked again without that bearing, and that one is kept when
+  # it ends under a third as far (a pin dropped between two carriageways keeps
+  # the one going the recording's way).
+  # a_bearing: the departure bearing (at a pin, how the previous leg arrived)
+  route_leg <- function(a, b, a_bearing, opts) {
+    xy <- rbind(c(a$lon, a$lat), c(b$lon, b$lat))
+    ends_off <- function(r) if (is.null(r) || nrow(r) < 2) Inf else geosphere::distHaversine(r[nrow(r), 1:2], xy[2, ])
+    r <- route_fn(xy, opts, bearings = c(a_bearing, b$bearing), radiuses = c(a$radius, b$radius))
+    if (b$kind == "pin" && !is.na(b$bearing) && ends_off(r) > sp$pin_snap_m) {
+      r2 <- route_fn(xy, opts, bearings = c(a_bearing, NA), radiuses = c(a$radius, b$radius))
+      if (ends_off(r2) < ends_off(r) / 3) r <- r2
+    }
+    r
+  }
+  build_leg <- function(a, b, a_bearing = a$bearing) {
+    key <- paste0(a$key, ">", b$key)
+    mode <- unname(legs[key])
+    if (length(mode) != 1 || is.na(mode) || !mode %in% LEG_MODES) mode <- "route"
+    xa <- c(a$lon, a$lat)
+    xb <- c(b$lon, b$lat)
+    failed <- FALSE
+    xy <- if (mode == "straight") {
+      rbind(xa, xb)
+    } else if (mode == "recorded") {
+      recorded_leg(s, t_at(a$d), t_at(b$d), xa, xb, sp$recorded_tol_m)
+    } else {
+      rl <- leg_rules(a$ww, a$turns, b$ww, b$turns)
+      r <- route_leg(a, b, a_bearing, pin_osrm_options(profile, rl$ww, rl$turns))
+      if (is.null(r) || nrow(r) < 2) {
+        failed <- TRUE
+        rbind(xa, xb)
+      } else {
+        r <- as.matrix(r[, 1:2])
+        # anchors are on the base path: the leg starts / ends exactly there
+        if (a$kind == "anchor") r[1, ] <- xa
+        if (b$kind == "anchor") r[nrow(r), ] <- xb
+        r
+      }
+    }
+    xy <- matrix(as.numeric(xy), ncol = 2, dimnames = list(NULL, c("lon", "lat")))
+    list(key = key, mode = mode, coords = xy, failed = failed, length_m = path_cumulative_m(xy)[nrow(xy)])
+  }
+
+  splices <- list()
+  warn <- character(0)
+  ng <- max(grp)
+  for (g in seq_len(ng)) {
+    m <- cp[grp == g, , drop = FALSE]
+    lo_bound <- if (g > 1) (max(cp$d[grp == g - 1]) + m$d[1]) / 2 else 0
+    hi_bound <- if (g < ng) (m$d[nrow(m)] + min(cp$d[grp == g + 1])) / 2 else total
+    prev <- NULL
+    for (w in c(sp$window_m, sp$widen_m)) {
+      lo <- if (m$kind[1] == "start") 0 else max(m$d[1] - w, lo_bound)
+      hi <- if (m$kind[nrow(m)] == "end") total else min(m$d[nrow(m)] + w, hi_bound)
+      if (!is.null(prev) && prev$lo == lo && prev$hi == hi) break        # bounded: no wider window
+      seq_cp <- m
+      if (m$kind[1] != "start") seq_cp <- rbind(anchor(paste0("a:", m$key[1]), lo), seq_cp)
+      if (m$kind[nrow(m)] != "end") seq_cp <- rbind(seq_cp, anchor(paste0("b:", m$key[nrow(m)]), hi))
+      lg <- list()
+      arrival <- NA_real_     # how the previous routed leg arrived: the next one leaves a pin that way (no U-turn)
+      for (k in seq_len(nrow(seq_cp) - 1L)) {
+        a <- seq_cp[k, ]
+        l <- build_leg(a, seq_cp[k + 1L, ], if (a$kind == "pin" && !is.na(arrival)) arrival else a$bearing)
+        lc <- path_cumulative_m(l$coords)
+        arrival <- if (l$mode == "route" && !l$failed && lc[length(lc)] > 0) path_bearing_at(l$coords, lc, lc[length(lc)]) else NA_real_
+        lg[[k]] <- l
+      }
+      len <- sum(vapply(lg, `[[`, numeric(1), "length_m"))
+      routed <- any(vapply(lg, function(l) l$mode == "route" && !l$failed, logical(1)))
+      ok <- !routed || len <= sp$max_ratio * max(hi - lo, 1)
+      prev <- list(lo = lo, hi = hi, keys = m$key, legs = lg, ok = ok, window_m = w)
+      if (ok) break
+    }
+    if (!prev$ok) warn <- c(warn, m$key[m$kind == "pin"])
+    splices[[g]] <- prev
+  }
+
+  # The path: the base, each splice in its place, the base between them. Times:
+  # the base keeps its own (a splice doesn't re-time the rest of the trip); a
+  # splice is timed by the samples between its ends' times, projected onto it
+  # (as pinned_timed_path); then whole seconds keeping the shape
+  dedup <- function(xy) xy[c(TRUE, rowSums(abs(diff(xy))) > 0), , drop = FALSE]
+  base_part <- function(d1, d2) {
+    xy <- base_between(base, cum, d1, d2)
+    data.frame(lon = xy[, 1], lat = xy[, 2], t = t_at(c(d1, cum[cum > d1 & cum < d2], d2)))
+  }
+  splice_part <- function(sg) {
+    xy <- dedup(do.call(rbind, lapply(sg$legs, `[[`, "coords")))
+    t1 <- if (sg$lo <= 0 && !is.null(ends$start)) s$t[1] else t_at(sg$lo)
+    t2 <- if (sg$hi >= total && !is.null(ends$end)) s$t[nrow(s)] else t_at(sg$hi)
+    sc <- path_cumulative_m(xy)
+    inside <- s[s$t > t1 & s$t < t2, , drop = FALSE]
+    d <- if (nrow(inside)) project_samples_monotonic(xy, sc, inside, th$pins$max_off_m, th$pins$max_speed_mps, th$pins$min_reach_m) else numeric(0)
+    ok <- !is.na(d)
+    tp <- timed_path_from_anchors(xy, c(0, d[ok], sc[length(sc)]), c(t1, inside$t[ok], t2))
+    rs <- resample_timed_path(tp, th$point_every_m, th$point_every_s, angle_deg = 0)
+    attr(rs, "anchored") <- sum(ok)
+    rs[, c("lon", "lat", "t")]
+  }
+  parts <- list()
+  anchored <- 0L
+  pos <- 0
+  for (sg in splices) {
+    if (sg$lo > pos) parts[[length(parts) + 1L]] <- base_part(pos, sg$lo)
+    sp_t <- splice_part(sg)
+    anchored <- anchored + attr(sp_t, "anchored")
+    parts[[length(parts) + 1L]] <- sp_t
+    pos <- sg$hi
+  }
+  if (pos < total) parts[[length(parts) + 1L]] <- base_part(pos, total)
+  timed <- do.call(rbind, parts)
+  coords <- dedup(as.matrix(timed[, c("lon", "lat")]))
+  colnames(coords) <- c("lon", "lat")
+  timed$t <- cummax(timed$t)
+  path <- if (is.null(base_t)) pinned_timed_path(s, coords, th, angle_deg = 0, keep_shape = TRUE) else
+    whole_second_path(timed, s$t[1], s$t[nrow(s)])
+  if (!is.null(base_t)) attr(path, "anchored") <- anchored
+  op$warn <- as.character(op$id) %in% warn
+  failed <- any(unlist(lapply(splices, function(sg) vapply(sg$legs, `[[`, logical(1), "failed"))))
+  list(path = path, method = "pins", on_network = !failed, n_pins = nrow(op), pins = op, anchored = attr(path, "anchored"),
+       splices = splices, warn = warn, coords = coords)
 }
 
 # New positions for samples (s: lon, lat, t, by time) on a route (Edit Samples
