@@ -73,6 +73,7 @@ server <- function(input, output, session) {
   # Helper: modal for OSRM offline with instructions
 
   show_osrm_offline_modal <- function(attempted_url) {
+    if (osrm_maintenance_notify()) return(invisible())
     shiny::showModal(
       shiny::modalDialog(
         title = tr("OSRM server is not running"),
@@ -85,7 +86,7 @@ server <- function(input, output, session) {
         shiny::tags$pre(
           style = "background: #f5f5f5; padding: 10px; border-radius: 4px; overflow-x: auto;",
           paste0(
-            "# ", tr("If you use individual containers:"), "\ndocker start osrm-car osrm-foot osrm-bus osrm-official\n\n",
+            "# ", tr("If you use individual containers:"), "\ndocker start osrm-car osrm-foot osrm-bus osrm-official osrm-official-noturn\n\n",
             "# ", tr("Or if you use docker-compose:"), "\ncd path/to/osrm\ndocker-compose up -d"
           )
         ),
@@ -277,11 +278,37 @@ server <- function(input, output, session) {
     service_status(check_services(force = isTRUE(input$refresh_status$force)))
   })
 
+  # OSRM maintenance window (MAINTENANCE, see osrm_maintenance): polled every
+  # 30 s; while it lasts (and when it ends) the OSRM servers are re-checked
+  osrm_maint <- shiny::reactivePoll(30000, session, function() {
+    f <- OSRM_MAINTENANCE_FILE
+    if (file.exists(f)) paste(file.mtime(f), as.numeric(Sys.time()) %/% 30) else ""
+  }, function() osrm_maintenance())
+  shiny::observeEvent(osrm_maint(), {
+    st <- shiny::isolate(service_status())
+    if (is.null(st)) return()
+    up <- function(p) isTRUE(tryCatch(check_osrm_server(OSRM_SERVERS[[p]], p), error = function(e) FALSE))
+    st$osrm <- vapply(osrm_enabled_profiles(), up, logical(1))
+    service_status(st)
+  }, ignoreInit = TRUE, ignoreNULL = FALSE)
+
+  # During maintenance an OSRM-dependent action shows a notice instead of an
+  # error: TRUE when it did (the caller stops)
+  osrm_maintenance_notify <- function() {
+    m <- osrm_maintenance()
+    if (is.null(m)) return(FALSE)
+    shiny::showNotification(osrm_maintenance_notice(m, current_lang()), type = "warning", duration = 10)
+    TRUE
+  }
+  session$userData$osrm_maintenance_notify <- osrm_maintenance_notify
+
   output$status_dots <- shiny::renderUI({
     st <- service_status()
-    dot <- function(ok, label, tip, warn = FALSE) {
+    maint <- osrm_maint()
+    dot <- function(ok, label, tip, warn = FALSE, maint = FALSE) {
       bslib::tooltip(
-        shiny::span(class = paste("status-dot", if (isTRUE(warn)) "warn" else if (isTRUE(ok)) "ok"), shiny::span(class = "dot"), label),
+        shiny::span(class = paste("status-dot", if (isTRUE(maint)) "maint" else if (isTRUE(warn)) "warn" else if (isTRUE(ok)) "ok"),
+                    shiny::span(class = "dot"), label),
         tip,
         placement = "bottom"
       )
@@ -294,7 +321,7 @@ server <- function(input, output, session) {
       ))
     }
 
-    profile_labels <- names(PROFILE_CHOICES)[match(names(st$osrm), PROFILE_CHOICES)]
+    profile_labels <- names(OSRM_PROFILE_LABELS)[match(names(st$osrm), OSRM_PROFILE_LABELS)]
     osrm_detail <- paste(
       sprintf("%s %s", vapply(profile_labels, tr, character(1)), ifelse(st$osrm, "✓", "✗")),
       collapse = ", "
@@ -306,10 +333,12 @@ server <- function(input, output, session) {
     # iCloud cleanup (tools/icloud_cleanup.R): reconnect, notes package waiting for Restore
     cs <- icloud_cleanup_status()
     cleanup_txt <- icloud_cleanup_text(cs, current_lang())
+    maint_txt <- osrm_maintenance_text(maint, current_lang())
     shiny::tagList(
       dot(any(st$osrm), "OSRM",
-          paste0(tr("OSRM local routing:"), " ", osrm_detail, ". ", if (nzchar(data_txt)) paste0(data_txt, ". "), refresh),
-          warn = osrm_refresh_failed(rs)),
+          paste0(if (nzchar(maint_txt)) paste0(maint_txt, ". "), tr("OSRM local routing:"), " ", osrm_detail, ". ",
+                 if (nzchar(data_txt)) paste0(data_txt, ". "), refresh),
+          warn = osrm_refresh_failed(rs), maint = !is.null(maint)),
       dot(st$google, "Google",
           paste0(tr("Google Maps Directions API (metro/train/tram):"), " ",
                  if (st$google) tr("key OK") else tr("key missing or invalid"), ". ", refresh)),
@@ -806,7 +835,7 @@ server <- function(input, output, session) {
 
       route <- calculate_osrm_route(pts, profile = profile)
       if (is.null(route)) {
-        shiny::showNotification(tr("Failed to calculate OSRM route."), type = "error")
+        if (!osrm_maintenance_notify()) shiny::showNotification(tr("Failed to calculate OSRM route."), type = "error")
         return()
       }
     }

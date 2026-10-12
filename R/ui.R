@@ -35,6 +35,9 @@ PROFILE_CHOICES <- c(
   "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"
 )
 
+# Labels (translation keys) of the OSRM servers in the status dot
+OSRM_PROFILE_LABELS <- c(PROFILE_CHOICES, stats::setNames("official-noturn", i18n_key("Official (turn restrictions ignored)")))
+
 # Profile select choices: OSRM profiles not in OSRM_ENABLED_PROFILES are left out
 profile_choices <- function(choices = PROFILE_CHOICES) {
   choices[!choices %in% names(OSRM_SERVERS) | choices %in% osrm_enabled_profiles()]
@@ -150,6 +153,7 @@ APP_CSS <- "
   .status-dot .dot { width: 9px; height: 9px; border-radius: 50%; background: #adb5bd; }
   .status-dot.ok .dot { background: #198754; }
   .status-dot.warn .dot { background: #fd7e14; }
+  .status-dot.maint .dot { background: #1e88e5; }
   .app-topbar .dropdown-menu { font-size: 0.85rem; }
   .lang-toggle .btn { padding: 0.1rem 0.45rem; font-size: 0.75rem; }
 

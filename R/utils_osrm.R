@@ -84,7 +84,8 @@ OSRM_SERVERS <- list(
   foot = "http://127.0.0.1:5001",
   bike = "http://127.0.0.1:5002",
   bus  = "http://127.0.0.1:5003",
-  official = "http://127.0.0.1:5005"  # car + bus/psv roads (official.lua)
+  official = "http://127.0.0.1:5005",  # car + bus/psv roads + wrong-way (official.lua)
+  `official-noturn` = "http://127.0.0.1:5006"  # official ignoring turn restrictions (a pin's "Ignore" rule)
 )
 
 # Mapping of app profiles to OSRM profiles
@@ -93,16 +94,46 @@ OSRM_PROFILES <- list(
   foot = "foot",
   bike = "bicycle",
   bus  = "driving",  # custom profile based on driving
-  official = "driving"
+  official = "driving",
+  `official-noturn` = "driving"
 )
+
+# Classes excluded by default per profile (OSRM exclude=): official.lua marks
+# the wrong-way direction of oneways as wwminor (minor streets) or wwmajor
+# (primary, secondary and their links); the default allows wrong-way on minor
+# streets only. A pin's wrong-way rule (pin_osrm_options) overrides it.
+OSRM_DEFAULT_EXCLUDE <- list(official = "wwmajor", `official-noturn` = "wwmajor")
 
 # OSRM profiles in use (config_local.R can override). The others are hidden
 # from the profile selects and the status dot; add "bike" back to use the
 # bike server again. Cycling stays an activity type either way.
-OSRM_ENABLED_PROFILES <- if (exists("OSRM_ENABLED_PROFILES")) OSRM_ENABLED_PROFILES else c("car", "foot", "bus", "official")
+# official-noturn is not a profile to pick: only pins with "Restricted turns:
+# Ignore" use it.
+OSRM_ENABLED_PROFILES <- if (exists("OSRM_ENABLED_PROFILES")) OSRM_ENABLED_PROFILES else
+  c("car", "foot", "bus", "official", "official-noturn")
 
 # Configured OSRM profiles that are enabled, in OSRM_SERVERS order
 osrm_enabled_profiles <- function() intersect(names(OSRM_SERVERS), OSRM_ENABLED_PROFILES)
+
+# The exclude= value for a request: exclude NULL takes the profile's default
+# (OSRM_DEFAULT_EXCLUDE), "" none
+osrm_exclude_for <- function(profile, exclude = NULL) {
+  ex <- exclude %||% OSRM_DEFAULT_EXCLUDE[[profile]] %||% ""
+  paste(ex, collapse = ",")
+}
+
+# GET an OSRM service URL (with its query string) adding exclude= when set; a
+# dataset without those classes answers InvalidValue (e.g. official rolled
+# back to a build before them) and is asked again without it, which is what
+# the default meant there. Parsed JSON, or NULL when the server doesn't answer.
+osrm_get_json <- function(url, exclude = "", timeout_s = 30) {
+  full <- if (nzchar(exclude)) paste0(url, if (grepl("?", url, fixed = TRUE)) "&" else "?", "exclude=", exclude) else url
+  res <- tryCatch(httr::GET(full, httr::timeout(timeout_s)), error = function(e) NULL)
+  if (is.null(res)) return(NULL)
+  js <- tryCatch(httr::content(res, as = "parsed", encoding = "UTF-8"), error = function(e) NULL)
+  if (nzchar(exclude) && identical(js$code, "InvalidValue")) return(osrm_get_json(url, "", timeout_s))
+  js
+}
 
 # Status of the last nightly data refresh (~/osrm-data/nightly_refresh.sh):
 # last_refresh.json, NULL when missing or unreadable
@@ -144,6 +175,42 @@ osrm_refresh_text <- function(st, lang = APP_LANGUAGE, tz = "America/Sao_Paulo")
 
 osrm_refresh_failed <- function(st) identical(st$status, "FAILED")
 
+# Maintenance window: ~/osrm-data/refresh_osm.sh writes MAINTENANCE (JSON:
+# since, reason, profiles, pid) while every OSRM server is stopped for a build
+OSRM_MAINTENANCE_FILE <- if (exists("OSRM_MAINTENANCE_FILE")) OSRM_MAINTENANCE_FILE else
+  path.expand("~/osrm-data/MAINTENANCE")
+
+# list(since = POSIXct, reason, profiles) while a build runs, else NULL. A file
+# whose process is gone (a build killed without its cleanup) is stale: NULL.
+# An unreadable file (caught mid-write) still means maintenance.
+osrm_maintenance <- function(file = OSRM_MAINTENANCE_FILE,
+                             pid_alive = function(pid) dir.exists(file.path("/proc", pid))) {
+  if (!file.exists(file)) return(NULL)
+  m <- tryCatch(jsonlite::fromJSON(file, simplifyVector = TRUE), error = function(e) NULL)
+  if (!is.null(m$pid) && !isTRUE(pid_alive(m$pid))) return(NULL)
+  since <- as.POSIXct(m$since %||% NA_character_, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+  list(since = if (is.na(since)) file.mtime(file) else since, reason = as.character(m$reason %||% ""),
+       profiles = as.character(unlist(m$profiles)))
+}
+
+# "Routing under maintenance since hh:mm (reason)" in lang, local time; "" without one
+osrm_maintenance_text <- function(m, lang = APP_LANGUAGE, tz = "America/Sao_Paulo") {
+  if (is.null(m)) return("")
+  reason <- switch(m$reason,
+                   nightly = tr_lang("nightly data refresh", lang),
+                   build = tr_lang("data rebuild", lang),
+                   speeds = tr_lang("speed update", lang),
+                   rollback = tr_lang("rollback to the previous data", lang),
+                   m$reason)
+  if (length(m$profiles)) reason <- paste0(reason, ": ", paste(m$profiles, collapse = ", "))
+  sprintf(tr_lang("Routing under maintenance since %s (%s)", lang), format(m$since, "%H:%M", tz = tz), reason)
+}
+
+# The notice an OSRM-dependent action shows during maintenance, instead of an error
+osrm_maintenance_notice <- function(m, lang = APP_LANGUAGE) {
+  sprintf(tr_lang("%s. Try again when it ends; the status dot turns green again.", lang), osrm_maintenance_text(m, lang))
+}
+
 check_osrm_server <- function(base_url, profile = "car") {
   # try a minimal request just to check if the server responds
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
@@ -155,7 +222,9 @@ check_osrm_server <- function(base_url, profile = "car") {
   !is.null(res)
 }
 
-calculate_osrm_route <- function(points, profile = c("car", "official", "foot", "bike", "bus")) {
+# exclude: OSRM classes to avoid (NULL: the profile's default, osrm_exclude_for)
+calculate_osrm_route <- function(points, profile = c("car", "official", "foot", "bike", "bus", "official-noturn"),
+                                 exclude = NULL) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
@@ -172,11 +241,8 @@ calculate_osrm_route <- function(points, profile = c("car", "official", "foot", 
     "?overview=full&geometries=geojson"
   )
 
-  res <- tryCatch(httr::GET(url, httr::timeout(30)), error = function(e) NULL)
-  if (is.null(res) || res$status_code >= 400) return(NULL)
-
-  js <- httr::content(res, as = "parsed", encoding = "UTF-8")
-  if (is.null(js$routes) || length(js$routes) == 0) return(NULL)
+  js <- osrm_get_json(url, osrm_exclude_for(profile, exclude))
+  if (!identical(js$code, "Ok") || is.null(js$routes) || length(js$routes) == 0) return(NULL)
 
   route <- js$routes[[1]]
   coords <- route$geometry$coordinates
@@ -204,7 +270,7 @@ calculate_osrm_route <- function(points, profile = c("car", "official", "foot", 
 # Returns: list(coords, distance_m)
 recalculate_segment <- function(from_lat, from_lng, to_lat, to_lng,
                                 profile = c("car", "official", "foot", "bike", "bus",
-                                           "metro", "train", "tram"),
+                                           "metro", "train", "tram", "official-noturn"),
                                 ref_time_utc = NULL) {
   profile <- match.arg(profile)
 
@@ -390,8 +456,8 @@ extract_coords_from_samples <- function(samples) {
 #   sent        = logical, point was sent to OSRM,
 #   confidence  = minimum over all matchings (NA when none),
 #   n_dropped   = points sent but not matched)
-osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "official", "bus", "foot", "bike"),
-                       chunk_size = 100, tidy = TRUE, overlap = 20) {
+osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "official", "bus", "foot", "bike", "official-noturn"),
+                       chunk_size = 100, tidy = TRUE, overlap = 20, exclude = NULL) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
@@ -405,6 +471,7 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
   if (is.null(base_url) || length(idx_all) < 2) return(result)
 
   overlap <- max(1L, min(as.integer(overlap), chunk_size %/% 2L))
+  ex <- osrm_exclude_for(profile, exclude)
   n_all <- length(idx_all)
   starts <- seq(1L, max(n_all - overlap, 1L), by = chunk_size - overlap)
   starts <- starts[starts == 1L | starts + overlap <= n_all]
@@ -421,9 +488,7 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
       "&radiuses=", paste(sprintf("%.1f", radiuses[chunk]), collapse = ";"),
       "&gaps=split&tidy=", if (isTRUE(tidy)) "true" else "false", "&geometries=geojson&overview=full"
     )
-    res <- tryCatch(httr::GET(url, httr::timeout(30)), error = function(e) NULL)
-    if (is.null(res)) return(NULL)
-    js <- tryCatch(httr::content(res, as = "parsed", encoding = "UTF-8"), error = function(e) NULL)
+    js <- osrm_get_json(url, ex)
     if (is.null(js) || !identical(js$code, "Ok") || length(js$matchings) == 0) return(NULL)
     mi <- rep(NA_integer_, length(chunk))
     loc <- matrix(NA_real_, length(chunk), 2)
@@ -544,13 +609,14 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
 # waypoint. A chunk that fails with bearings is retried without them.
 # Returns list(coords = n x 2, distance_m, legs_m = one per consecutive pair)
 # or NULL.
-osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot", "bike"),
-                           bearings = NULL, radiuses = NULL, bearing_range = 60, chunk_size = 80) {
+osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot", "bike", "official-noturn"),
+                           bearings = NULL, radiuses = NULL, bearing_range = 60, chunk_size = 80, exclude = NULL) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
   n <- nrow(coords)
   if (is.null(base_url) || n < 2) return(NULL)
+  ex <- osrm_exclude_for(profile, exclude)
 
   request <- function(idx, with_options) {
     url <- paste0(base_url, "/route/v1/", osrm_profile, "/",
@@ -565,9 +631,7 @@ osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot",
       r <- radiuses[idx]
       url <- paste0(url, "&radiuses=", paste(ifelse(is.na(r), "unlimited", sprintf("%.0f", r)), collapse = ";"))
     }
-    res <- tryCatch(httr::GET(url, httr::timeout(30)), error = function(e) NULL)
-    if (is.null(res)) return(NULL)
-    js <- tryCatch(httr::content(res, as = "parsed", encoding = "UTF-8"), error = function(e) NULL)
+    js <- osrm_get_json(url, ex)
     if (is.null(js) || !identical(js$code, "Ok") || length(js$routes) == 0) return(NULL)
     route <- js$routes[[1]]
     geom <- do.call(rbind, lapply(route$geometry$coordinates, function(p) as.numeric(unlist(p))[1:2]))

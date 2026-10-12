@@ -1906,5 +1906,33 @@
   "Router network": {
     "pt": "Rede do roteador",
     "en": "Router network"
+  },
+  "nightly data refresh": {
+    "pt": "atualização noturna dos dados",
+    "en": "nightly data refresh"
+  },
+  "data rebuild": {
+    "pt": "reconstrução dos dados",
+    "en": "data rebuild"
+  },
+  "speed update": {
+    "pt": "atualização de velocidades",
+    "en": "speed update"
+  },
+  "rollback to the previous data": {
+    "pt": "volta aos dados anteriores",
+    "en": "rollback to the previous data"
+  },
+  "Routing under maintenance since %s (%s)": {
+    "pt": "Roteamento em manutenção desde %s (%s)",
+    "en": "Routing under maintenance since %s (%s)"
+  },
+  "%s. Try again when it ends; the status dot turns green again.": {
+    "pt": "%s. Tente de novo quando terminar; a bolinha de status volta a ficar verde.",
+    "en": "%s. Try again when it ends; the status dot turns green again."
+  },
+  "Official (turn restrictions ignored)": {
+    "pt": "Oficial (ignorando conversões proibidas)",
+    "en": "Official (turn restrictions ignored)"
   }
 }

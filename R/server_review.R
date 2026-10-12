@@ -33,6 +33,11 @@ review_server <- function(input, output, session, tr, current_lang) {
   resume_state <- shiny::reactiveVal(NULL)
 
   notify <- function(msg, type = "message", duration = 6) shiny::showNotification(msg, type = type, duration = duration)
+  # An OSRM failure: during the data's maintenance window a notice instead of the error
+  osrm_fail <- function(msg) {
+    m <- osrm_maintenance()
+    if (is.null(m)) notify(msg, type = "error") else notify(osrm_maintenance_notice(m, current_lang()), type = "warning", duration = 10)
+  }
   trip_row <- function(id) {
     trips <- shiny::isolate(rv$trips)
     trips[trips$id == id, , drop = FALSE]
@@ -197,7 +202,7 @@ review_server <- function(input, output, session, tr, current_lang) {
           if (!is.null(via)) via <- road_proposal_check(via, s, act, from, to, profile = profile)
         }
         if (is.null(via)) {
-          notify(tr("Could not route through the recorded path (OSRM)."), type = "error")
+          osrm_fail(tr("Could not route through the recorded path (OSRM)."))
         } else {
           pick <- if (identical(o$pick, "match")) "match" else "via"
           fx <- if (pick == "via") via else base
@@ -213,7 +218,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         }
       }
       if (is.null(fx)) {
-        notify(tr("Could not build a path for this trip (OSRM)."), type = "error")
+        osrm_fail(tr("Could not build a path for this trip (OSRM)."))
         return(NULL)
       }
       matched <- startsWith(fx$method, "match")
@@ -314,6 +319,12 @@ review_server <- function(input, output, session, tr, current_lang) {
       if (!isTRUE(res$ok)) return()
     }
     if (any(vapply(acts, family_of, "") == "rail") && !ensure_rail_reference()) return()
+    # Road trips need OSRM: not while its data is rebuilt (the failed matches would be cached)
+    m <- osrm_maintenance()
+    if (any(vapply(acts, family_of, "") == "road") && !is.null(m)) {
+      notify(osrm_maintenance_notice(m, current_lang()), type = "warning", duration = 10)
+      return()
+    }
 
     items <- load_items(ITEMS_BACKUP_DIR, from, to)
     if (nrow(items) == 0) {

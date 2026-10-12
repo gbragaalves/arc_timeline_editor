@@ -25,8 +25,9 @@ Resumo das funções adicionadas em outubro de 2026 (o resto do README segue em 
 ### Atualização noturna do OSM (`~/osrm-data/nightly_refresh.sh`, cron às 04:00)
 
 - Semanal: baixa a Geofabrik, recorta e monta a base (`clipped.osm.pbf` + `base_timestamp`) quando a última tem 7 dias (`refresh.conf`) e há arquivos novos. Diária: aplica **todos** os meus changesets desde a base − 2 dias sobre a base intocada e refaz só os perfis afetados (tags que não afetam roteamento não refazem nada). `.force_next` força uma atualização completa.
+- **Toda reconstrução é uma janela de manutenção** (`refresh_osm.sh`: completa, `--profiles`, `--overrides-only`, `--speeds`, `--rollback` e a noturna): grava `~/osrm-data/MAINTENANCE` (início e motivo), para **todos** os servidores OSRM, reconstrói (vários ao mesmo tempo só se a RAM livre comportar o pico; senão um por vez), sobe todos, roda os testes de fumaça e apaga o arquivo. Enquanto ele existe, a bolinha do OSRM fica azul ("Roteamento em manutenção desde hh:mm (motivo)", conferida a cada 30 s) e as ações que dependem do OSRM mostram um aviso em vez de erro.
 - Testes de fumaça depois de cada reconstrução (`smoke_tests/`): servidor fora do ar ou rota sem resultado volta ao dataset anterior (FAILED); rota que muda mais de 20% gera WARN.
-- O perfil `official` trata `highway=busway` como liberado para ônibus/psv (a menos que `bus=no`/`psv=no`), anda na contramão em vias menores e respeita a mão em primary/secondary/trunk/motorway.
+- O perfil `official` trata `highway=busway` como liberado para ônibus/psv (a menos que `bus=no`/`psv=no`) e permite contramão em todas as vias menos rotatórias, motorway e trunk. O sentido contrário leva a classe `wwminor` (vias menores) ou `wwmajor` (primary, secondary e seus links); o app pede `exclude=wwmajor` por padrão, o que reproduz o comportamento anterior. `official-noturn` (porta 5006) é o mesmo perfil ignorando conversões proibidas.
 - Status em `~/osrm-data/last_refresh.json`; logs em `~/osrm-data/logs/` (últimos 14).
 
 ### Limpeza do iCloud (`tools/icloud_cleanup.R`, cron às 03:30)
@@ -213,7 +214,7 @@ install.packages(c(
 
 ### OSRM (optional)
 
-Local OSRM servers via Docker for snap-to-road (car, foot, bike, bus, official profiles):
+Local OSRM servers via Docker for snap-to-road (car, foot, bike, bus, official and official-noturn profiles):
 
 | Profile | Port | OSRM profile |
 |---------|------|--------------|
@@ -222,10 +223,15 @@ Local OSRM servers via Docker for snap-to-road (car, foot, bike, bus, official p
 | Bike | 5002 | bicycle |
 | Bus | 5003 | driving |
 | Official | 5005 | driving |
+| Official, turn restrictions ignored | 5006 | driving |
 
 *Official* is a car that may also use bus/psv roads: the stock car profile, plus busways, `service=bus` roads and any way or barrier where a `bus`/`psv` permission overrides the car's access (BRT corridors and terminals, for example). Batch review matches car trips with it (`ROAD_PROFILE_FOR_CAR`, default `"official"`, or `"car"` when the official server isn't enabled); taxi trips use car and bus trips use bus. A profile select next to **Re-route** matches the selected road trip again with Car, Official or Bus.
 
-`OSRM_ENABLED_PROFILES` in `config_local.R` lists the servers in use (default `c("car", "foot", "bus", "official")`; a profile without a server is ignored). The others are left out of the profile selects and the OSRM status dot, so a stopped server doesn't show as an error. Add `"bike"` back to use the bike server again. Cycling remains an activity type for manual routes and GPX export either way.
+Official may also drive against one-way traffic, except on roundabouts, motorways and trunks; the reverse direction carries the class `wwminor` (minor streets) or `wwmajor` (primary, secondary and their links). The app asks the official servers with `exclude=wwmajor` by default (`OSRM_DEFAULT_EXCLUDE`), which keeps wrong-way to minor streets. *official-noturn* (`official-noturn.lua`) is the same profile without turn restrictions; Batch review uses it only for a pin whose "Restricted turns" rule is "Ignore".
+
+While `~/osrm-data/refresh_osm.sh` rebuilds the data it writes `~/osrm-data/MAINTENANCE` (`OSRM_MAINTENANCE_FILE`) and stops every server; the OSRM status dot turns blue with the start time and the reason, is re-checked every 30 s, and OSRM-dependent actions show a notice instead of an error.
+
+`OSRM_ENABLED_PROFILES` in `config_local.R` lists the servers in use (default `c("car", "foot", "bus", "official", "official-noturn")`; a profile without a server is ignored). The others are left out of the profile selects and the OSRM status dot, so a stopped server doesn't show as an error. Add `"bike"` back to use the bike server again. Cycling remains an activity type for manual routes and GPX export either way.
 
 See the [OSRM backend guide](https://github.com/Project-OSRM/osrm-backend#using-docker) for setup.
 
@@ -305,7 +311,7 @@ JAE_CSV_PATH <- "path/to/jae_history.csv"
 GTFS_BQ_EMAIL <- "you@example.com"
 
 # OSRM servers in use (optional; default shown). Add "bike" to use the bike server
-OSRM_ENABLED_PROFILES <- c("car", "foot", "bus", "official")
+OSRM_ENABLED_PROFILES <- c("car", "foot", "bus", "official", "official-noturn")
 
 # Batch review (optional; defaults shown)
 ITEMS_BACKUP_DIR    <- file.path(dirname(WEEKLY_BACKUP_DIR), "items")  # monthly items from the backup
