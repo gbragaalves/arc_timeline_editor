@@ -117,6 +117,10 @@ server <- function(input, output, session) {
   edit_samples <- shiny::reactiveVal(list())  # Samples loaded for editing
   ignored_samples <- shiny::reactiveVal(character(0))  # IDs of ignored samples
   osrm_route <- shiny::reactiveVal(NULL)  # OSRM route geometry (lon/lat matrix)
+  edit_pins <- shiny::reactiveVal(NULL)    # Edit Samples control pins: data.frame(id, lon, lat, after)
+  edit_pin_mode <- shiny::reactiveVal(FALSE)
+  edit_excluded <- shiny::reactiveVal(character(0))  # sample ids kept out of the Snap routing (still placed)
+  edit_hist <- new.env(parent = emptyenv())          # undo (Ctrl+Z) of pins and exclusions
   virtual_samples <- shiny::reactiveVal(list())  # Samples created from OSRM route (intermediate points)
   original_samples <- shiny::reactiveVal(list())  # Original samples before editing
   original_timeline_item_id <- shiny::reactiveVal(NULL)  # Original timelineItemId of samples
@@ -275,9 +279,9 @@ server <- function(input, output, session) {
 
   output$status_dots <- shiny::renderUI({
     st <- service_status()
-    dot <- function(ok, label, tip) {
+    dot <- function(ok, label, tip, warn = FALSE) {
       bslib::tooltip(
-        shiny::span(class = paste("status-dot", if (isTRUE(ok)) "ok"), shiny::span(class = "dot"), label),
+        shiny::span(class = paste("status-dot", if (isTRUE(warn)) "warn" else if (isTRUE(ok)) "ok"), shiny::span(class = "dot"), label),
         tip,
         placement = "bottom"
       )
@@ -296,15 +300,24 @@ server <- function(input, output, session) {
       collapse = ", "
     )
     refresh <- tr("Click to re-check.")
+    # Data refresh (last_refresh.json): base date and my edits; orange when the last run FAILED
+    rs <- osrm_refresh_status()
+    data_txt <- osrm_refresh_text(rs, current_lang())
+    # iCloud cleanup (tools/icloud_cleanup.R): reconnect, notes package waiting for Restore
+    cs <- icloud_cleanup_status()
+    cleanup_txt <- icloud_cleanup_text(cs, current_lang())
     shiny::tagList(
       dot(any(st$osrm), "OSRM",
-          paste0(tr("OSRM local routing:"), " ", osrm_detail, ". ", refresh)),
+          paste0(tr("OSRM local routing:"), " ", osrm_detail, ". ", if (nzchar(data_txt)) paste0(data_txt, ". "), refresh),
+          warn = osrm_refresh_failed(rs)),
       dot(st$google, "Google",
           paste0(tr("Google Maps Directions API (metro/train/tram):"), " ",
                  if (st$google) tr("key OK") else tr("key missing or invalid"), ". ", refresh)),
       dot(st$icloud, "iCloud",
           paste0(sprintf(tr("iCloud Drive via rclone (remote '%s'):"), ICLOUD_REMOTE), " ",
-                 if (st$icloud) tr("available") else tr("not available"), ". ", refresh))
+                 if (st$icloud) tr("available") else tr("not available"), ". ",
+                 if (nzchar(cleanup_txt)) paste0(cleanup_txt, if (endsWith(cleanup_txt, ":")) " " else ". "), refresh),
+          warn = icloud_cleanup_warn(cs))
     )
   })
 
@@ -335,10 +348,35 @@ server <- function(input, output, session) {
       # First base group is the one shown by default
       leaflet::addLayersControl(
         baseGroups = c(if (!MAP_RASTER_BASE) "OpenFreeMap", "OSM", "CartoDB", i18n_key("Satellite"), "Topo"),  # labels translated client-side
+        overlayGroups = c("Bus infrastructure", "Router network"),  # filled client-side when switched on
         options = leaflet::layersControlOptions(collapsed = TRUE)
       ) |>
+      leaflet::hideGroup(c("Bus infrastructure", "Router network")) |>
       leaflet::setView(lng = -43.2, lat = -22.9, zoom = 11) |>
       htmlwidgets::onRender(if (MAP_RASTER_BASE) MAP_I18N_JS else OPENFREEMAP_JS)
+  })
+
+  # ---- Map overlays: bus infrastructure (by bounds), router network (OSRM tiles) ----
+  shiny::observeEvent(input$bus_infra_req, {
+    r <- input$bus_infra_req
+    feats <- tryCatch(bus_infra_in_bounds(as.numeric(r$w), as.numeric(r$s), as.numeric(r$e), as.numeric(r$n), as.numeric(r$zoom)),
+                      error = function(e) list())
+    session$sendCustomMessage("bus_infra_data", list(features = feats))
+  })
+  # The router network follows the profile of the selected trip (Batch review),
+  # the Snap profile (Edit Samples) or the car default
+  shiny::observe({
+    sel <- input$review_profile
+    snap <- input$edit_osrm_profile
+    md <- input$mode
+    profile <- if (identical(md, "BatchReview") && isTRUE(sel %in% c("car", "official", "bus"))) {
+      sel
+    } else if (identical(md, "EditSamples") && isTRUE(snap %in% c("car", "official", "bus"))) {
+      snap
+    } else {
+      ROAD_PROFILE_FOR_CAR
+    }
+    session$sendCustomMessage("router_profile", list(profile = profile, url = router_tile_url(profile)))
   })
 
   # Helper: update points on the map
@@ -377,7 +415,7 @@ server <- function(input, output, session) {
 
     current_mode <- input$mode
 
-    # Ignore clicks in Edit Samples mode (uses draggable markers)
+    # Edit Samples uses draggable markers; pins come from dragging the route (not clicks)
     if (current_mode == "EditSamples") return()
 
     # Ignore clicks in Import File mode (uses uploaded file)
@@ -1834,7 +1872,135 @@ server <- function(input, output, session) {
   }
 
   # Load existing samples
+  # ---- Edit Samples: control pins (Snap routes through them) ----
+  set_edit_pin_mode <- function(on) {
+    edit_pin_mode(isTRUE(on))
+    session$sendCustomMessage("pin_mode", list(on = isTRUE(on), scope = "edit"))
+  }
+  # Pin and exclusion changes, with an undo history (Ctrl+Z). They apply at the
+  # next Snap (which rewrites the samples, so it isn't re-run by itself).
+  set_edit_route <- function(pins = shiny::isolate(edit_pins()), excl = shiny::isolate(edit_excluded()), record = TRUE) {
+    if (record) {
+      h <- edit_hist$stack %||% list()
+      h[[length(h) + 1L]] <- list(pins = shiny::isolate(edit_pins()), excl = shiny::isolate(edit_excluded()))
+      edit_hist$stack <- utils::tail(h, 30)
+    }
+    edit_pins(if (is.null(pins) || nrow(pins) == 0) NULL else pins)
+    edit_excluded(unique(as.character(excl)))
+  }
+  shiny::observeEvent(input$edit_pin, {
+    if (identical(input$edit_pin$action, "toggle")) {
+      set_edit_pin_mode(!isTRUE(edit_pin_mode()))
+      if (isTRUE(edit_pin_mode())) {
+        shiny::showNotification(tr("Route editing: drag the line to add a via pin; Snap routes through the pins (P to leave)."),
+                                duration = 5)
+      }
+    } else if (identical(input$edit_pin$action, "clear")) {
+      set_edit_pin_mode(FALSE)
+      set_edit_route(pins = NULL)
+    } else if (identical(input$edit_pin$action, "exclude")) {
+      selected <- input$selected_samples
+      if (length(selected) == 0) {
+        shiny::showNotification(tr("No samples selected."), type = "warning")
+        return()
+      }
+      set_edit_route(excl = c(shiny::isolate(edit_excluded()), unlist(selected)))
+      session$sendCustomMessage("clear_selection", list())
+      shiny::showNotification(sprintf(tr("%d samples kept out of the Snap routing (still placed on the route)."),
+                                      length(selected)), duration = 5)
+    } else if (identical(input$edit_pin$action, "clear_excl")) {
+      set_edit_route(excl = character(0))
+    }
+  })
+  shiny::observeEvent(input$edit_route_drag, {
+    ev <- input$edit_route_drag
+    if (!identical(input$mode, "EditSamples") || !isTRUE(edit_pin_mode()) || !identical(ev$kind, "line")) return()
+    pins <- edit_pins() %||% data.frame(id = character(0), lon = numeric(0), lat = numeric(0), after = character(0))
+    new_id <- as.character(max(c(0L, suppressWarnings(as.integer(pins$id))), na.rm = TRUE) + 1L)
+    set_edit_route(pins = rbind(pins, data.frame(id = new_id, lon = as.numeric(ev$lng), lat = as.numeric(ev$lat),
+                                                 after = NA_character_)))
+  })
+  shiny::observeEvent(input$edit_pin_moved, {
+    pins <- edit_pins()
+    k <- if (is.null(pins)) NA else match(as.character(input$edit_pin_moved$id), pins$id)
+    if (is.na(k)) return()
+    pins$lon[k] <- as.numeric(input$edit_pin_moved$lng)
+    pins$lat[k] <- as.numeric(input$edit_pin_moved$lat)
+    set_edit_route(pins = pins)
+  })
+  shiny::observeEvent(input$edit_pin_remove, {
+    pins <- edit_pins()
+    k <- if (is.null(pins)) NA else match(as.character(input$edit_pin_remove$id), pins$id)
+    if (is.na(k)) return()
+    set_edit_route(pins = pins[-k, , drop = FALSE])
+  })
+  shiny::observeEvent(input$route_undo, {
+    if (!identical(input$route_undo$scope, "edit") || !identical(input$mode, "EditSamples")) return()
+    h <- edit_hist$stack %||% list()
+    if (!length(h)) {
+      shiny::showNotification(tr("Nothing to undo."), duration = 3)
+      return()
+    }
+    last <- h[[length(h)]]
+    edit_hist$stack <- h[-length(h)]
+    set_edit_route(pins = last$pins, excl = last$excl, record = FALSE)
+  })
+  # Excluded samples look grey with an outline; the route handles follow the pins
+  shiny::observe({
+    excl <- edit_excluded()
+    input$mode
+    session$sendCustomMessage("edit_excluded", list(ids = as.list(excl)))
+  })
+  shiny::observe({
+    pins <- edit_pins()
+    on <- edit_pin_mode()
+    route <- osrm_route()
+    if (!identical(input$mode, "EditSamples") || !isTRUE(on)) {
+      session$sendCustomMessage("route_edit", list(scope = "edit", on = FALSE))
+      return()
+    }
+    s <- tryCatch(shiny::isolate(edit_samples_df()), error = function(e) NULL)
+    if (is.null(s) || nrow(s) < 2) return()
+    line <- if (!is.null(route) && nrow(route) >= 2) route[, 1:2, drop = FALSE] else cbind(s$lon, s$lat)
+    op <- if (!is.null(pins) && nrow(pins)) order_pins(s, pins) else NULL
+    ctrl <- c(list(list(id = "start", lat = s$lat[1], lng = s$lon[1])),
+              lapply(seq_len(nrow(op %||% data.frame())), function(k) list(id = as.character(op$id[k]), lat = op$lat[k], lng = op$lon[k])),
+              list(list(id = "end", lat = s$lat[nrow(s)], lng = s$lon[nrow(s)])))
+    session$sendCustomMessage("route_edit", list(scope = "edit", on = TRUE, fixed_ends = TRUE, ctrl = ctrl,
+                                                 path = lapply(seq_len(nrow(line)), function(k) c(line[k, 2], line[k, 1]))))
+  })
+  # Leaving Edit Samples leaves pin mode (Batch review has its own)
+  shiny::observeEvent(input$mode, {
+    if (!identical(input$mode, "EditSamples") && isTRUE(edit_pin_mode())) set_edit_pin_mode(FALSE)
+  })
+  # Samples (lon, lat, t) of the loaded, not ignored, samples, by time
+  edit_samples_df <- function() {
+    smp <- shiny::isolate(edit_samples())
+    ids <- vapply(seq_along(smp), function(j) as.character(unlist(smp[[j]]$id %||% paste0("sample_", j)))[1], "")
+    smp <- smp[!ids %in% shiny::isolate(ignored_samples())]
+    if (length(smp) == 0) return(NULL)
+    num <- function(v) as.numeric(unlist(v))[1]
+    d <- data.frame(lon = vapply(smp, function(x) num(x$longitude), 0), lat = vapply(smp, function(x) num(x$latitude), 0),
+                    t = vapply(smp, function(x) as.numeric(parse_timestamp_utc(as.character(unlist(x$date))[1])), 0))
+    d[order(d$t), ]
+  }
+  shiny::observe({
+    pins <- edit_pins()
+    mode <- input$mode
+    proxy <- leaflet::clearGroup(leaflet::leafletProxy("map"), "edit_pins")
+    if (!identical(mode, "EditSamples") || is.null(pins) || nrow(pins) == 0) return()
+    s <- tryCatch(edit_samples_df(), error = function(e) NULL)
+    ord <- if (!is.null(s) && nrow(s) >= 2) order_pins(s, pins)$id else pins$id
+    leaflet::addMarkers(
+      proxy, lng = pins$lon, lat = pins$lat, layerId = paste0("pin_", pins$id), group = "edit_pins",
+      label = as.character(match(pins$id, ord)),
+      labelOptions = leaflet::labelOptions(noHide = TRUE, direction = "top", offset = c(-15, -18), className = "pin-label"),
+      options = leaflet::markerOptions(draggable = TRUE)
+    )
+  })
+
   shiny::observeEvent(input$load_samples, {
+    edit_pins(NULL)
     start_time_fmt <- format_time(input$edit_samples_time_start)
     end_time_fmt <- format_time(input$edit_samples_time_end)
 
@@ -2060,7 +2226,11 @@ server <- function(input, output, session) {
           type = "warning", duration = 8
         )
       }
-      if (n > 100 && !uses_google) {
+      # Control pins (OSRM only): route start -> pins -> end, samples placed by projection.
+      # Samples excluded by lasso aren't route waypoints; they are placed by projection too.
+      pins_now <- edit_pins()
+      use_pins <- !uses_google && !is.null(pins_now) && nrow(pins_now) > 0
+      if (n > 100 && !uses_google && !use_pins) {
         shiny::showNotification(
           sprintf(tr("Too many samples (%d). Using only the first 100."), n),
           type = "warning"
@@ -2073,7 +2243,16 @@ server <- function(input, output, session) {
 
       shiny::showNotification(sprintf(tr("5/7 Calculating route with %d points..."), n), id = "snap_progress", duration = NULL, type = "message")
 
-      pts <- data.frame(lat = lats, lng = lngs)
+      excl_now <- !uses_google & vapply(active_samples, function(x) as.character(unlist(x$id))[1] %in% edit_excluded(), logical(1))
+      if (all(excl_now[c(1, length(excl_now))] == FALSE) && sum(!excl_now) >= 2) {
+        lats_route <- lats[!excl_now]
+        lngs_route <- lngs[!excl_now]
+      } else {
+        excl_now[] <- FALSE
+        lats_route <- lats
+        lngs_route <- lngs
+      }
+      pts <- data.frame(lat = lats_route, lng = lngs_route)
 
       if (uses_google) {
         transit_mode <- GOOGLE_TRANSIT_MODE_MAP[[profile]]
@@ -2085,6 +2264,13 @@ server <- function(input, output, session) {
         if (!is.null(route)) {
           route$coords <- smooth_osrm_route(route$coords, tolerance_m = 5, angle_min = 2)
         }
+      } else if (use_pins) {
+        s_pin <- edit_samples_df()
+        op <- order_pins(s_pin, pins_now)
+        ends <- s_pin[c(1, nrow(s_pin)), ]
+        r <- osrm_route_via(rbind(c(ends$lon[1], ends$lat[1]), cbind(op$lon, op$lat), c(ends$lon[2], ends$lat[2])), profile,
+                            bearings = c(NA, op$bearing, NA), radiuses = c(NA, rep(REVIEW_THRESHOLDS$pins$radius_m, nrow(op)), NA))
+        route <- if (is.null(r)) NULL else list(coords = r$coords, distance_m = r$distance_m)
       } else {
         route <- calculate_osrm_route(pts, profile = profile)
       }
@@ -2155,7 +2341,15 @@ server <- function(input, output, session) {
       if (t_range <= 0) t_range <- 1
 
       # Position on the OSRM route at the sample's time proportion (0 to 1)
-      new_xy <- path_points_at(osrm_coords, cumulative_dist, (ts_vec - t_min) / t_range * total_dist)
+      new_xy <- if (use_pins || any(excl_now)) {
+        # Through pins (or with excluded samples): each sample at its projection on the route (outliers by time)
+        o <- order(ts_vec)
+        xy <- matrix(NA_real_, n, 2)
+        xy[o, ] <- snap_positions_to_route(osrm_coords, data.frame(lon = lngs[o], lat = lats[o], t = ts_vec[o]))
+        xy
+      } else {
+        path_points_at(osrm_coords, cumulative_dist, (ts_vec - t_min) / t_range * total_dist)
+      }
       for (i in seq_len(n)) {
         active_samples[[i]]$longitude <- unname(new_xy[i, 1])
         active_samples[[i]]$latitude <- unname(new_xy[i, 2])

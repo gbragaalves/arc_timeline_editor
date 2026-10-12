@@ -1,0 +1,355 @@
+# ---- Client: route editing by dragging, sample lasso, undo, map overlays ----
+# Loaded after the main script (ui.R), so bindPinMarker here replaces the
+# earlier one.
+#   Route editing (Batch review, Edit Samples; "route_edit" messages): the
+#     proposed line can be dragged (the drop point becomes a via pin), the
+#     start / end markers moved (Batch review), the pins dragged; a light
+#     straight-line preview follows the drag and the server re-routes on drop
+#     only. A plain click does nothing. Right-click or double-click removes a pin.
+#   Lasso (Batch review, "lasso_mode"): the recorded samples circled are sent
+#     as review_lasso_samples (kept out of /match).
+#   Ctrl+Z: route_undo (pins, moved ends and exclusions share one history).
+#   Overlays "Bus infrastructure" (GeoJSON by map bounds from the server) and
+#     "Router network" (OSRM /tile vector tiles of the selected profile, drawn
+#     by a MapLibre GL layer of its own, so any base layer works).
+ROUTE_EDIT_JS <- "
+(function() {
+  var RE = {scope: null, on: false, layer: null, ctrl: [], fixedEnds: false};
+  window.__routeEdit = RE;  // read by the browser tests
+  function getMap() { var w = HTMLWidgets.find('#map'); return w && w.getMap(); }
+  function mode() { return $('#mode input:checked').val(); }
+  function prefix(scope) { return scope === 'edit' ? 'edit' : 'review'; }
+  function send(name, value) { value.ts = Date.now(); Shiny.setInputValue(name, value, {priority: 'event'}); }
+
+  // Straight segment nearest to a point among consecutive control points
+  function nearestLeg(map, ll) {
+    var p = map.latLngToLayerPoint(ll), best = 0, bestD = Infinity;
+    for (var i = 0; i + 1 < RE.ctrl.length; i++) {
+      var a = map.latLngToLayerPoint(RE.ctrl[i]), b = map.latLngToLayerPoint(RE.ctrl[i + 1]);
+      var d = L.LineUtil.pointToSegmentDistance(p, a, b);
+      if (d < bestD) { bestD = d; best = i; }
+    }
+    return best;
+  }
+  function previewStyle() { return {color: '#37474F', weight: 2, opacity: 0.8, dashArray: '6 6', interactive: false}; }
+  function endIcon(kind) {
+    return L.divIcon({className: 'route-end route-end-' + kind, html: '', iconSize: [16, 16], iconAnchor: [8, 8]});
+  }
+
+  // Edit Samples: while editing the route the sample markers (big pins over the
+  // line) let the mouse through, so the line can be grabbed anywhere
+  function samplesPassThrough(map, on) {
+    if (!map) return;
+    map.eachLayer(function(l) {
+      if (l.options && l.options.group === 'edit_samples' && l._icon) l._icon.style.pointerEvents = on ? 'none' : '';
+    });
+  }
+  function clearRouteEdit(map) {
+    samplesPassThrough(map, false);
+    RE.hit = null;
+    if (RE.layer) RE.layer.clearLayers();
+    if (map) { map.dragging.enable(); map.doubleClickZoom.enable(); }
+  }
+
+  Shiny.addCustomMessageHandler('route_edit', function(msg) {
+    var map = getMap();
+    if (!map) return;
+    if (!RE.layer) RE.layer = L.layerGroup().addTo(map);
+    if (msg.scope !== RE.scope && !msg.on && RE.scope !== null) return;  // another tab's handles stay
+    clearRouteEdit(map);
+    RE.scope = msg.scope;
+    RE.on = !!msg.on;
+    if (!RE.on) return;
+    map.doubleClickZoom.disable();
+    if (RE.scope === 'edit') samplesPassThrough(map, true);
+    RE.fixedEnds = !!msg.fixed_ends;
+    RE.ctrl = (msg.ctrl || []).map(function(c) { var ll = L.latLng(c.lat, c.lng); ll.id = String(c.id); return ll; });
+    var path = (msg.path || []).map(function(p) { return L.latLng(p[0], p[1]); });
+    if (path.length < 2) return;
+    // A wide invisible line to grab the route anywhere
+    var hit = L.polyline(path, {color: '#000', weight: 18, opacity: 0.01, className: 'route-hit', bubblingMouseEvents: false});
+    hit.addTo(RE.layer);
+    RE.hit = hit;
+    hit.on('mousedown', function(e) {
+      if (e.originalEvent.button !== 0) return;
+      L.DomEvent.stop(e);
+      map.dragging.disable();
+      var start = e.containerPoint, moved = false, leg = nearestLeg(map, e.latlng);
+      var ghost = L.circleMarker(e.latlng, {radius: 6, color: '#fff', weight: 2, fillColor: '#37474F', fillOpacity: 1,
+                                            interactive: false}).addTo(RE.layer);
+      var preview = L.polyline([RE.ctrl[leg], e.latlng, RE.ctrl[leg + 1]], previewStyle()).addTo(RE.layer);
+      function move(ev) {
+        if (!moved && ev.containerPoint.distanceTo(start) < 5) return;
+        moved = true;
+        ghost.setLatLng(ev.latlng);
+        preview.setLatLngs([RE.ctrl[leg], ev.latlng, RE.ctrl[leg + 1]]);
+      }
+      function up(ev) {
+        map.off('mousemove', move);
+        map.off('mouseup', up);
+        $(document).off('mouseup.routeedit');
+        map.dragging.enable();
+        RE.layer.removeLayer(ghost);
+        RE.layer.removeLayer(preview);
+        if (moved && ev && ev.latlng) send(prefix(RE.scope) + '_route_drag', {kind: 'line', lat: ev.latlng.lat, lng: ev.latlng.lng});
+      }
+      map.on('mousemove', move);
+      map.on('mouseup', up);
+      $(document).on('mouseup.routeedit', function() { if (!moved) up(null); });
+    });
+    // Draggable start / end (Batch review)
+    if (!RE.fixedEnds) {
+      ['start', 'end'].forEach(function(kind) {
+        var ll = kind === 'start' ? RE.ctrl[0] : RE.ctrl[RE.ctrl.length - 1];
+        var nb = kind === 'start' ? RE.ctrl[1] : RE.ctrl[RE.ctrl.length - 2];
+        var m = L.marker(ll, {draggable: true, icon: endIcon(kind), zIndexOffset: 1000, keyboard: false});
+        m.options.routeEnd = kind;
+        var preview = null;
+        m.on('dragstart', function() { preview = L.polyline([nb, ll], previewStyle()).addTo(RE.layer); });
+        m.on('drag', function() { if (preview) preview.setLatLngs([nb, m.getLatLng()]); });
+        m.on('dragend', function() {
+          if (preview) RE.layer.removeLayer(preview);
+          var p = m.getLatLng();
+          send(prefix(RE.scope) + '_route_drag', {kind: kind, lat: p.lat, lng: p.lng});
+        });
+        m.on('click dblclick', function(e) { L.DomEvent.stop(e); });
+        m.addTo(RE.layer);
+      });
+    }
+  });
+
+  // Pin markers (Batch review: review_pins; Edit Samples: edit_pins): drag with a preview,
+  // re-route on drop; right-click or double-click removes
+  window.bindPinMarker = function(layer, pfx) {
+    var pinId = String(layer.options.layerId).replace(/^pin_/, '');
+    layer.off('dragstart drag dragend contextmenu dblclick click');
+    var preview = null;
+    function neighbours() {
+      var k = -1;
+      for (var i = 0; i < RE.ctrl.length; i++) if (RE.ctrl[i].id === pinId) k = i;
+      return k > 0 && k + 1 < RE.ctrl.length ? [RE.ctrl[k - 1], RE.ctrl[k + 1]] : null;
+    }
+    layer.on('dragstart', function() {
+      var nb = neighbours();
+      if (nb && RE.layer) preview = L.polyline([nb[0], layer.getLatLng(), nb[1]], previewStyle()).addTo(RE.layer);
+    });
+    layer.on('drag', function() {
+      var nb = neighbours();
+      if (preview && nb) preview.setLatLngs([nb[0], layer.getLatLng(), nb[1]]);
+    });
+    layer.on('dragend', function() {
+      if (preview && RE.layer) RE.layer.removeLayer(preview);
+      preview = null;
+      var ll = layer.getLatLng();
+      send(pfx + '_moved', {id: pinId, lat: ll.lat, lng: ll.lng});
+    });
+    function remove(e) {
+      L.DomEvent.stop(e);
+      send(pfx + '_remove', {id: pinId});
+    }
+    layer.on('contextmenu', remove);
+    layer.on('dblclick', remove);
+    layer.on('click', function(e) { L.DomEvent.stop(e); });
+  };
+
+  // ---- Lasso (Batch review): circle samples to keep them out of /match ----
+  var lasso = {on: false, svg: null, pts: []};
+  function pointInPolygon(x, y, poly) {
+    var inside = false;
+    for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      var xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+  }
+  Shiny.addCustomMessageHandler('lasso_mode', function(msg) {
+    var map = getMap();
+    lasso.on = !!msg.on;
+    $('#map').toggleClass('lasso-mode', lasso.on);
+    if (map) { if (lasso.on) map.dragging.disable(); else map.dragging.enable(); }
+  });
+  $(document).on('mousedown', '#map', function(e) {
+    if (!lasso.on || e.button !== 0 || mode() !== 'BatchReview') return;
+    if ($(e.target).closest('.leaflet-control').length) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var map = getMap();
+    var off = $('#map').offset();
+    lasso.pts = [];
+    if (lasso.svg) lasso.svg.remove();
+    lasso.svg = $('<svg class=\"selection-lasso\"><polyline points=\"\"></polyline></svg>').css({
+      position: 'fixed', left: off.left + 'px', top: off.top + 'px', width: $('#map').width() + 'px', height: $('#map').height() + 'px'
+    });
+    $('body').append(lasso.svg);
+    $(document).on('mousemove.rvlasso', function(ev) {
+      lasso.pts.push({x: ev.pageX - off.left, y: ev.pageY - off.top});
+      lasso.svg.find('polyline').attr('points', lasso.pts.map(function(p) { return p.x + ',' + p.y; }).join(' '));
+    });
+    $(document).on('mouseup.rvlasso', function() {
+      $(document).off('mousemove.rvlasso mouseup.rvlasso');
+      if (lasso.svg) lasso.svg.remove();
+      lasso.svg = null;
+      if (lasso.pts.length < 3 || !map) return;
+      var ids = [];
+      map.eachLayer(function(layer) {
+        if (!layer.options || layer.options.group !== 'review_samples' || !layer.options.layerId || !layer.getLatLng) return;
+        var p = map.latLngToContainerPoint(layer.getLatLng());
+        if (pointInPolygon(p.x, p.y, lasso.pts)) ids.push(String(layer.options.layerId));
+      });
+      if (ids.length) send('review_lasso_samples', {ids: ids});
+    });
+  });
+
+  // ---- Keys: Ctrl+Z undoes route edits; L toggles the lasso (Batch review) ----
+  $(document).on('keydown', function(e) {
+    var m = mode();
+    if (m !== 'BatchReview' && m !== 'EditSamples') return;
+    if ($(e.target).is('input, textarea, select, [contenteditable]') || $('.modal.show').length) return;
+    var key = String(e.key).toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z') {
+      e.preventDefault();
+      send('route_undo', {scope: m === 'EditSamples' ? 'edit' : 'review'});
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && key === 'l' && m === 'BatchReview') {
+      e.preventDefault();
+      $('#review_lasso_toggle').click();
+    }
+  });
+
+  // ---- Edit Samples: samples kept out of the Snap routing look grey ----
+  window.EDIT_EXCLUDED = [];
+  function paintExcluded(map) {
+    if (!map) return;
+    map.eachLayer(function(layer) {
+      if (layer.options && layer.options.group === 'edit_samples' && layer._icon) {
+        $(layer._icon).toggleClass('sample-excluded', window.EDIT_EXCLUDED.indexOf(String(layer.options.layerId)) !== -1);
+      }
+    });
+  }
+  Shiny.addCustomMessageHandler('edit_excluded', function(msg) {
+    window.EDIT_EXCLUDED = (msg.ids || []).map(String);
+    paintExcluded(getMap());
+  });
+
+  // ---- Overlays ----
+  var BUS = {req: null, layer: null, arrows: null};
+  var ROUTER = {url: null, gl: null};
+  var BUS_COLORS = {busway: '#7B1FA2', bus_only: '#7B1FA2', bus_lane: '#AB47BC', bus_ok: '#9575CD', blocked: '#757575'};
+  function esc(s) { return String(s).replace(/[&<>\"]/g, function(c) { return {'&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;'}[c]; }); }
+  function busPopup(p) {
+    var rows = Object.keys(p.tags || {}).sort().map(function(k) {
+      return '<tr><td>' + esc(k) + '</td><td>' + esc(p.tags[k]) + '</td></tr>';
+    }).join('');
+    return '<div class=\"bus-popup\"><b>' + esc(p.name || '') + '</b> <a href=\"https://www.openstreetmap.org/way/' + p.id +
+      '\" target=\"_blank\" rel=\"noopener\">way ' + p.id + '</a><table>' + rows + '</table></div>';
+  }
+  function busArrows(map, features) {
+    BUS.arrows.clearLayers();
+    if (map.getZoom() < 15) return;
+    features.forEach(function(f) {
+      var ow = f.properties.oneway;
+      if (!ow || f.properties.kind === 'blocked') return;
+      var c = f.geometry.coordinates, acc = 0, next = 30;
+      for (var i = 0; i + 1 < c.length; i++) {
+        var a = L.latLng(c[i][1], c[i][0]), b = L.latLng(c[i + 1][1], c[i + 1][0]);
+        var d = a.distanceTo(b);
+        while (d > 0 && acc + d >= next) {
+          var f2 = (next - acc) / d, ll = L.latLng(a.lat + f2 * (b.lat - a.lat), a.lng + f2 * (b.lng - a.lng));
+          var pa = map.latLngToLayerPoint(a), pb = map.latLngToLayerPoint(b);
+          var deg = Math.atan2(pb.y - pa.y, pb.x - pa.x) * 180 / Math.PI + (ow < 0 ? 180 : 0);
+          L.marker(ll, {interactive: false, keyboard: false, icon: L.divIcon({className: 'bus-arrow', iconSize: [12, 12], iconAnchor: [6, 6],
+            html: '<span style=\"transform: rotate(' + deg + 'deg); color: ' + BUS_COLORS[f.properties.kind] + '\">&#10148;</span>'})}).addTo(BUS.arrows);
+          next += 150;
+        }
+        acc += d;
+      }
+    });
+  }
+  function busRequest(map) {
+    var b = map.getBounds();
+    send('bus_infra_req', {w: b.getWest(), s: b.getSouth(), e: b.getEast(), n: b.getNorth(), zoom: map.getZoom()});
+  }
+  Shiny.addCustomMessageHandler('bus_infra_data', function(msg) {
+    var map = getMap();
+    if (!map || !BUS.layer) return;
+    BUS.layer.clearLayers();
+    BUS.layer.addData(msg.features || []);
+    busArrows(map, msg.features || []);
+  });
+  function routerStyle(url) {
+    var color = ['interpolate', ['linear'], ['to-number', ['get', 'speed'], 0],
+                 5, '#B71C1C', 20, '#F4511E', 35, '#FDD835', 50, '#7CB342', 80, '#2E7D32', 110, '#1565C0'];
+    return {
+      version: 8,
+      glyphs: 'https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf',
+      sources: {osrm: {type: 'vector', tiles: [url], minzoom: 14, maxzoom: 18}},
+      layers: [
+        {id: 'speeds', type: 'line', source: 'osrm', 'source-layer': 'speeds', minzoom: 14,
+         paint: {'line-color': color, 'line-width': 2.5, 'line-offset': 2,
+                 'line-opacity': ['case', ['to-boolean', ['get', 'is_small']], 0.4, 0.9]}},
+        {id: 'arrows', type: 'symbol', source: 'osrm', 'source-layer': 'speeds', minzoom: 15,
+         layout: {'symbol-placement': 'line', 'symbol-spacing': 90, 'text-field': '\\u203A', 'text-size': 15,
+                  'text-font': ['Noto Sans Regular'], 'text-keep-upright': false, 'text-rotation-alignment': 'map',
+                  'text-allow-overlap': true, 'text-offset': [0, 0.15]},
+         paint: {'text-color': color, 'text-halo-color': '#FFFFFF', 'text-halo-width': 1}}
+      ]
+    };
+  }
+  Shiny.addCustomMessageHandler('router_profile', function(msg) {
+    ROUTER.url = msg.url;
+    var gl = ROUTER.gl && ROUTER.gl.getMaplibreMap && ROUTER.gl.getMaplibreMap();
+    if (gl && gl.getSource && gl.getSource('osrm')) gl.getSource('osrm').setTiles([msg.url]);
+  });
+  window.setupOverlays = function(map) {
+    if (map._overlaysHook) return;
+    map._overlaysHook = true;
+    var lm = map.layerManager;
+    var busGroup = lm.getLayerGroup('Bus infrastructure', true);
+    var routerGroup = lm.getLayerGroup('Router network', true);
+    map.on('overlayadd', function(e) {
+      if (e.layer === busGroup) {
+        if (!BUS.layer) {
+          BUS.layer = L.geoJSON(null, {
+            style: function(f) {
+              var k = f.properties.kind;
+              return {color: BUS_COLORS[k] || '#7B1FA2', weight: k === 'blocked' ? 2 : (k === 'bus_lane' || k === 'bus_ok' ? 3 : 4),
+                      opacity: k === 'blocked' ? 0.8 : 0.9, dashArray: k === 'blocked' ? '5 5' : null};
+            },
+            bubblingMouseEvents: false,
+            onEachFeature: function(f, l) { l.bindPopup(busPopup(f.properties), {maxWidth: 360}); }
+          });
+          BUS.arrows = L.layerGroup();
+          busGroup.addLayer(BUS.layer);
+          busGroup.addLayer(BUS.arrows);
+        }
+        busRequest(map);
+      } else if (e.layer === routerGroup && !ROUTER.gl && ROUTER.url && typeof L.maplibreGL === 'function') {
+        ROUTER.gl = L.maplibreGL({style: routerStyle(ROUTER.url), interactive: false, pane: 'overlayPane'});
+        routerGroup.addLayer(ROUTER.gl);
+      }
+    });
+    var timer = null;
+    map.on('moveend', function() {
+      if (!map.hasLayer(busGroup) || !BUS.layer) return;
+      clearTimeout(timer);
+      timer = setTimeout(function() { busRequest(map); }, 250);
+    });
+  };
+
+  // Hook the map once it exists: overlays, excluded-sample paint after redraws
+  function hook() {
+    var map = getMap();
+    if (!map) { setTimeout(hook, 500); return; }
+    window.setupOverlays(map);
+    map.on('layeradd', function(e) {
+      var l = e.layer;
+      // The route's grab line stays above the lines the server redraws after a re-route
+      if (RE.hit && l !== RE.hit && l instanceof L.Path) setTimeout(function() { if (RE.hit) RE.hit.bringToFront(); }, 0);
+      if (l.options && l.options.group === 'edit_samples') {
+        if (window.EDIT_EXCLUDED.length) setTimeout(function() { paintExcluded(map); }, 0);
+        if (RE.on && RE.scope === 'edit') setTimeout(function() { if (l._icon) l._icon.style.pointerEvents = 'none'; }, 0);
+      }
+    });
+  }
+  $(document).on('shiny:connected', function() { setTimeout(hook, 600); });
+})();
+"

@@ -104,6 +104,46 @@ OSRM_ENABLED_PROFILES <- if (exists("OSRM_ENABLED_PROFILES")) OSRM_ENABLED_PROFI
 # Configured OSRM profiles that are enabled, in OSRM_SERVERS order
 osrm_enabled_profiles <- function() intersect(names(OSRM_SERVERS), OSRM_ENABLED_PROFILES)
 
+# Status of the last nightly data refresh (~/osrm-data/nightly_refresh.sh):
+# last_refresh.json, NULL when missing or unreadable
+OSRM_REFRESH_STATUS_FILE <- if (exists("OSRM_REFRESH_STATUS_FILE")) OSRM_REFRESH_STATUS_FILE else
+  path.expand("~/osrm-data/last_refresh.json")
+
+osrm_refresh_status <- function(file = OSRM_REFRESH_STATUS_FILE) {
+  if (!file.exists(file)) return(NULL)
+  tryCatch(jsonlite::fromJSON(file, simplifyVector = FALSE), error = function(e) NULL)
+}
+
+# Tooltip text for the OSRM dot: "Base OSM: dd/mm/yyyy · minhas edições até
+# dd/mm hh:mm" (PT) / "OSM base: yyyy-mm-dd · my edits up to yyyy-mm-dd hh:mm"
+# (EN), local times; plus the reason when the last run FAILED. "" without a status.
+osrm_refresh_text <- function(st, lang = APP_LANGUAGE, tz = "America/Sao_Paulo") {
+  if (is.null(st)) return("")
+  when <- function(x) {
+    t <- as.POSIXct(x %||% NA_character_, format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    if (is.na(t)) NULL else t
+  }
+  pt <- identical(lang, "pt")
+  base <- when(st$base_osm_timestamp)
+  edits <- when(st$last_changeset_time)
+  txt <- if (is.null(base)) "" else if (is.null(edits)) {
+    sprintf(tr_lang("OSM base: %s", lang), format(base, if (pt) "%d/%m/%Y" else "%Y-%m-%d", tz = tz))
+  } else {
+    sprintf(tr_lang("OSM base: %s · my edits up to %s", lang), format(base, if (pt) "%d/%m/%Y" else "%Y-%m-%d", tz = tz),
+            format(edits, if (pt) "%d/%m %H:%M" else "%Y-%m-%d %H:%M", tz = tz))
+  }
+  if (identical(st$status, "FAILED")) {
+    ran <- when(st$date)
+    failed <- sprintf(tr_lang("Last data refresh FAILED (%s): %s", lang),
+                      if (is.null(ran)) "?" else format(ran, if (pt) "%d/%m %H:%M" else "%Y-%m-%d %H:%M", tz = tz),
+                      st$reason %||% "")
+    txt <- paste(c(if (nzchar(txt)) txt, failed), collapse = ". ")
+  }
+  txt
+}
+
+osrm_refresh_failed <- function(st) identical(st$status, "FAILED")
+
 check_osrm_server <- function(base_url, profile = "car") {
   # try a minimal request just to check if the server responds
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
@@ -336,8 +376,12 @@ extract_coords_from_samples <- function(samples) {
 # ---- Map matching (OSRM /match) ----
 # coords: n x 2 (lon, lat) in time order; timestamps: epoch seconds;
 # radiuses: metres (one per point). Sent in chunks of chunk_size points that
-# overlap by 1, with gaps=split and tidy=true. Points whose timestamp doesn't
-# increase are not sent.
+# overlap by `overlap` points, with gaps=split and tidy=true (tidy = FALSE:
+# tidy=false). Each chunk keeps only its middle: the overlap is split in
+# half, so no chunk's result is used near its own ends (where a match lacks
+# the context of the points after it and can snap to a parallel road); its
+# matched geometry is cut at the tracepoints of the first and last points it
+# keeps. Points whose timestamp doesn't increase are not sent.
 # Returns list(
 #   ok          = TRUE when at least one matching came back,
 #   pieces      = list of list(coords = matched geometry, idx = matched point
@@ -347,7 +391,7 @@ extract_coords_from_samples <- function(samples) {
 #   confidence  = minimum over all matchings (NA when none),
 #   n_dropped   = points sent but not matched)
 osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "official", "bus", "foot", "bike"),
-                       chunk_size = 100) {
+                       chunk_size = 100, tidy = TRUE, overlap = 20) {
   profile <- match.arg(profile)
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
@@ -360,43 +404,104 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
                  confidence = NA_real_, n_dropped = 0L)
   if (is.null(base_url) || length(idx_all) < 2) return(result)
 
-  starts <- seq(1L, max(length(idx_all) - 1L, 1L), by = chunk_size - 1L)
-  pieces <- list()
-  confidences <- numeric(0)
+  overlap <- max(1L, min(as.integer(overlap), chunk_size %/% 2L))
+  n_all <- length(idx_all)
+  starts <- seq(1L, max(n_all - overlap, 1L), by = chunk_size - overlap)
+  starts <- starts[starts == 1L | starts + overlap <= n_all]
 
-  for (s in starts) {
-    chunk <- idx_all[s:min(s + chunk_size - 1L, length(idx_all))]
-    if (length(chunk) < 2) next
-
+  # 1. Every chunk's reply: per position (in idx_all) its matching and location
+  replies <- lapply(starts, function(s) {
+    pos <- s:min(s + chunk_size - 1L, n_all)
+    chunk <- idx_all[pos]
+    if (length(chunk) < 2) return(NULL)
     url <- paste0(
       base_url, "/match/v1/", osrm_profile, "/",
       paste(sprintf("%.6f,%.6f", coords[chunk, 1], coords[chunk, 2]), collapse = ";"),
       "?timestamps=", paste(as.integer(round(timestamps[chunk])), collapse = ";"),
       "&radiuses=", paste(sprintf("%.1f", radiuses[chunk]), collapse = ";"),
-      "&gaps=split&tidy=true&geometries=geojson&overview=full"
+      "&gaps=split&tidy=", if (isTRUE(tidy)) "true" else "false", "&geometries=geojson&overview=full"
     )
     res <- tryCatch(httr::GET(url, httr::timeout(30)), error = function(e) NULL)
-    if (is.null(res)) next
+    if (is.null(res)) return(NULL)
     js <- tryCatch(httr::content(res, as = "parsed", encoding = "UTF-8"), error = function(e) NULL)
-    if (is.null(js) || !identical(js$code, "Ok") || length(js$matchings) == 0) next
-
-    tp_matching <- rep(NA_integer_, length(chunk))
+    if (is.null(js) || !identical(js$code, "Ok") || length(js$matchings) == 0) return(NULL)
+    mi <- rep(NA_integer_, length(chunk))
+    loc <- matrix(NA_real_, length(chunk), 2)
     for (k in seq_along(js$tracepoints)) {
       tp <- js$tracepoints[[k]]
       if (is.null(tp)) next
-      tp_matching[k] <- as.integer(tp$matchings_index)
-      if (is.na(tracepoints[chunk[k], 1])) {
-        tracepoints[chunk[k], ] <- as.numeric(unlist(tp$location))[1:2]
+      mi[k] <- as.integer(tp$matchings_index)
+      loc[k, ] <- as.numeric(unlist(tp$location))[1:2]
+    }
+    list(pos = pos, chunk = chunk, mi = mi, loc = loc, matchings = js$matchings)
+  })
+
+  # 2. Boundaries: in each overlap, a point nearest to the overlap's middle
+  # that the earlier chunk matched in one matching since the overlap's start
+  # and the later chunk in one matching up to its end (so the two halves join
+  # there); else one matched in both; else the middle
+  same_run <- function(mi, from, to) {   # positions from..to whose matching continues the one at `from`
+    v <- mi[from:to]
+    first <- v[!is.na(v)][1]
+    if (is.na(first)) return(integer(0))
+    run <- cumsum(!is.na(v) & v != first) == 0
+    (from:to)[run & !is.na(v)]
+  }
+  own_lo <- rep(1L, length(starts))
+  for (ci in seq_along(starts)[-1]) {
+    mid <- starts[ci] + overlap %/% 2L
+    a <- replies[[ci - 1L]]
+    b <- replies[[ci]]
+    cand <- integer(0)
+    if (!is.null(a) && !is.null(b)) {
+      lo <- starts[ci]
+      hi <- max(a$pos)
+      ia <- match(lo:hi, a$pos)
+      ib <- match(lo:hi, b$pos)
+      fwd <- (lo:hi)[match(same_run(a$mi, ia[1], ia[length(ia)]), ia)]
+      bwd <- (lo:hi)[rev(length(ib) + 1L - same_run(rev(b$mi[ib]), 1L, length(ib)))]
+      cand <- intersect(fwd, bwd)
+      if (!length(cand)) {
+        o <- intersect(a$pos[!is.na(a$mi)], b$pos[!is.na(b$mi)])
+        cand <- o[o >= lo & o <= hi]
       }
     }
+    own_lo[ci] <- if (length(cand)) cand[which.min(abs(cand - mid))] else mid
+  }
+  own_hi <- c(utils::tail(own_lo, -1L), n_all)
 
-    for (m in seq_along(js$matchings)) {
-      mt <- js$matchings[[m]]
-      confidences <- c(confidences, as.numeric(mt$confidence %||% NA_real_))
+  # 3. Each chunk's part: its kept tracepoints and the matched geometry between them
+  pieces <- list()
+  confidences <- numeric(0)
+  for (ci in seq_along(starts)) {
+    r <- replies[[ci]]
+    if (is.null(r)) next
+    keep <- r$pos >= own_lo[ci] & r$pos <= own_hi[ci]
+    for (k in which(keep & !is.na(r$mi))) {
+      if (is.na(tracepoints[r$chunk[k], 1])) tracepoints[r$chunk[k], ] <- r$loc[k, ]
+    }
+    for (m in seq_along(r$matchings)) {
+      mt <- r$matchings[[m]]
       geom <- do.call(rbind, lapply(mt$geometry$coordinates, function(p) as.numeric(unlist(p))[1:2]))
       if (is.null(geom) || nrow(geom) < 2) next
       colnames(geom) <- c("lon", "lat")
-      pieces[[length(pieces) + 1L]] <- list(coords = geom, idx = chunk[which(tp_matching == m - 1L)])
+      all_k <- which(r$mi == m - 1L)
+      ks <- all_k[keep[all_k]]
+      if (length(ks) == 0) next
+      confidences <- c(confidences, as.numeric(mt$confidence %||% NA_real_))
+      if (length(ks) < length(all_k)) {
+        # Only the part between the first and last kept points
+        cum <- path_cumulative_m(geom)
+        d <- project_along(geom, cum, r$loc[all_k, , drop = FALSE])
+        d1 <- d[match(ks[1], all_k)]
+        d2 <- d[match(ks[length(ks)], all_k)]
+        inner <- which(cum > d1 & cum < d2)
+        geom <- rbind(path_points_at(geom, cum, d1), geom[inner, , drop = FALSE], path_points_at(geom, cum, d2))
+        colnames(geom) <- c("lon", "lat")
+      }
+      pieces[[length(pieces) + 1L]] <- list(coords = geom, idx = r$chunk[ks], ci = ci,
+                                            first = ks[1] == min(which(keep & !is.na(r$mi))),
+                                            last = ks[length(ks)] == max(which(keep & !is.na(r$mi))))
     }
   }
 
@@ -405,21 +510,30 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
     return(result)
   }
 
-  # Join pieces that continue across a chunk boundary (shared point matched in both)
+  # Join pieces that continue across a chunk boundary: the boundary point
+  # matched in both chunks, or (tidy thins each chunk's points differently)
+  # the last piece of a chunk and the first of the next one, at most 20 s
+  # apart and close for that time (a short straight link instead of a
+  # routed gap, which can loop to reach the other carriageway)
   pieces <- pieces[order(vapply(pieces, function(p) p$idx[1] %||% Inf, numeric(1)))]
   merged <- list(pieces[[1]])
   for (p in pieces[-1]) {
     last <- merged[[length(merged)]]
     if (length(last$idx) && length(p$idx) && utils::tail(last$idx, 1) == p$idx[1]) {
       merged[[length(merged)]] <- list(coords = rbind(last$coords, p$coords[-1, , drop = FALSE]),
-                                       idx = c(last$idx, p$idx[-1]))
+                                       idx = c(last$idx, p$idx[-1]), ci = p$ci, last = p$last)
+    } else if (isTRUE(last$last) && isTRUE(p$first) && identical(p$ci, last$ci + 1L) &&
+               (dt <- timestamps[p$idx[1]] - timestamps[utils::tail(last$idx, 1)]) <= 20 &&
+               path_cumulative_m(rbind(last$coords[nrow(last$coords), ], p$coords[1, ]))[2] <= 30 + 30 * dt) {
+      merged[[length(merged)]] <- list(coords = rbind(last$coords, p$coords), idx = c(last$idx, p$idx), ci = p$ci,
+                                       last = p$last)
     } else {
       merged[[length(merged) + 1L]] <- p
     }
   }
 
   result$ok <- TRUE
-  result$pieces <- merged
+  result$pieces <- lapply(merged, function(p) list(coords = p$coords, idx = p$idx))
   result$tracepoints <- tracepoints
   result$confidence <- if (all(is.na(confidences))) NA_real_ else min(confidences, na.rm = TRUE)
   result$n_dropped <- sum(sent & is.na(tracepoints[, 1]))

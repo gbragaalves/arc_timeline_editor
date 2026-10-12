@@ -36,7 +36,23 @@ REVIEW_THRESHOLDS <- list(
   min_pair_s        = 5,    # max speed ignores sample pairs closer in time
   match_radius_m    = c(5, 50),  # OSRM /match radiuses: horizontalAccuracy clamped
   point_every_m     = 100,  # clean path: one point per 100 m or 10 s,
-  point_every_s     = 10    #   whichever gives more points
+  point_every_s     = 10,   #   whichever gives more points
+  # Control pins (road trips): a pin within near_m of two passes of the
+  # recording pass_gap_m apart is ambiguous; pins snap to roads within
+  # radius_m (with the recording's bearing); samples become time anchors on
+  # the pinned route within max_off_m, searching ahead at most
+  # max(min_reach_m, max_speed_mps x the time since the last anchor)
+  pins = list(near_m = 100, pass_gap_m = 300, radius_m = 50, max_off_m = 100, max_speed_mps = 50, min_reach_m = 300),
+  # Road matching (review_match): collapse_stops sends a run of at least
+  # stop_min_samples slow samples (< stop_speed_mps) staying within
+  # stop_radius_m of their centroid as one point there (GPS jitter while
+  # stopped, e.g. at a traffic light); remove_spurs cuts out-and-back spurs of
+  # the matched route up to spur_max_m long; tidy: OSRM /match tidy. Measured
+  # on the September 2026 car inventory: remove_spurs lowered the manual work
+  # with no regression (on); collapse_stops lowered it more but flagged more
+  # trips and worsened the conformity (off); tidy=false gave longer detours
+  match_fixes = list(collapse_stops = FALSE, stop_speed_mps = 2, stop_radius_m = 30, stop_min_samples = 3,
+                     remove_spurs = TRUE, spur_max_m = 150, tidy = TRUE)
 )
 
 # Activities reviewed. code: LocoKit2 activity code; family: reference network;
@@ -59,8 +75,9 @@ review_activity_of <- function(code) {
   names(codes)[match(as.integer(code), codes)]
 }
 
-# Bump a family's version when its cached metrics change meaning
-REVIEW_CACHE_VERSION <- c(rail = 1L, road = 2L)
+# Bump a family's version when its cached metrics change meaning (road 3:
+# official.lua allows wrong-way driving)
+REVIEW_CACHE_VERSION <- c(rail = 1L, road = 3L)
 
 
 # ---- Items and samples ----
@@ -541,6 +558,157 @@ match_radiuses <- function(acc, th = REVIEW_THRESHOLDS) {
   pmin(pmax(acc, th$match_radius_m[1]), th$match_radius_m[2])
 }
 
+# ---- Road matching with the jitter fixes and manual exclusions ----
+
+# The match settings that change results (part of the review cache key)
+review_match_signature <- function(th = REVIEW_THRESHOLDS) {
+  f <- th$match_fixes %||% list()
+  paste0("stops", if (isTRUE(f$collapse_stops)) paste(f$stop_speed_mps, f$stop_radius_m, f$stop_min_samples, sep = ",") else "0",
+         ";spurs", if (isTRUE(f$remove_spurs)) f$spur_max_m else "0", ";tidy", if (isFALSE(f$tidy)) "0" else "1")
+}
+
+# Runs of slow samples staying put (s: lon, lat, t by time; use: the samples
+# considered): consecutive samples whose speed between them is < speed_mps,
+# all within radius_m of the run's centroid, at least min_n of them. List of
+# sample index vectors.
+stationary_clusters <- function(s, use = rep(TRUE, nrow(s)), speed_mps = 2, radius_m = 30, min_n = 3) {
+  idx <- which(use)
+  if (length(idx) < min_n) return(list())
+  lat0 <- mean(s$lat[idx])
+  kx <- 111320 * cos(lat0 * pi / 180)
+  ky <- 110540
+  x <- s$lon * kx
+  y <- s$lat * ky
+  dt <- diff(s$t[idx])
+  v <- sqrt(diff(x[idx])^2 + diff(y[idx])^2) / pmax(dt, 1e-6)
+  fits <- function(m) max(sqrt((x[m] - mean(x[m]))^2 + (y[m] - mean(y[m]))^2)) <= radius_m
+  out <- list()
+  k <- 1L
+  while (k < length(idx)) {
+    if (v[k] >= speed_mps || !fits(idx[c(k, k + 1L)])) {
+      k <- k + 1L
+      next
+    }
+    j <- k + 1L
+    while (j < length(idx) && v[j] < speed_mps && fits(idx[k:(j + 1L)])) j <- j + 1L
+    if (j - k + 1L >= min_n) out[[length(out) + 1L]] <- idx[k:j]
+    k <- j + 1L
+  }
+  out
+}
+
+# Out-and-back spurs of a route (n x 2 lon/lat): the route leaves a node and
+# comes back to it along the same points (a palindrome around a tip of 1 or
+# 2 points). Each spur is measured whole (from its tip outwards) and cut out,
+# the node kept, when it goes at most max_m out.
+remove_route_spurs <- function(coords, max_m = 150) {
+  repeat {
+    n <- nrow(coords)
+    if (n < 3) return(coords)
+    key <- paste(round(coords[, 1], 6), round(coords[, 2], 6))
+    cum <- path_cumulative_m(coords)
+    cut <- NULL
+    for (t in 2:(n - 1L)) {
+      for (w in 1:2) {                       # tip of 1 point (t) or 2 points (t, t + 1)
+        i <- t - 1L
+        j <- t + w
+        if (j > n || key[i] != key[j]) next
+        while (i > 1L && j < n && key[i - 1L] == key[j + 1L]) {
+          i <- i - 1L
+          j <- j + 1L
+        }
+        if ((cum[j] - cum[i]) / 2 <= max_m && n - (j - i) >= 2L) {
+          cut <- (i + 1L):j
+          break
+        }
+      }
+      if (!is.null(cut)) break
+    }
+    if (is.null(cut)) return(coords)
+    coords <- coords[-cut, , drop = FALSE]
+  }
+}
+
+# OSRM /match for a road trip (s: review_clean_samples()) with
+# th$match_fixes and manual exclusions (exclude: sample times, epoch s, kept
+# out of the match input). The result is osrm_match()'s, on all the samples:
+# a collapsed stop is sent as one point at its centroid and every sample of
+# it takes that point's tracepoint (a dwell); an excluded sample inside a
+# matched piece gets a tracepoint on that piece between its neighbours' (the
+# time spent there stays real); spurs are cut from the matched pieces.
+# Extra fields: held_out (not sent: excluded or collapsed), excluded, stops
+# (list of collapsed index vectors), spurs_removed (points cut).
+review_match <- function(s, profile, th = REVIEW_THRESHOLDS, exclude = NULL, match_fn = osrm_match) {
+  f <- th$match_fixes %||% list()
+  n <- nrow(s)
+  excluded <- if (length(exclude)) round(s$t) %in% round(as.numeric(exclude)) else rep(FALSE, n)
+  send <- !excluded
+  lon <- s$lon
+  lat <- s$lat
+  stops <- if (isTRUE(f$collapse_stops)) {
+    stationary_clusters(s, send, f$stop_speed_mps %||% 2, f$stop_radius_m %||% 30, f$stop_min_samples %||% 3)
+  } else {
+    list()
+  }
+  reps <- integer(0)
+  for (m in stops) {
+    r <- m[ceiling(length(m) / 2)]
+    lon[r] <- mean(s$lon[m])
+    lat[r] <- mean(s$lat[m])
+    send[setdiff(m, r)] <- FALSE
+    reps <- c(reps, r)
+  }
+  idx <- which(send)
+  m <- if (identical(match_fn, osrm_match)) {
+    match_fn(cbind(lon[idx], lat[idx]), s$t[idx], match_radiuses(s$acc[idx], th), profile = profile, tidy = !isFALSE(f$tidy))
+  } else {
+    match_fn(cbind(lon[idx], lat[idx]), s$t[idx], match_radiuses(s$acc[idx], th), profile = profile)
+  }
+  out <- list(ok = isTRUE(m$ok), pieces = list(), confidence = m$confidence %||% NA_real_,
+              tracepoints = matrix(NA_real_, n, 2, dimnames = list(NULL, c("lon", "lat"))),
+              sent = rep(FALSE, n), n_dropped = as.integer(m$n_dropped %||% 0L), held_out = !send, excluded = excluded,
+              stops = stops, spurs_removed = 0L)
+  if (length(idx)) {
+    out$tracepoints[idx, ] <- m$tracepoints
+    out$sent[idx] <- m$sent
+  }
+  pieces <- lapply(m$pieces, function(p) list(coords = p$coords, idx = idx[p$idx]))
+  if (isTRUE(f$remove_spurs)) {
+    pieces <- lapply(pieces, function(p) {
+      trimmed <- remove_route_spurs(p$coords, f$spur_max_m %||% 150)
+      out$spurs_removed <<- out$spurs_removed + nrow(p$coords) - nrow(trimmed)
+      p$coords <- trimmed
+      p
+    })
+  }
+  # Collapsed stops: every sample at the representative's tracepoint
+  for (k in seq_along(stops)) {
+    r <- reps[k]
+    pk <- which(vapply(pieces, function(p) r %in% p$idx, logical(1)))
+    if (length(pk) == 0) next
+    out$tracepoints[stops[[k]], ] <- matrix(out$tracepoints[r, ], length(stops[[k]]), 2, byrow = TRUE)
+    pieces[[pk]]$idx <- sort(unique(c(pieces[[pk]]$idx, stops[[k]])))
+  }
+  # Excluded samples inside a piece: on the piece, between their neighbours
+  for (e in which(excluded)) {
+    pk <- which(vapply(pieces, function(p) length(p$idx) && min(p$idx) < e && e < max(p$idx), logical(1)))
+    if (length(pk) == 0) next
+    p <- pieces[[pk[1]]]
+    cum <- path_cumulative_m(p$coords)
+    a <- max(p$idx[p$idx < e])
+    b <- min(p$idx[p$idx > e])
+    dab <- project_along(p$coords, cum, out$tracepoints[c(a, b), , drop = FALSE])
+    sp <- polyline_segment_projection(p$coords, cum, c(s$lon[e], s$lat[e]))
+    win <- which(cum[-1] >= dab[1] & cum[-length(cum)] <= dab[2])
+    d <- if (length(win)) sp$d[win][which.min(sp$off[win])] else dab[1]
+    d <- min(max(d, dab[1]), dab[2])
+    out$tracepoints[e, ] <- path_points_at(p$coords, cum, d)
+    pieces[[pk[1]]]$idx <- sort(c(p$idx, e))
+  }
+  out$pieces <- pieces
+  out
+}
+
 # Geometric conformity of a trip's recorded path. trip_samples: data.frame
 # (lon, lat, t, acc). Rail activities are measured against the rails of their
 # types (reference: sfc of lines, any crs; default from rails.gpkg), road
@@ -568,9 +736,7 @@ conformity <- function(trip_samples, activity, reference = NULL, match = NULL, t
       sf::st_transform(sf::st_geometry(reference), crs)
     }
   } else {
-    if (is.null(match)) {
-      match <- osrm_match(cbind(s$lon, s$lat), s$t, match_radiuses(s$acc, th), profile = act$osrm)
-    }
+    if (is.null(match)) match <- review_match(s, act$osrm, th)
     m$match_confidence <- match$confidence
     m$n_dropped <- as.integer(match$n_dropped)
     if (!isTRUE(match$ok)) {
@@ -636,7 +802,8 @@ review_cache_file <- function() file.path(REVIEW_SCRATCH_DIR, "review_cache.rds"
 review_cache_key <- function(trip, th = REVIEW_THRESHOLDS, rails_mtime = NA) {
   fam <- REVIEW_ACTIVITIES[[trip$activity]]$family
   paste(trip$id, trip$last_saved, fam, th[[fam]]$tol_m, th$densify_m,
-        if (fam == "rail") rails_mtime else REVIEW_ACTIVITIES[[trip$activity]]$osrm, REVIEW_CACHE_VERSION[[fam]], sep = "|")
+        if (fam == "rail") rails_mtime else REVIEW_ACTIVITIES[[trip$activity]]$osrm, REVIEW_CACHE_VERSION[[fam]],
+        if (fam == "road") review_match_signature(th), sep = "|")
 }
 
 # Metrics for every trip of a trip_inventory(..., with_samples = FALSE) table.
@@ -1173,6 +1340,150 @@ via_waypoints <- function(s, from_i, to_i, every_m = 300, th = REVIEW_THRESHOLDS
   c(out, to_i)
 }
 
+# ---- Control pins (road trips) ----
+
+# Distance along a polyline (cum: path_cumulative_m) of the nearest point of
+# each segment to pt, and the distance (m) from pt to it
+polyline_segment_projection <- function(coords, cum, pt) {
+  n <- nrow(coords)
+  lat0 <- mean(coords[, 2])
+  kx <- 111320 * cos(lat0 * pi / 180)
+  ky <- 110540
+  ax <- coords[-n, 1] * kx; ay <- coords[-n, 2] * ky
+  dx <- coords[-1, 1] * kx - ax; dy <- coords[-1, 2] * ky - ay
+  len2 <- dx^2 + dy^2
+  px <- pt[1] * kx; py <- pt[2] * ky
+  f <- ifelse(len2 > 0, ((px - ax) * dx + (py - ay) * dy) / len2, 0)
+  f <- pmax(0, pmin(1, f))
+  list(d = cum[-n] + f * (cum[-1] - cum[-n]), off = sqrt((px - ax - f * dx)^2 + (py - ay - f * dy)^2))
+}
+
+# Pins in travel order. pins: data.frame(id, lon, lat, after), after = NA or
+# a placement by hand ("start", or the id of the pin it follows). Each pin is
+# projected onto the recorded path (its nearest point anywhere along it) and
+# sorted by that distance; a pin within near_m of two passes of the recording
+# at least pass_gap_m apart along it (a loop, an out-and-back) is ambiguous.
+# Placements by hand are applied after the sort. Returns the pins with d (m
+# along the recording), off_m, ambiguous and bearing (the travel direction
+# there; NA when the pin is farther than near_m from the recording), ordered.
+order_pins <- function(s, pins, th = REVIEW_THRESHOLDS) {
+  if (is.null(pins) || nrow(pins) == 0) return(pins)
+  pt <- th$pins
+  coords <- cbind(s$lon, s$lat)
+  cum <- path_cumulative_m(coords)
+  total <- cum[length(cum)]
+  pins$after <- pins$after %||% NA_character_
+  info <- lapply(seq_len(nrow(pins)), function(k) {
+    sp <- polyline_segment_projection(coords, cum, c(pins$lon[k], pins$lat[k]))
+    j <- which.min(sp$off)
+    near <- sort(sp$d[sp$off <= pt$near_m])
+    passes <- if (length(near)) 1L + sum(diff(near) > pt$pass_gap_m) else 0L
+    bearing <- NA_real_
+    if (sp$off[j] <= pt$near_m && total > 0) {
+      ends <- path_points_at(coords, cum, c(max(0, sp$d[j] - 40), min(total, sp$d[j] + 40)))
+      if (any(ends[1, ] != ends[2, ])) bearing <- geosphere::bearing(ends[1, ], ends[2, ])
+    }
+    c(d = sp$d[j], off_m = sp$off[j], ambiguous = passes >= 2, bearing = bearing)
+  })
+  info <- do.call(rbind, info)
+  pins$d <- info[, "d"]; pins$off_m <- info[, "off_m"]; pins$ambiguous <- info[, "ambiguous"] == 1; pins$bearing <- info[, "bearing"]
+  ordered <- pins$id[order(pins$d)]
+  # Placements by hand, in the sorted order
+  for (id in ordered[ordered %in% pins$id[!is.na(pins$after)]]) {
+    target <- pins$after[pins$id == id]
+    if (!identical(target, "start") && !target %in% setdiff(ordered, id)) next
+    ordered <- setdiff(ordered, id)
+    pos <- if (identical(target, "start")) 0L else match(target, ordered)
+    ordered <- append(ordered, id, after = pos)
+  }
+  out <- pins[match(ordered, pins$id), ]
+  rownames(out) <- NULL
+  out
+}
+
+# Along-route distance of each sample (s: lon, lat, t, by time) on the route
+# coords, forward only: from the previous anchor, within max(min_reach_m,
+# max_speed_mps x the time since it), the nearest point of the route; NA when
+# farther than max_off_m from the route (an outlier, skipped). Non-decreasing.
+project_samples_monotonic <- function(coords, cum, s, max_off_m = 100, max_speed_mps = 50, min_reach_m = 300) {
+  n <- nrow(coords)
+  out <- rep(NA_real_, nrow(s))
+  if (n < 2 || nrow(s) == 0) return(out)
+  last_d <- 0
+  last_t <- s$t[1]
+  for (k in seq_len(nrow(s))) {
+    hi <- last_d + max(min_reach_m, max_speed_mps * (s$t[k] - last_t))
+    segs <- which(cum[-1] >= last_d & cum[-n] <= hi)
+    if (length(segs) == 0) next
+    # the stretch of route between the window's first and last segments
+    v <- c(segs, max(segs) + 1L)
+    sp <- polyline_segment_projection(coords[v, , drop = FALSE], cum[v], c(s$lon[k], s$lat[k]))
+    d <- pmin(pmax(sp$d, last_d), hi)
+    j <- which.min(sp$off)
+    if (sp$off[j] > max_off_m) next
+    out[k] <- d[j]
+    last_d <- d[j]
+    last_t <- s$t[k]
+  }
+  out
+}
+
+# Timed path over coords (a pinned route) from the recording: each sample
+# projected onto it (project_samples_monotonic) is a time anchor; the route's
+# ends take the trip's first and last sample times; times in between are
+# linear by distance (timed_path_from_anchors), then resampled, on whole
+# seconds strictly increasing (as the GPX writes them; multimodal_path).
+# Attribute "anchored": the samples used.
+pinned_timed_path <- function(s, coords, th = REVIEW_THRESHOLDS) {
+  pt <- th$pins
+  coords <- as.matrix(coords[, 1:2])
+  colnames(coords) <- c("lon", "lat")
+  cum <- path_cumulative_m(coords)
+  total <- cum[length(cum)]
+  d <- project_samples_monotonic(coords, cum, s, pt$max_off_m, pt$max_speed_mps, pt$min_reach_m)
+  ok <- which(!is.na(d) & s$t > s$t[1] & s$t < s$t[nrow(s)])
+  anchor_d <- c(0, d[ok], total)
+  anchor_t <- c(s$t[1], s$t[ok], s$t[nrow(s)])
+  path <- timed_path_from_anchors(coords, anchor_d, anchor_t)
+  out <- multimodal_path(resample_timed_path(path, th$point_every_m, th$point_every_s), s$t[1], s$t[nrow(s)])
+  attr(out, "anchored") <- length(ok) + 2L
+  out
+}
+
+# Road fix through control pins: OSRM /route (route_via_fn) on profile from the
+# first sample (or start: c(lon, lat), a moved origin) through the pins
+# (order_pins: with the recording's bearing where known, a radius_m snap) to
+# the last sample (or end), timed by the recording (pinned_timed_path: the
+# trip's start and end times stay). NULL when OSRM finds no route.
+pinned_route_fix <- function(s, pins, profile, th = REVIEW_THRESHOLDS, route_via_fn = osrm_route_via,
+                             start = NULL, end = NULL) {
+  if (is.null(pins)) pins <- data.frame(id = character(0), lon = numeric(0), lat = numeric(0), after = character(0))
+  op <- order_pins(s, pins, th)
+  n <- nrow(s)
+  pts <- rbind(start %||% c(s$lon[1], s$lat[1]), cbind(op$lon, op$lat), end %||% c(s$lon[n], s$lat[n]))
+  r <- tryCatch(route_via_fn(pts, profile, bearings = c(NA, op$bearing, NA),
+                             radiuses = c(NA, rep(th$pins$radius_m, nrow(op)), NA)), error = function(e) NULL)
+  if (is.null(r$coords) || nrow(r$coords) < 2) return(NULL)
+  path <- pinned_timed_path(s, r$coords, th)
+  list(path = path, method = "pins", on_network = TRUE, n_pins = nrow(op), pins = op, anchored = attr(path, "anchored"))
+}
+
+# New positions for samples (s: lon, lat, t, by time) on a route (Edit Samples
+# snap through pins): the projection of each sample on the route; samples
+# without one (outliers) by time between their neighbours. n x 2 lon/lat.
+snap_positions_to_route <- function(coords, s, th = REVIEW_THRESHOLDS) {
+  pt <- th$pins
+  coords <- as.matrix(coords[, 1:2])
+  cum <- path_cumulative_m(coords)
+  d <- project_samples_monotonic(coords, cum, s, pt$max_off_m, pt$max_speed_mps, pt$min_reach_m)
+  d[1] <- 0
+  d[length(d)] <- cum[length(cum)]
+  known <- which(!is.na(d))
+  d <- stats::approx(s$t[known], d[known], xout = s$t, rule = 2, ties = "ordered")$y
+  d <- cummax(d)
+  path_points_at(coords, cum, d)
+}
+
 # Default proposal for a road trip (s: review_clean_samples()): the OSRM match
 # with its gaps routed, or a route between the ends when nothing matched; with
 # the checks of road_proposal_check(). profile: OSRM profile (default: the activity's)
@@ -1522,14 +1833,78 @@ multimodal_path <- function(path, t_start, t_end) {
   p
 }
 
+# Names for a split's GPX: the wait takes the stop's name (stop: list(name,
+# source), see stop_name_for) as its track name; the ride (bus / rail leg)
+# takes leg_text (jae_leg_text) as its <desc>
+multimodal_label_segments <- function(segs, stop = NULL, leg_text = NULL) {
+  lapply(segs, function(g) {
+    if (identical(g$role, "wait") && !is.null(stop$name) && nzchar(stop$name)) {
+      g$gpx_name <- stop$name
+      g$stop <- stop
+    }
+    if (g$role %in% c("bus", "rail") && !is.null(leg_text) && nzchar(leg_text)) g$desc <- leg_text
+    g
+  })
+}
+
 # Accepted fix for a split trip: the segments as separate tracks (name, type,
-# path), plus their joined path for the batch file name and the map
-multimodal_accepted <- function(segs, activity) {
+# path, gpx_name, desc; role, times and stop for the notes), plus their joined
+# path for the batch file name and the map. tap: the Jaé boarding (a
+# read_jae_boardings() row) for the ride's note.
+multimodal_accepted <- function(segs, activity, tap = NULL) {
   paths <- lapply(segs, `[[`, "path")
   joined <- do.call(rbind, paths)
   joined <- joined[c(TRUE, diff(joined$t) > 0), ]
-  list(activity = activity, path = joined, method = "split",
-       segments = lapply(segs, function(g) list(name = g$name, type = g$type, path = g$path)))
+  list(activity = activity, path = joined, method = "split", tap = tap,
+       segments = lapply(segs, function(g) list(name = g$name, type = g$type, path = g$path, gpx_name = g$gpx_name,
+                                                desc = g$desc, role = g$role, t_start = g$t_start, t_end = g$t_end,
+                                                stop = g$stop)))
+}
+
+# Arc notes for the accepted split trips (see multimodal_notes), by time.
+# ride_body(tap): the ride leg's note body (e.g. smtr_note_body), NULL to
+# keep its leg text.
+review_notes <- function(accepted, wait_note = TRUE, ride_body = function(tap) NULL) {
+  notes <- list()
+  for (a in accepted) {
+    if (is.null(a$segments)) next
+    body <- if (!is.null(a$tap)) ride_body(a$tap)
+    segs <- lapply(a$segments, function(g) {
+      if (g$role %in% c("bus", "rail") && !is.null(body) && nzchar(body)) g$note_body <- body
+      g
+    })
+    notes <- c(notes, multimodal_notes(segs, wait_note))
+  }
+  notes[order(vapply(notes, function(n) as.numeric(n$start_utc), numeric(1)))]
+}
+
+# Arc notes for a split, for write_notes_package_dir(): list(body, start_utc,
+# end_utc, role). Arc attaches a note to every item its time range touches
+# (and doesn't show instant notes), so each note is a range strictly inside
+# its segment (see multimodal_note_range): a ride leg (bus / rail; body =
+# g$note_body, e.g. the SMTR bus note, else the leg text g$desc) and, with
+# wait_note, the wait (body = the stop name).
+multimodal_notes <- function(segs, wait_note = TRUE, margin_s = 15, min_leg_s = 40) {
+  out <- list()
+  for (g in segs) {
+    role <- g$role %||% ""
+    body <- if (role %in% c("bus", "rail")) {
+      g$note_body %||% g$desc
+    } else if (wait_note && role == "wait") {
+      g$stop$name
+    }
+    if (is.null(body) || !nzchar(body)) next
+    r <- multimodal_note_range(g$t_start, g$t_end, margin_s, min_leg_s)
+    if (!is.null(r)) out[[length(out) + 1L]] <- list(body = body, start_utc = r[1], end_utc = r[2], role = role)
+  }
+  out
+}
+
+# Note range inside a segment: start + margin_s .. end - margin_s, on whole
+# seconds inside those bounds. NULL for a segment shorter than min_leg_s.
+multimodal_note_range <- function(t_start, t_end, margin_s = 15, min_leg_s = 40) {
+  if (t_end - t_start < min_leg_s) return(NULL)
+  c(ceiling(t_start + margin_s), floor(t_end - margin_s))
 }
 
 
@@ -1537,7 +1912,8 @@ multimodal_accepted <- function(segs, activity) {
 
 # build_gpx() inputs for accepted fixes (named list by trip id; each with
 # activity and path = data.frame(lon, lat, t)). A split trip (segments: name,
-# type, path; see multimodal_accepted) gives one track per segment.
+# type, path, gpx_name, desc; see multimodal_accepted) gives one track per
+# segment.
 review_gpx_input <- function(accepted) {
   items <- list()
   samples <- list()
@@ -1555,7 +1931,9 @@ review_gpx_input <- function(accepted) {
         .internalId = item_id,
         base = list(id = item_id, isVisit = FALSE),
         trip = list(confirmedActivityType = g$code %||% activity_type_code(g$type)),
-        description = g$name
+        description = g$name,
+        .gpxName = g$gpx_name,
+        .gpxDesc = g$desc
       )
       dates <- format(as.POSIXct(round(p$t), origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
       samples <- c(samples, lapply(seq_len(nrow(p)), function(i) list(

@@ -149,6 +149,7 @@ APP_CSS <- "
   .status-dot { display: inline-flex; align-items: center; gap: 4px; }
   .status-dot .dot { width: 9px; height: 9px; border-radius: 50%; background: #adb5bd; }
   .status-dot.ok .dot { background: #198754; }
+  .status-dot.warn .dot { background: #fd7e14; }
   .app-topbar .dropdown-menu { font-size: 0.85rem; }
   .lang-toggle .btn { padding: 0.1rem 0.45rem; font-size: 0.75rem; }
 
@@ -289,6 +290,24 @@ APP_CSS <- "
   .review-detail .rv-split-osrm .checkbox, .review-detail .rv-split-osrm .form-check { margin: 0; min-height: 0; white-space: nowrap; }
   .review-detail .rv-split-after .form-check-inline, .review-detail .rv-split-after .radio-inline { margin-right: 0.45rem; }
   .review-detail .rv-segs { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+  .review-detail .rv-split-stop .shiny-input-container { flex: 1 1 auto; min-width: 0; }
+  .review-detail .rv-split-stop input { font-size: 0.8rem; padding: 0 0.4rem; min-height: 0; height: 1.6rem; }
+  .review-notes-opts { display: flex; column-gap: 10px; font-size: 0.8rem; }
+  .review-notes-opts .shiny-input-container { margin-bottom: 0.25rem !important; width: auto; white-space: nowrap; }
+  .review-detail .rv-pin-btn { flex: 0 0 auto; font-size: 0.72rem; padding: 0 5px; line-height: 1.35; }
+  .review-detail .rv-pin-amb { display: flex; align-items: center; gap: 6px; }
+  .review-detail .rv-pin-amb select { width: auto; font-size: 0.72rem; padding: 0 1.6rem 0 0.4rem; min-height: 0; }
+  .leaflet-container.lasso-mode, .leaflet-container.lasso-mode .leaflet-interactive { cursor: crosshair; }
+  .leaflet-interactive.route-hit { cursor: grab; }
+  .route-end { border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); cursor: grab; }
+  .route-end-start { background: #2E7D32; }
+  .route-end-end { background: #C62828; }
+  .leaflet-marker-icon.sample-excluded { filter: grayscale(1) opacity(0.55); outline: 2px solid #37474F; outline-offset: -2px; border-radius: 50%; }
+  .bus-arrow span { display: inline-block; font-size: 11px; line-height: 12px; text-shadow: 0 0 2px #fff; }
+  .bus-popup table { font-size: 0.75rem; margin-top: 4px; }
+  .bus-popup td { padding: 0 6px 0 0; vertical-align: top; }
+  .bus-popup td:first-child { color: #616161; white-space: nowrap; }
+  .leaflet-tooltip.pin-label { font-weight: 700; padding: 0 4px; }
   .review-detail .rv-seg { border-left: 4px solid; padding-left: 3px; white-space: nowrap; }
   .review-detail .rv-warn { color: var(--bs-danger-text-emphasis); }
   .review-detail .rv-clamp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -521,14 +540,31 @@ edit_samples_pane <- shiny::tagList(
         )
       ),
       shiny::div(
+        class = "btn-row",
+        shiny::tags$button(id = "edit_pin_toggle", type = "button", `data-edit-pin` = "toggle",
+                           class = "btn btn-sm btn-outline-secondary",
+                           `data-i18n-title` = "Edit the route (P): drag the line to add a via pin, drag a pin to move it; right-click or double-click a pin to remove it; Ctrl+Z undoes. Snap routes through the pins.",
+                           title = tr_lang("Edit the route (P): drag the line to add a via pin, drag a pin to move it; right-click or double-click a pin to remove it; Ctrl+Z undoes. Snap routes through the pins."),
+                           "\U0001F4CD ", t_("Pins")),
+        shiny::tags$button(type = "button", `data-edit-pin` = "clear", class = "btn btn-sm btn-outline-secondary", t_("Clear pins"))
+      ),
+      shiny::div(
         class = "d-flex align-items-center",
         shiny::checkboxInput("selection_mode", t_("Selection mode"), FALSE),
-        help_icon("Draw a lasso on the map to select multiple samples at once for bulk ignore or discard.")
+        help_icon("Draw a lasso on the map to select multiple samples at once for bulk ignore, discard or exclusion from the Snap routing.")
       ),
       shiny::div(
         class = "btn-row",
         shiny::actionButton("ignore_selected", t_("Ignore"), class = "btn-sm btn-outline-secondary"),
         shiny::actionButton("discard_selected", t_("Discard"), class = "btn-sm btn-outline-danger")
+      ),
+      shiny::div(
+        class = "btn-row",
+        shiny::tags$button(type = "button", `data-edit-pin` = "exclude", class = "btn btn-sm btn-outline-secondary",
+                           `data-i18n-title` = "Keep the selected samples out of the Snap routing (GPS jitter, e.g. stopped at a light); they are still placed on the route. Ctrl+Z undoes.",
+                           title = tr_lang("Keep the selected samples out of the Snap routing (GPS jitter, e.g. stopped at a light); they are still placed on the route. Ctrl+Z undoes."),
+                           t_("Exclude from snap")),
+        shiny::tags$button(type = "button", `data-edit-pin` = "clear_excl", class = "btn btn-sm btn-outline-secondary", t_("Clear exclusions"))
       )
     ),
     bslib::accordion_panel(
@@ -664,10 +700,19 @@ batch_review_pane <- shiny::tagList(
       shiny::uiOutput("review_export_count"),
       shiny::checkboxInput("review_only_checked", t_("Send only checked"), FALSE),
       if (icloud_available()) {
-        shiny::div(
-          class = "mb-1",
-          bslib::input_task_button("review_send_icloud", t_("Send batch GPX to iCloud"), label_busy = t_("Sending..."),
-                                   class = "btn-sm w-100")
+        shiny::tagList(
+          shiny::div(
+            class = "review-notes-opts",
+            title = tr_lang("With Send: the split trips' Jaé notes (bus: SMTR data) go to iCloud Import as a notes package."),
+            `data-i18n-title` = "With Send: the split trips' Jaé notes (bus: SMTR data) go to iCloud Import as a notes package.",
+            shiny::checkboxInput("review_jae_notes", t_("Add Jaé notes"), TRUE),
+            shiny::checkboxInput("review_wait_note", t_("Wait note"), TRUE)
+          ),
+          shiny::div(
+            class = "mb-1",
+            bslib::input_task_button("review_send_icloud", t_("Send batch GPX to iCloud"), label_busy = t_("Sending..."),
+                                     class = "btn-sm w-100")
+          )
         )
       },
       shiny::downloadButton("review_download", t_("Download batch GPX"), class = "btn-sm btn-outline-secondary w-100")
@@ -907,12 +952,50 @@ ui <- bslib::page_fillable(
         Shiny.setInputValue('review_split', {action: $(this).attr('data-review-split'), ts: Date.now()}, {priority: 'event'});
       });
 
+      // Control pins: pin mode on / off, clear; an ambiguous pin placed by hand
+      $(document).on('click', '[data-review-pin]', function(e) {
+        e.preventDefault();
+        Shiny.setInputValue('review_pin', {action: $(this).attr('data-review-pin'), ts: Date.now()}, {priority: 'event'});
+      });
+      $(document).on('click', '[data-edit-pin]', function(e) {
+        e.preventDefault();
+        Shiny.setInputValue('edit_pin', {action: $(this).attr('data-edit-pin'), ts: Date.now()}, {priority: 'event'});
+      });
+      $(document).on('change', 'select[data-review-pin-after]', function() {
+        Shiny.setInputValue('review_pin_after', {pin: $(this).attr('data-review-pin-after'), after: $(this).val(), ts: Date.now()},
+                            {priority: 'event'});
+      });
+      // Pin markers (Batch review: review_pins; Edit Samples: edit_pins): drag moves, right-click removes
+      window.bindPinMarker = function(layer, prefix) {
+        var pinId = String(layer.options.layerId).replace(/^pin_/, '');
+        layer.off('dragend');
+        layer.off('contextmenu');
+        layer.on('dragend', function() {
+          var ll = layer.getLatLng();
+          Shiny.setInputValue(prefix + '_moved', {id: pinId, lat: ll.lat, lng: ll.lng, ts: Date.now()}, {priority: 'event'});
+        });
+        layer.on('contextmenu', function(e) {
+          L.DomEvent.stopPropagation(e);
+          L.DomEvent.preventDefault(e);
+          Shiny.setInputValue(prefix + '_remove', {id: pinId, ts: Date.now()}, {priority: 'event'});
+        });
+      };
+      Shiny.addCustomMessageHandler('pin_mode', function(msg) {
+        $('#map').toggleClass('pin-mode', !!msg.on);
+        if (msg.scope === 'edit') $('#edit_pin_toggle').toggleClass('btn-primary', !!msg.on).toggleClass('btn-outline-secondary', !msg.on);
+      });
+
       // Keys: A accept, S skip, R re-route (Batch review only, not while typing)
       $(document).on('keydown', function(e) {
-        if ($('#mode input:checked').val() !== 'BatchReview') return;
+        var mode = $('#mode input:checked').val();
+        if (mode !== 'BatchReview' && mode !== 'EditSamples') return;
         if (e.ctrlKey || e.metaKey || e.altKey || $('.modal.show').length) return;
         if ($(e.target).is('input, textarea, select, [contenteditable]')) return;
-        var id = {a: 'review_accept', s: 'review_skip', r: 'review_reroute'}[String(e.key).toLowerCase()];
+        if (mode === 'EditSamples') {
+          if (String(e.key).toLowerCase() === 'p') { e.preventDefault(); $('#edit_pin_toggle').click(); }
+          return;
+        }
+        var id = {a: 'review_accept', s: 'review_skip', r: 'review_reroute', p: 'review_pin_toggle'}[String(e.key).toLowerCase()];
         if (id) {
           e.preventDefault();
           $('#' + id).click();
@@ -949,6 +1032,9 @@ ui <- bslib::page_fillable(
         map.on('layeradd', function(e) {
           var layer = e.layer;
           if (layer.options && layer.options.group === 'review_samples' && layer.options.layerId) bindReviewSample(layer);
+          if (layer.options && layer.options.layerId && (layer.options.group === 'review_pins' || layer.options.group === 'edit_pins')) {
+            bindPinMarker(layer, layer.options.group === 'review_pins' ? 'review_pin' : 'edit_pin');
+          }
         });
       }
       $(document).on('shiny:connected', function() { setTimeout(hookReviewMap, 500); });
@@ -1092,7 +1178,8 @@ ui <- bslib::page_fillable(
           if (!map) return;
 
           map.eachLayer(function(layer) {
-            if (layer.options && layer.options.layerId && layer.options.draggable) {
+            if (layer.options && layer.options.layerId && layer.options.draggable &&
+                layer.options.group !== 'review_pins' && layer.options.group !== 'edit_pins') {
               bindSampleMarker(layer);
             }
           });
@@ -1595,6 +1682,9 @@ ui <- bslib::page_fillable(
       });
     });
   ")),
+
+  # Route editing by dragging, sample lasso, Ctrl+Z, map overlays (ui_route_edit_js.R)
+  shiny::tags$script(shiny::HTML(ROUTE_EDIT_JS)),
 
   # Translations for the client-side language switch
   shiny::tags$script(shiny::HTML(paste0(

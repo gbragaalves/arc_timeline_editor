@@ -3,7 +3,8 @@
 # network (R/utils_review.R), shows each one with a proposed clean path, and
 # exports the accepted fixes as one GPX with one <trk> per trip.
 review_server <- function(input, output, session, tr, current_lang) {
-  REVIEW_GROUPS <- c("review_ref", "review_recorded", "review_proposed", "review_markers", "review_samples", "review_split")
+  REVIEW_GROUPS <- c("review_ref", "review_recorded", "review_proposed", "review_markers", "review_samples", "review_split",
+                     "review_pins")
   SAMPLE_POINT <- "__sample__"  # station select: keep the recorded point
 
   rv <- shiny::reactiveValues(
@@ -12,6 +13,11 @@ review_server <- function(input, output, session, tr, current_lang) {
     status = character(0),  # by trip id: flagged, ok, fixed, accepted, skipped
     accepted = list(),      # by trip id: list(activity, path = data.frame(lon, lat, t), method)
     checked = character(0),
+    pins = list(),          # control pins by trip id: data.frame(id, lon, lat, after) (road trips)
+    route_ends = list(),    # moved route ends by trip id: list(start = c(lon, lat), end = c(lon, lat))
+    exclusions = list(),    # samples kept out of /match by trip id: their times (epoch s)
+    pin_mode = FALSE,       # route editing: drag the route, its ends and the pins
+    lasso_mode = FALSE,     # lasso on the map: exclude samples from /match
     selected = NULL,
     proposal = NULL,        # fix for the selected trip
     params = NULL
@@ -59,7 +65,8 @@ review_server <- function(input, output, session, tr, current_lang) {
   save_state <- function() {
     shiny::isolate(save_review_state(list(
       params = rv$params, trips = rv$trips, status = rv$status,
-      accepted = rv$accepted, checked = rv$checked
+      accepted = rv$accepted, checked = rv$checked, pins = rv$pins, route_ends = rv$route_ends,
+      exclusions = rv$exclusions
     )))
   }
 
@@ -133,7 +140,21 @@ review_server <- function(input, output, session, tr, current_lang) {
       fx$route_key <- key
     } else {
       profile <- o$profile %||% REVIEW_ACTIVITIES[[act]]$osrm
-      if (identical(profile, REVIEW_ACTIVITIES[[act]]$osrm)) {
+      excl <- shiny::isolate(rv$exclusions[[id]])
+      if (length(excl)) {
+        # Samples excluded by lasso: matched again without them (cached per set)
+        key <- paste(id, profile, paste(sort(round(excl)), collapse = ","))
+        alt <- road_alt[[key]]
+        if (is.null(alt)) {
+          alt <- shiny::withProgress(message = tr("Matching to the roads..."), value = 0.5, {
+            m <- review_match(s, profile, exclude = excl)
+            list(match = m, base = road_proposal(s, m, act, profile = profile))
+          })
+          assign(key, alt, envir = road_alt)
+        }
+        m <- alt$match
+        base <- alt$base
+      } else if (identical(profile, REVIEW_ACTIVITIES[[act]]$osrm)) {
         m <- shiny::isolate(rv$matches[[id]])
         base <- road_base[[id]]
         if (is.null(base)) {
@@ -144,7 +165,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         alt <- road_alt[[paste(id, profile)]]
         if (is.null(alt)) {
           alt <- shiny::withProgress(message = tr("Matching to the roads..."), value = 0.5, {
-            m <- osrm_match(cbind(s$lon, s$lat), s$t, match_radiuses(s$acc), profile = profile)
+            m <- review_match(s, profile)
             list(match = m, base = road_proposal(s, m, act, profile = profile))
           })
           assign(paste(id, profile), alt, envir = road_alt)
@@ -155,7 +176,19 @@ review_server <- function(input, output, session, tr, current_lang) {
       from <- o$origin_idx %||% 1L
       to <- min(max(o$dest_idx %||% nrow(s), from + 1L), nrow(s))
       fx <- base
-      if (isTRUE(o$reroute) && isTRUE(base$detour)) {
+      pins <- shiny::isolate(rv$pins[[id]])
+      ends <- shiny::isolate(rv$route_ends[[id]])
+      if ((!is.null(pins) && nrow(pins) > 0) || length(ends)) {
+        # Control pins / moved ends: OSRM /route start -> pins -> end, timed by the recording
+        pf <- shiny::withProgress(message = tr("Routing through the pins..."), value = 0.5, {
+          pinned_route_fix(s, pins, profile, start = ends$start, end = ends$end)
+        })
+        if (is.null(pf)) {
+          notify(tr("Could not route through the pins (OSRM)."), type = "error")
+        } else {
+          fx <- road_proposal_check(pf, s, act, 1L, nrow(s), profile = profile)
+        }
+      } else if (isTRUE(o$reroute) && isTRUE(base$detour)) {
         via <- if (!refresh_route && identical(prev$via_key, c(from, to, profile))) prev$candidates$via else NULL
         if (is.null(via)) {
           via <- shiny::withProgress(message = tr("Routing through the recorded path..."), value = 0.5, {
@@ -187,6 +220,7 @@ review_server <- function(input, output, session, tr, current_lang) {
       fx$plan <- list(origin_idx = if (matched) 1L else from, dest_idx = if (matched) nrow(s) else to)
       fx$confidence <- m$confidence %||% NA_real_
       fx$profile <- profile
+      fx$ref_match <- m
     }
     fx$id <- id
     fx$activity <- act
@@ -211,6 +245,10 @@ review_server <- function(input, output, session, tr, current_lang) {
       out$ignored <- TRUE
       return(out)
     }
+    # The wait's stop: the rail leg's departure station, else from the tap point (see stop_name_for)
+    dep <- if (rail) fx$plan$dep$name
+    out$stop <- if (!is.null(dep) && nzchar(dep)) list(name = dep, source = "station") else
+      stop_name_for(tap$longitude, tap$latitude, lang = current_lang())
     if (!rail && is.null(sp$alight_idx)) return(out)
     out$segments <- tryCatch(
       shiny::withProgress(message = tr("Splitting the trip..."), value = 0.5, {
@@ -229,6 +267,8 @@ review_server <- function(input, output, session, tr, current_lang) {
   }
 
   select_trip <- function(id, refresh_route = FALSE) {
+    if (!identical(shiny::isolate(rv$selected), id) && shiny::isolate(rv$pin_mode)) set_pin_mode(FALSE)
+    if (!identical(shiny::isolate(rv$selected), id) && shiny::isolate(rv$lasso_mode)) set_lasso_mode(FALSE)
     rv$selected <- id
     fx <- if (!refresh_route) proposals[[id]] else NULL
     if (is.null(fx)) fx <- compute_proposal(id, refresh_route)
@@ -354,6 +394,9 @@ review_server <- function(input, output, session, tr, current_lang) {
     rv$status <- st$status
     rv$accepted <- st$accepted
     rv$checked <- st$checked %||% character(0)
+    rv$pins <- st$pins %||% list()
+    rv$route_ends <- st$route_ends %||% list()
+    rv$exclusions <- st$exclusions %||% list()
     rv$params <- st$params
     rv$selected <- NULL
     rv$proposal <- NULL
@@ -519,6 +562,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     )
     if (rail) {
       # The segments and the fallback share a line (the departure is in the start row)
+      # The wait takes the departure station (its select in the start row): no stop row
       return(c(out, list(shiny::div(class = "rv-split-row", chips %||% shiny::span(), osrm_box))))
     } else {
       alight <- if (is.null(sp$alight_idx)) {
@@ -535,8 +579,49 @@ review_server <- function(input, output, session, tr, current_lang) {
                                        choiceValues = list("walk", "visit", "none")))
       ))
     }
-    c(out, list(chips))
+    c(out, list(chips, stop_row(id, sp)))
   }
+
+  # The bus wait's stop name (track name and wait note), editable, with its source
+  split_stop <- function(id, sp) {
+    edited <- get_ov(id)$split$stop_name
+    if (!is.null(edited) && nzchar(edited)) return(list(name = edited, source = "edited"))
+    sp$stop
+  }
+  stop_row <- function(id, sp) {
+    if (is.null(sp$stop) || !any(vapply(sp$segments, function(g) identical(g$role, "wait"), logical(1)))) return(NULL)
+    shiny::div(
+      class = "rv-split-row rv-split-stop",
+      shiny::span(tr("Stop")),
+      shiny::textInput("review_split_stop", NULL, split_stop(id, sp)$name, updateOn = "blur"),
+      shiny::span(class = "text-secondary", title = tr("Name source"), shiny::textOutput("review_split_stop_src", inline = TRUE))
+    )
+  }
+  # Its source follows an edit without re-rendering the detail
+  stop_edits <- shiny::reactiveVal(0)
+  output$review_split_stop_src <- shiny::renderText({
+    stop_edits()
+    id <- rv$selected
+    fx <- rv$proposal
+    if (is.null(id) || is.null(fx) || !identical(fx$id, id) || is.null(fx$split$stop)) return("")
+    st <- split_stop(id, fx$split)
+    if (identical(st$source, "edited")) tr("edited") else stop_source_label(st$source, current_lang())
+  })
+  # Ambiguous pins (near two passes of the recording): where each goes, by hand
+  pin_order_rows <- function(fx) {
+    op <- fx$pins
+    if (!identical(fx$method, "pins") || is.null(op) || !any(op$ambiguous)) return(NULL)
+    lapply(which(op$ambiguous), function(k) {
+      others <- setdiff(seq_len(nrow(op)), k)
+      current <- if (k == 1) "start" else op$id[k - 1]
+      opts <- c(list(shiny::tags$option(value = "start", selected = if (current == "start") NA, tr("Start"))),
+                lapply(others, function(j) shiny::tags$option(value = op$id[j], selected = if (op$id[j] == current) NA,
+                                                              sprintf(tr("Pin %d"), j))))
+      shiny::div(class = "rv-pin-amb", sprintf(tr("Pin %d is near two passes; after:"), k),
+                 shiny::tags$select(class = "form-select form-select-sm", `data-review-pin-after` = op$id[k], opts))
+    })
+  }
+
   segment_label <- function(g, act) {
     switch(g$role, walk_to_stop = , walk_from_stop = tr("Walk"), wait = tr("Wait"), bus = tr("Bus"),
            at_destination = tr("At destination"), rail = tr(REVIEW_ACTIVITIES[[act]]$label), g$role)
@@ -570,8 +655,22 @@ review_server <- function(input, output, session, tr, current_lang) {
     )
     # Road trips: their OSRM profile, on the title line (not while split: the bus leg uses bus)
     if (family_of(act) == "road" && !split_on(id)) {
+      n_pins <- nrow(rv$pins[[id]] %||% data.frame())
+      n_excl <- length(rv$exclusions[[id]])
       title <- shiny::div(
         class = "rv-title-row", title,
+        shiny::tags$button(
+          id = "review_pin_toggle", type = "button", `data-review-pin` = "toggle",
+          class = paste("btn btn-sm rv-pin-btn", if (isTRUE(rv$pin_mode)) "btn-primary" else "btn-outline-secondary"),
+          title = tr("Edit the route (P): drag the line to add a via pin, drag the start, the end or a pin; right-click or double-click a pin to remove it; Ctrl+Z undoes."),
+          paste0("\U0001F4CD", if (n_pins > 0) n_pins else "")
+        ),
+        shiny::tags$button(
+          id = "review_lasso_toggle", type = "button", `data-review-pin` = "lasso",
+          class = paste("btn btn-sm rv-pin-btn", if (isTRUE(rv$lasso_mode)) "btn-primary" else "btn-outline-secondary"),
+          title = tr("Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes."),
+          paste0("\u27B0", if (n_excl > 0) n_excl else "")
+        ),
         shiny::div(class = "review-profile", title = tr("Routing profile for this trip"),
                    shiny::selectInput("review_profile", NULL, choices = tr_choices(profile_choices(REVIEW_PROFILE_CHOICES), lang),
                                       selected = road_profile(id), width = "84px"))
@@ -640,6 +739,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         route = tr("Routed between start and end"),
         route_fallback = tr("No road match: routed between start and end"),
         via = sprintf(tr("Routed through the recorded path (%d waypoints)"), fx$n_waypoints),
+        pins = sprintf(tr("Routed through the pins (%d)"), fx$n_pins),
         fx$method
       )
       ratio <- if (is.na(fx$len_ratio %||% NA)) "" else sprintf(" (%.2f×)", fx$len_ratio)
@@ -654,7 +754,14 @@ review_server <- function(input, output, session, tr, current_lang) {
         )
       }
       parts <- c(parts, list(
-        shiny::div(class = "rv-clamp", title = method, method),
+        shiny::div(class = "rv-clamp", title = method, method,
+                   if (identical(fx$method, "pins")) {
+                     shiny::tagList(" · ", shiny::tags$a(href = "#", `data-review-pin` = "clear", tr("Clear pins")))
+                   },
+                   if (length(rv$exclusions[[id]])) {
+                     shiny::tagList(" · ", shiny::tags$a(href = "#", `data-review-pin` = "clear_excl", tr("Clear exclusions")))
+                   }),
+        pin_order_rows(fx),
         if (!isTRUE(fx$on_network)) shiny::div(class = "rv-warn", tr("Part of the path is a straight line (OSRM route failed).")),
         shiny::div(
           class = "text-secondary rv-clamp", title = rematch,
@@ -762,7 +869,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     acc <- rv$accepted
     acc[[id]] <- if (!is.null(sp$segments)) {
-      multimodal_accepted(sp$segments, fx$activity)
+      segs <- multimodal_label_segments(sp$segments, split_stop(id, sp), jae_leg_text(sp$tap))
+      multimodal_accepted(segs, fx$activity, tap = sp$tap)
     } else {
       list(activity = fx$activity, path = fx$path[, c("lon", "lat", "t")], method = fx$method)
     }
@@ -826,6 +934,16 @@ review_server <- function(input, output, session, tr, current_lang) {
     recompute_selected()
   }
   shiny::observeEvent(input$review_split_after, split_option("after", input$review_split_after, "walk"), ignoreInit = TRUE)
+  # Stop name edited (sent on blur / Enter): kept unless it is the proposed name; no recompute
+  shiny::observeEvent(input$review_split_stop, {
+    id <- rv$selected
+    fx <- rv$proposal
+    if (is.null(id) || !split_on(id) || is.null(fx) || !identical(fx$id, id) || is.null(fx$split$stop)) return()
+    name <- trimws(input$review_split_stop)
+    if (!nzchar(name) || identical(name, fx$split$stop$name)) name <- NULL
+    set_ov(id, list(split = utils::modifyList(get_ov(id)$split, list(stop_name = name), keep.null = TRUE)))
+    stop_edits(stop_edits() + 1)
+  }, ignoreInit = TRUE)
   shiny::observeEvent(input$review_split_osrm, split_option("osrm_walk", isTRUE(input$review_split_osrm), FALSE),
                       ignoreInit = TRUE)
 
@@ -854,13 +972,175 @@ review_server <- function(input, output, session, tr, current_lang) {
     set_ov(id, list(split = utils::modifyList(sp, list(alight_idx = ia))))
     recompute_selected()
   }
+  # While editing the route or drawing a lasso a click does nothing (pins come from drags)
   shiny::observeEvent(input$map_click, {
-    if (identical(input$mode, "BatchReview")) set_alighting(input$map_click$lng, input$map_click$lat)
+    if (!identical(input$mode, "BatchReview") || isTRUE(rv$pin_mode) || isTRUE(rv$lasso_mode)) return()
+    set_alighting(input$map_click$lng, input$map_click$lat)
   })
   shiny::observeEvent(input$map_marker_click, {
     ev <- input$map_marker_click
-    if (identical(input$mode, "BatchReview") && startsWith(as.character(ev$id %||% ""), "rvs_")) set_alighting(ev$lng, ev$lat)
+    if (identical(input$mode, "BatchReview") && !isTRUE(rv$pin_mode) && !isTRUE(rv$lasso_mode) &&
+        startsWith(as.character(ev$id %||% ""), "rvs_")) {
+      set_alighting(ev$lng, ev$lat)
+    }
   })
+
+  # ---- Control pins (road trips) ----
+
+  pin_trip <- function() {
+    id <- rv$selected
+    if (is.null(id) || nrow(trip_row(id)) == 0 || family_of(trip_row(id)$activity) != "road" || split_on(id)) return(NULL)
+    id
+  }
+  set_pin_mode <- function(on) {
+    rv$pin_mode <- isTRUE(on)
+    if (isTRUE(on) && isTRUE(rv$lasso_mode)) set_lasso_mode(FALSE)
+    session$sendCustomMessage("pin_mode", list(on = isTRUE(on), scope = "review"))
+    send_route_edit()
+  }
+  set_lasso_mode <- function(on) {
+    rv$lasso_mode <- isTRUE(on)
+    if (isTRUE(on) && isTRUE(rv$pin_mode)) set_pin_mode(FALSE)
+    session$sendCustomMessage("lasso_mode", list(on = isTRUE(on), scope = "review"))
+  }
+  shiny::observeEvent(input$mode, {
+    if (!identical(input$mode, "BatchReview") && isTRUE(rv$pin_mode)) set_pin_mode(FALSE)
+    if (!identical(input$mode, "BatchReview") && isTRUE(rv$lasso_mode)) set_lasso_mode(FALSE)
+  })
+
+  # Route edits of a trip (pins, moved ends, excluded samples), with an undo
+  # history per trip (Ctrl+Z)
+  edit_hist <- new.env(parent = emptyenv())
+  set_named <- function(all, id, value) {
+    all[id] <- list(value)
+    all[!vapply(all, is.null, logical(1))]
+  }
+  set_route_edits <- function(id, pins = rv$pins[[id]], ends = rv$route_ends[[id]], excl = rv$exclusions[[id]],
+                              record = TRUE) {
+    if (record) {
+      h <- edit_hist[[id]] %||% list()
+      h[[length(h) + 1L]] <- list(pins = rv$pins[[id]], ends = rv$route_ends[[id]], excl = rv$exclusions[[id]])
+      assign(id, utils::tail(h, 30), envir = edit_hist)
+    }
+    rv$pins <- set_named(rv$pins, id, if (is.null(pins) || nrow(pins) == 0) NULL else pins)
+    rv$route_ends <- set_named(rv$route_ends, id, if (length(ends)) ends else NULL)
+    rv$exclusions <- set_named(rv$exclusions, id, if (length(excl)) sort(unique(excl)) else NULL)
+    save_state()
+    recompute_selected()
+  }
+  set_pins <- function(id, pins) set_route_edits(id, pins = pins)
+  add_pin <- function(lon, lat) {
+    id <- pin_trip()
+    if (is.null(id) || is.null(lon) || is.null(lat)) return()
+    pins <- rv$pins[[id]] %||% data.frame(id = character(0), lon = numeric(0), lat = numeric(0), after = character(0))
+    new_id <- as.character(max(c(0L, suppressWarnings(as.integer(pins$id))), na.rm = TRUE) + 1L)
+    set_pins(id, rbind(pins, data.frame(id = new_id, lon = lon, lat = lat, after = NA_character_)))
+  }
+  # Drag ends (route editing): the line -> a new via pin; the start / end markers -> moved route ends
+  shiny::observeEvent(input$review_route_drag, {
+    ev <- input$review_route_drag
+    id <- pin_trip()
+    if (is.null(id) || !isTRUE(rv$pin_mode)) return()
+    lon <- as.numeric(ev$lng)
+    lat <- as.numeric(ev$lat)
+    if (identical(ev$kind, "line")) {
+      add_pin(lon, lat)
+    } else if (ev$kind %in% c("start", "end")) {
+      ends <- rv$route_ends[[id]] %||% list()
+      ends[[ev$kind]] <- c(lon, lat)
+      set_route_edits(id, ends = ends)
+    }
+  })
+  shiny::observeEvent(input$route_undo, {
+    if (!identical(input$route_undo$scope, "review") || !identical(input$mode, "BatchReview")) return()
+    id <- pin_trip()
+    h <- if (is.null(id)) NULL else edit_hist[[id]]
+    if (!length(h)) {
+      notify(tr("Nothing to undo."), duration = 3)
+      return()
+    }
+    last <- h[[length(h)]]
+    assign(id, h[-length(h)], envir = edit_hist)
+    set_route_edits(id, pins = last$pins, ends = last$ends, excl = last$excl, record = FALSE)
+  })
+  # Lasso: the samples inside are kept out of /match (they still time the path)
+  shiny::observeEvent(input$review_lasso_samples, {
+    id <- pin_trip()
+    if (is.null(id) || !isTRUE(rv$lasso_mode)) return()
+    s <- trip_samples(id)
+    k <- suppressWarnings(as.integer(sub("^rvs_", "", unlist(input$review_lasso_samples$ids))))
+    k <- k[!is.na(k) & k >= 1 & k <= nrow(s)]
+    if (length(k) == 0) return()
+    set_route_edits(id, excl = c(rv$exclusions[[id]], s$t[k]))
+    notify(sprintf(tr("%d samples kept out of the matching (Ctrl+Z undoes)."), length(k)), duration = 4)
+  })
+
+  # Route editing handles for the client: the proposed path, its ends and the
+  # control points in travel order (start, pins, end)
+  send_route_edit <- function() {
+    id <- shiny::isolate(rv$selected)
+    fx <- shiny::isolate(rv$proposal)
+    on <- isTRUE(shiny::isolate(rv$pin_mode)) && !is.null(id) && !is.null(fx) && identical(fx$id, id) &&
+      !is.null(fx$path) && nrow(fx$path) >= 2 && is.null(fx$split)
+    msg <- list(scope = "review", on = on)
+    if (on) {
+      p <- fx$path
+      n <- nrow(p)
+      pins <- fx$pins %||% data.frame(id = character(0), lon = numeric(0), lat = numeric(0))
+      msg$ctrl <- c(list(list(id = "start", lat = p$lat[1], lng = p$lon[1])),
+                    lapply(seq_len(nrow(pins)), function(k) list(id = as.character(pins$id[k]), lat = pins$lat[k], lng = pins$lon[k])),
+                    list(list(id = "end", lat = p$lat[n], lng = p$lon[n])))
+      msg$path <- lapply(seq_len(n), function(k) c(p$lat[k], p$lon[k]))
+    }
+    session$sendCustomMessage("route_edit", msg)
+  }
+  edit_pin <- function(ev, change) {
+    id <- pin_trip()
+    pins <- if (is.null(id)) NULL else rv$pins[[id]]
+    k <- if (is.null(pins)) NA else match(as.character(ev$id), pins$id)
+    if (is.na(k)) return()
+    set_pins(id, change(pins, k))
+  }
+
+  shiny::observeEvent(input$review_pin, {
+    action <- input$review_pin$action
+    id <- pin_trip()
+    if (identical(action, "toggle")) {
+      if (is.null(id)) {
+        if (isTRUE(rv$pin_mode)) set_pin_mode(FALSE)
+        return()
+      }
+      set_pin_mode(!isTRUE(rv$pin_mode))
+      if (isTRUE(rv$pin_mode)) {
+        notify(tr("Route editing: drag the line to add a via pin, drag the start or the end; right-click or double-click a pin removes it (P to leave)."),
+               duration = 5)
+      }
+    } else if (identical(action, "clear") && !is.null(id)) {
+      set_pin_mode(FALSE)
+      set_route_edits(id, pins = NULL, ends = NULL)
+    } else if (identical(action, "lasso")) {
+      if (is.null(id)) {
+        if (isTRUE(rv$lasso_mode)) set_lasso_mode(FALSE)
+        return()
+      }
+      set_lasso_mode(!isTRUE(rv$lasso_mode))
+      if (isTRUE(rv$lasso_mode)) {
+        notify(tr("Lasso: circle the jittery samples to keep them out of the matching (L to leave)."), duration = 5)
+      }
+    } else if (identical(action, "clear_excl") && !is.null(id)) {
+      set_route_edits(id, excl = NULL)
+    }
+  })
+  shiny::observeEvent(input$review_pin_moved, edit_pin(input$review_pin_moved, function(p, k) {
+    p$lon[k] <- as.numeric(input$review_pin_moved$lng)
+    p$lat[k] <- as.numeric(input$review_pin_moved$lat)
+    p
+  }))
+  shiny::observeEvent(input$review_pin_remove, edit_pin(input$review_pin_remove, function(p, k) p[-k, , drop = FALSE]))
+  shiny::observeEvent(input$review_pin_after, edit_pin(list(id = input$review_pin_after$pin), function(p, k) {
+    p$after[k] <- as.character(input$review_pin_after$after)
+    p
+  }))
 
   # ---- Bulk accept (road activities only) ----
 
@@ -955,7 +1235,7 @@ review_server <- function(input, output, session, tr, current_lang) {
                                                       group = "review_ref")
       cf <- conformity(s, act)
     } else {
-      m <- rv$matches[[id]]
+      m <- if (!is.null(fx) && identical(fx$id, id) && !is.null(fx$ref_match)) fx$ref_match else rv$matches[[id]]
       if (isTRUE(m$ok)) {
         for (p in m$pieces) {
           proxy <- leaflet::addPolylines(proxy, lng = p$coords[, 1], lat = p$coords[, 2], color = "#455A64", weight = 3,
@@ -985,11 +1265,14 @@ review_server <- function(input, output, session, tr, current_lang) {
       proxy <- leaflet::addPolylines(proxy, lng = s$lon, lat = s$lat, color = "#9E9E9E", weight = 3, group = "review_recorded")
     }
 
-    # Recorded samples (right-click: set as start / end)
+    # Recorded samples (right-click: set as start / end); kept out of /match: grey with an outline
+    excl <- round(s$t) %in% round(rv$exclusions[[id]] %||% numeric(0))
     proxy <- leaflet::addCircleMarkers(
-      proxy, lng = s$lon, lat = s$lat, radius = 3, stroke = FALSE, fillColor = "#616161", fillOpacity = 0.7,
+      proxy, lng = s$lon, lat = s$lat, radius = ifelse(excl, 4, 3), stroke = excl, color = "#37474F", weight = 1.5,
+      fillColor = ifelse(excl, "#CFD8DC", "#616161"), fillOpacity = ifelse(excl, 0.9, 0.7),
       layerId = paste0("rvs_", seq_len(nrow(s))), group = "review_samples",
-      label = paste0(local_time(s$t, "%H:%M:%S"), " · ±", round(s$acc), " m")
+      label = paste0(local_time(s$t, "%H:%M:%S"), " · ±", round(s$acc), " m",
+                     ifelse(excl, paste0(" · ", tr("kept out of the matching")), ""))
     )
 
     # Jaé boarding of a trip with a tap of its mode
@@ -1003,6 +1286,18 @@ review_server <- function(input, output, session, tr, current_lang) {
         fillColor = if (is.na(jae_color)) "#1565C0" else jae_color, fillOpacity = 1, group = "review_split",
         label = paste0("Jaé ", jae_local_time(tap$datetime_utc, "%H:%M:%S"), " · ", tap$label),
         options = leaflet::pathOptions(bubblingMouseEvents = FALSE)
+      )
+    }
+
+    # Control pins, numbered in travel order
+    pins <- rv$pins[[id]]
+    if (!is.null(pins) && nrow(pins) > 0 && family_of(act) == "road") {
+      ord <- if (!is.null(fx) && identical(fx$id, id) && !is.null(fx$pins)) fx$pins$id else pins$id
+      proxy <- leaflet::addMarkers(
+        proxy, lng = pins$lon, lat = pins$lat, layerId = paste0("pin_", pins$id), group = "review_pins",
+        label = as.character(match(pins$id, ord)),
+        labelOptions = leaflet::labelOptions(noHide = TRUE, direction = "top", offset = c(-15, -18), className = "pin-label"),
+        options = leaflet::markerOptions(draggable = TRUE)
       )
     }
 
@@ -1055,17 +1350,26 @@ review_server <- function(input, output, session, tr, current_lang) {
       )
     }
 
-    lons <- c(s$lon, if (!is.null(fx)) fx$path$lon, if (nrow(taps)) taps$longitude[1])
-    lats <- c(s$lat, if (!is.null(fx)) fx$path$lat, if (nrow(taps)) taps$latitude[1])
-    leaflet::fitBounds(proxy, min(lons), min(lats), max(lons), max(lats))
+    send_route_edit()
+    # Fit the view to a newly selected trip only (not after each edit)
+    if (!identical(fitted$id, id)) {
+      fitted$id <- id
+      lons <- c(s$lon, if (!is.null(fx)) fx$path$lon, if (nrow(taps)) taps$longitude[1])
+      lats <- c(s$lat, if (!is.null(fx)) fx$path$lat, if (nrow(taps)) taps$latitude[1])
+      leaflet::fitBounds(proxy, min(lons), min(lats), max(lons), max(lats))
+    }
   }
+  fitted <- new.env(parent = emptyenv())
 
   shiny::observe({
     rv$selected
     rv$proposal
+    rv$pins
+    rv$exclusions
     input$mode
     shiny::isolate(draw_selected())
   })
+  shiny::observeEvent(input$mode, if (!identical(input$mode, "BatchReview")) fitted$id <- NULL)
 
   # ---- Export ----
 
@@ -1130,7 +1434,44 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     notify(sprintf(tr("GPX sent to iCloud: %s/GPX/%s. On the iPhone: Arc → timeline → Import GPX File"),
                    ICLOUD_ARC_DIR, gpx_name), duration = 15)
+    if (isTRUE(input$review_jae_notes)) send_jae_notes(acc)
   })
+
+  # Notes of the split trips (ride legs, and waits with "Wait note") as a
+  # notes-only import package synced to <Arc dir>/Import. Bus legs carry the
+  # SMTR note (BigQuery, cached), their leg text when SMTR has nothing.
+  send_jae_notes <- function(acc) {
+    taps <- do.call(rbind, lapply(Filter(function(a) !is.null(a$tap), acc), `[[`, "tap"))
+    cache <- smtr_cache()
+    if (!is.null(taps) && nrow(smtr_taps(taps))) {
+      pf <- shiny::withProgress(message = tr("Fetching SMTR bus data..."), value = 0, {
+        smtr_prefetch(taps, progress = function(f, d) shiny::setProgress(f, detail = d))
+      })
+      cache <- pf$cache
+      if (!is.null(pf$error)) {
+        notify(paste(tr("SMTR data unavailable, bus notes keep the Jaé line text:"), pf$error), type = "warning",
+               duration = 12)
+      }
+    }
+    notes <- review_notes(acc, wait_note = isTRUE(input$review_wait_note),
+                          ride_body = function(tap) smtr_note_body(tap, cache))
+    if (length(notes) == 0) {
+      notify(tr("No Jaé notes to send (no accepted split trips)."), type = "warning")
+      return()
+    }
+    pkg <- tempfile("arc_notes_")
+    write_notes_package_dir(notes, pkg)
+    res <- shiny::withProgress(message = tr("Sending notes to iCloud..."), value = 0.5, {
+      icloud_push_import(pkg, lang = current_lang())
+    })
+    unlink(pkg, recursive = TRUE)
+    if (!isTRUE(res$ok)) {
+      notify(res$message, type = "error", duration = NULL)
+      return()
+    }
+    notify(sprintf(tr("%d notes sent to %s/Import. In Arc, import the GPX first, then the Import folder."),
+                   length(notes), ICLOUD_ARC_DIR), duration = 15)
+  }
 
   # Collapsed steps keep their text current (and the download link set)
   for (id in c("review_download", "review_summary", "review_export_count")) {
