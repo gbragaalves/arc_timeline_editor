@@ -279,6 +279,7 @@ review_server <- function(input, output, session, tr, current_lang) {
   }
 
   select_trip <- function(id, refresh_route = FALSE) {
+    if (!identical(shiny::isolate(rv$selected), id)) session$sendCustomMessage("station_pick_off", list())
     if (!identical(shiny::isolate(rv$selected), id) && shiny::isolate(rv$pin_mode)) set_pin_mode(FALSE)
     if (!identical(shiny::isolate(rv$selected), id) && shiny::isolate(rv$lasso_mode)) set_lasso_mode(FALSE)
     rv$selected <- id
@@ -758,9 +759,20 @@ review_server <- function(input, output, session, tr, current_lang) {
 
     if (family_of(act) == "rail") {
       plan <- fx$plan
+      # Station select: the recorded point, the nearest stations of any rail
+      # system (with their distance), then every other station by name (all
+      # searchable); the pin picks one on the map
+      all_st <- rail_stations()
       end_row <- function(which, label, input_id, picked, options, time) {
-        choices <- c(stats::setNames(options$name, sprintf("%s (%.0f m)", options$name, options$dist_m)),
-                     stats::setNames(SAMPLE_POINT, tr("recorded point")))
+        dist <- ifelse(options$dist_m < 1000, sprintf("%.0f m", options$dist_m), sprintf("%.1f km", options$dist_m / 1000))
+        near <- stats::setNames(options$key, sprintf("%s (%s)", rail_station_label(options, lang), dist))
+        rest <- all_st[!all_st$key %in% options$key, ]
+        rest_lab <- rail_station_label(rest, lang)
+        rest <- stats::setNames(rest$key[order(rest_lab)], sort(rest_lab))
+        choices <- stats::setNames(list(SAMPLE_POINT, near, rest), c(tr("recorded point"), tr("Nearest stations"), tr("All stations")))
+        if (!length(rest)) choices <- choices[1:2]
+        pin_title <- if (which == "start") tr("Pick the start station on the map (Esc cancels)") else
+          tr("Pick the end station on the map (Esc cancels)")
         adj <- function(delta, text) {
           shiny::tags$button(type = "button", class = "btn btn-outline-secondary",
                              `data-review-adj` = paste0(which, ":", delta), text)
@@ -769,8 +781,10 @@ review_server <- function(input, output, session, tr, current_lang) {
           class = "review-end",
           shiny::span(class = "dt-label", label),
           shiny::selectInput(input_id, NULL, choices = choices,
-                             selected = if (is.null(picked)) SAMPLE_POINT else picked$name, width = "100%"),
+                             selected = if (is.null(picked)) SAMPLE_POINT else picked$key, width = "100%"),
           shiny::span(class = "rv-num", local_time(time, "%H:%M:%S")),
+          shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary rv-station-pick",
+                             `data-station-pick` = which, title = pin_title, "\U0001F4CD"),
           shiny::div(class = "btn-group btn-group-sm", adj(-60, "−1m"), adj(-30, "−30s"), adj(30, "+30s"), adj(60, "+1m"))
         )
       }
@@ -855,13 +869,27 @@ review_server <- function(input, output, session, tr, current_lang) {
     fx <- rv$proposal
     if (is.null(id) || is.null(fx) || is.null(value) || family_of(trip_row(id)$activity) != "rail") return()
     current <- if (which == "dep") fx$plan$dep else fx$plan$arr
-    current_name <- if (is.null(current)) SAMPLE_POINT else current$name
-    if (identical(value, current_name)) return()
+    current_key <- if (is.null(current)) SAMPLE_POINT else current$key %||% current$name
+    if (identical(value, current_key)) return()
     set_ov(id, stats::setNames(list(if (identical(value, SAMPLE_POINT)) "" else value), which))
     recompute_selected()
   }
   shiny::observeEvent(input$review_dep, station_changed("dep", input$review_dep), ignoreInit = TRUE)
   shiny::observeEvent(input$review_arr, station_changed("arr", input$review_arr), ignoreInit = TRUE)
+  # Station pick on the map (the pins by the selects): the stations for the
+  # client, then the one picked, as if chosen in the select
+  shiny::observeEvent(input$review_station_list, {
+    st <- rail_stations()
+    session$sendCustomMessage("rail_stations", list(
+      lang = current_lang(), key = st$key, label = rail_station_label(st, current_lang()), lat = st$lat, lng = st$lon,
+      none = tr("No station within 300 m: click on or next to one (Esc cancels).")
+    ))
+  })
+  shiny::observeEvent(input$review_station_pick, {
+    ev <- input$review_station_pick
+    if (!is.character(ev$key) || !ev$which %in% c("start", "end")) return()
+    station_changed(if (ev$which == "start") "dep" else "arr", ev$key)
+  })
 
   shiny::observeEvent(input$review_time_adj, {
     id <- rv$selected
@@ -1471,6 +1499,16 @@ review_server <- function(input, output, session, tr, current_lang) {
         color = "white", weight = 2, fillColor = c("#2E7D32", "#C62828"), fillOpacity = 1,
         label = c(label_end(plan$dep, p$t[1]), label_end(plan$arr, p$t[nrow(p)])), group = "review_markers"
       )
+      # Rail: the chosen stations, ringed and named
+      for (end in list(list(st = plan$dep, col = "#2E7D32", lab = tr("Start")), list(st = plan$arr, col = "#C62828", lab = tr("End")))) {
+        if (is.null(end$st) || is.null(end$st$key)) next
+        proxy <- leaflet::addCircleMarkers(
+          proxy, lng = end$st$lon, lat = end$st$lat, radius = 12, color = end$col, weight = 3, opacity = 1, fill = FALSE,
+          label = paste0(end$lab, ": ", rail_station_label(end$st, current_lang())), group = "review_markers",
+          labelOptions = leaflet::labelOptions(noHide = TRUE, direction = "right", offset = c(12, 0), className = "station-chosen"),
+          options = leaflet::pathOptions(interactive = FALSE, className = paste0("station-chosen-", if (end$lab == tr("Start")) "start" else "end"))
+        )
+      }
       oi <- plan$origin_idx %||% 1L
       di <- plan$dest_idx %||% nrow(s)
       proxy <- leaflet::addCircleMarkers(

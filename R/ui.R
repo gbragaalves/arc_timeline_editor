@@ -355,6 +355,15 @@ APP_CSS <- "
     max-width: 100%;
   }
   .review-end .btn-group { grid-column: 2 / 4; }
+  .review-end .rv-station-pick { grid-column: 1; padding: 0 2px; font-size: 0.66rem; line-height: 1.25; }
+  .btn.pick-on, .btn.pick-on:hover, .btn.pick-on:focus { background: #ff6600; border-color: #ff6600; color: #fff;
+    box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.35); }
+  .leaflet-container.station-pick, .leaflet-container.station-pick .leaflet-interactive { cursor: crosshair; }
+  .leaflet-tooltip.station-label { font-size: 10px; padding: 0 3px; color: #4A148C; background: rgba(255, 255, 255, 0.85);
+    border: 0; box-shadow: none; }
+  .leaflet-tooltip.station-label::before { display: none; }
+  .leaflet-tooltip.station-chosen { font-weight: 600; font-size: 11px; }
+  .station-pick-hint .leaflet-popup-content { margin: 6px 8px; font-size: 0.75rem; max-width: 220px; }
   .review-end .btn-group .btn { padding: 0 6px; font-size: 0.66rem; line-height: 1.25; }
   .review-actions .btn { white-space: nowrap; font-size: 0.76rem; padding: 0.2rem 0.3rem; }
   .review-keep { font-size: 0.74rem; }

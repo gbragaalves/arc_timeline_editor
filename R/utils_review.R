@@ -290,6 +290,14 @@ build_rail_reference <- function(pbf = OSM_PBF_FILE, out = RAIL_REFERENCE_FILE, 
   step(0.8, "rails + stations")
   rails <- rail_lines_from_features(features)
   stations <- stations_from_features(features)
+  stops <- if (identical(method, "osmium")) {
+    step(0.85, "lines of the stations")
+    tryCatch(rail_route_stops(pbf), error = function(e) {
+      message("[Rails] route relations failed: ", conditionMessage(e))
+      NULL
+    })
+  }
+  stations$lines <- rail_station_lines(stations, stops)
 
   dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
   tmp <- paste0(out, ".tmp.gpkg")
@@ -324,8 +332,90 @@ rail_features_osmium <- function(pbf) {
         paste0("w/railway=", paste(RAIL_LINE_TYPES, collapse = ",")),
         "nwr/railway=station,halt", "nwr/public_transport=station",
         "-o", filtered, "--overwrite"))
-  run(c("export", filtered, "-f", "geojsonseq", "-o", seq_file, "--overwrite"))
+  run(c("export", filtered, "-f", "geojsonseq", "-a", "type,id", "-o", seq_file, "--overwrite"))
   sf::st_read(seq_file, quiet = TRUE)
+}
+
+# Route relations (subway, train, light rail, tram, monorail) as points: their
+# stop and platform members (a way at the mean of its nodes), with the route's
+# type, network, operator and ref (osmium)
+rail_route_stops <- function(pbf) {
+  tmp_dir <- tempfile("routes_")
+  dir.create(tmp_dir)
+  on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
+  routes <- file.path(tmp_dir, "routes.osm.pbf")
+  opl <- file.path(tmp_dir, "routes.opl")
+  run <- function(args) {
+    out <- suppressWarnings(system2("osmium", shQuote(args), stdout = TRUE, stderr = TRUE))
+    if (!is.null(attr(out, "status")) && attr(out, "status") != 0) stop(paste(out, collapse = "\n"))
+  }
+  run(c("tags-filter", normalizePath(pbf), "r/route=subway,train,light_rail,tram,monorail", "-o", routes, "--overwrite"))
+  run(c("add-locations-to-ways", routes, "-f", "opl", "-o", opl, "--overwrite"))
+  lines <- readLines(opl, encoding = "UTF-8", warn = FALSE)
+  unescape <- function(x) {
+    m <- gregexpr("%[0-9a-fA-F]+%", x)
+    regmatches(x, m) <- lapply(regmatches(x, m), function(h) {
+      vapply(h, function(code) intToUtf8(strtoi(gsub("%", "", code, fixed = TRUE), 16L)), character(1))
+    })
+    x
+  }
+  field <- function(l, f) {
+    v <- regmatches(l, regexpr(paste0(" ", f, "[^ ]*"), l))
+    out <- rep("", length(l))
+    out[regexpr(paste0(" ", f, "[^ ]*"), l) > 0] <- substring(v, 3)
+    out
+  }
+  kind <- substr(lines, 1, 1)
+  ids <- sub("^[nwr]([0-9]+) .*$", "\\1", lines)
+  nl <- lines[kind == "n"]
+  nodes <- data.frame(lon = suppressWarnings(as.numeric(field(nl, "x"))), lat = suppressWarnings(as.numeric(field(nl, "y"))))
+  rownames(nodes) <- paste0("n", ids[kind == "n"])
+  wl <- lines[kind == "w"]
+  way_xy <- t(vapply(field(wl, "N"), function(nn) {
+    x <- suppressWarnings(as.numeric(regmatches(nn, gregexpr("(?<=x)[-0-9.]+", nn, perl = TRUE))[[1]]))
+    y <- suppressWarnings(as.numeric(regmatches(nn, gregexpr("(?<=y)[-0-9.]+", nn, perl = TRUE))[[1]]))
+    c(mean(x, na.rm = TRUE), mean(y, na.rm = TRUE))
+  }, numeric(2), USE.NAMES = FALSE))
+  ways <- data.frame(lon = way_xy[, 1], lat = way_xy[, 2])
+  rownames(ways) <- paste0("w", ids[kind == "w"])
+  rl <- lines[kind == "r"]
+  out <- lapply(seq_along(rl), function(i) {
+    tags <- strsplit(field(rl[i], "T"), ",", fixed = TRUE)[[1]]
+    kv <- stats::setNames(unescape(sub("^[^=]*=", "", tags)), unescape(sub("=.*$", "", tags)))
+    mem <- strsplit(field(rl[i], "M"), ",", fixed = TRUE)[[1]]
+    role <- unescape(sub("^[^@]*@?", "", mem))
+    ref <- sub("@.*$", "", mem)
+    keep <- grepl("^(stop|platform)", role)
+    if (!any(keep)) return(NULL)
+    xy <- rbind(nodes[intersect(ref[keep], rownames(nodes)), , drop = FALSE], ways[intersect(ref[keep], rownames(ways)), , drop = FALSE])
+    xy <- xy[!is.na(xy$lon) & !is.na(xy$lat), , drop = FALSE]
+    if (nrow(xy) == 0) return(NULL)
+    get <- function(k) if (k %in% names(kv)) kv[[k]] else ""
+    data.frame(route = get("route"), network = get("network"), operator = get("operator"), ref = get("ref"),
+               lon = xy$lon, lat = xy$lat)
+  })
+  do.call(rbind, out)
+}
+
+# The lines of each station: the routes with a stop or platform within
+# radius_m of it, of a compatible type, as "route|network|ref;..."
+rail_station_lines <- function(stations, stops, radius_m = 300) {
+  out <- rep("", nrow(stations))
+  if (is.null(stops) || nrow(stops) == 0) return(out)
+  fits <- list(subway = "subway", train = "train", light_rail = c("light_rail", "tram"), tram = c("tram", "light_rail"),
+               monorail = STATION_MODES)
+  sxy <- cbind(stops$lon, stops$lat)
+  for (i in seq_len(nrow(stations))) {
+    m <- strsplit(stations$modes[i] %||% "", ",", fixed = TRUE)[[1]]
+    if (!length(m) || is.na(stations$lon[i])) next
+    d <- geosphere::distHaversine(sxy, c(stations$lon[i], stations$lat[i]))
+    near <- which(d <= radius_m)
+    near <- near[vapply(near, function(k) any(m %in% fits[[stops$route[k]]]), logical(1))]
+    if (!length(near)) next
+    net <- ifelse(nzchar(stops$network[near]), stops$network[near], stops$operator[near])
+    out[i] <- paste(unique(paste(stops$route[near], net, stops$ref[near], sep = "|")), collapse = ";")
+  }
+  out
 }
 
 # GDAL OSM driver with SQL filters (other_tags holds the tags without a column)
@@ -336,7 +426,7 @@ rail_features_gdal <- function(pbf) {
   }
   with_tags <- function(x) {
     other <- if ("other_tags" %in% names(x)) x$other_tags else rep(NA_character_, nrow(x))
-    for (key in c("railway", "service", "public_transport", "station", STATION_MODES)) {
+    for (key in c("railway", "service", "public_transport", "station", "operator", "network", STATION_MODES)) {
       if (!key %in% names(x)) x[[key]] <- tag(other, key)
     }
     x
@@ -351,7 +441,7 @@ rail_features_gdal <- function(pbf) {
   points <- sf::st_read(pbf, query = paste("SELECT osm_id, name, other_tags FROM points WHERE", station_where), quiet = TRUE)
   areas <- sf::st_read(pbf, query = paste("SELECT osm_id, osm_way_id, name, other_tags FROM multipolygons WHERE",
                                           station_where), quiet = TRUE)
-  cols <- c("name", "railway", "service", "public_transport", "station", STATION_MODES)
+  cols <- c("name", "railway", "service", "public_transport", "station", "operator", "network", STATION_MODES)
   parts <- lapply(list(lines, points, areas), function(x) {
     x <- with_tags(x)
     sf::st_sf(x[, cols, drop = TRUE], geometry = sf::st_geometry(x))
@@ -394,7 +484,10 @@ stations_from_features <- function(x) {
   }, character(1))
 
   xy <- sf::st_coordinates(geom)
-  sf::st_sf(name = col("name")[keep], modes = modes, lon = xy[, 1], lat = xy[, 2], geometry = geom)
+  osm <- ifelse(is.na(col("@type")[keep]) | is.na(col("@id")[keep]), NA_character_,
+                paste0(substr(col("@type")[keep], 1, 1), col("@id")[keep]))
+  sf::st_sf(name = col("name")[keep], modes = modes, lon = xy[, 1], lat = xy[, 2], osm = osm,
+            operator = col("operator")[keep], network = col("network")[keep], geometry = geom)
 }
 
 .rail_ref <- new.env(parent = emptyenv())
@@ -431,19 +524,98 @@ rail_lines_near <- function(activity, bbox, crs, buffer_m = 1500, ref = rail_ref
 }
 
 # Stations of the activity's modes, nearest first: data.frame(name, lon, lat, dist_m)
-station_candidates <- function(activity, lon, lat, k = 3, radius_m = Inf, ref = rail_reference()) {
-  empty <- data.frame(name = character(0), lon = numeric(0), lat = numeric(0), dist_m = numeric(0))
-  if (is.null(ref)) return(empty)
-  st <- ref$stations
-  modes <- REVIEW_ACTIVITIES[[activity]]$station_modes
-  ok <- vapply(strsplit(st$modes, ",", fixed = TRUE), function(m) any(m %in% modes), logical(1))
-  st <- st[ok & !is.na(st$name) & nzchar(st$name), ]
-  if (nrow(st) == 0) return(empty)
-  st$dist_m <- geosphere::distHaversine(cbind(st$lon, st$lat), c(lon, lat))
+station_candidates <- function(activity, lon, lat, k = 3, radius_m = Inf, ref = rail_reference(), all_systems = FALSE) {
+  st <- rail_stations(ref)
+  if (!all_systems && nrow(st)) {
+    modes <- REVIEW_ACTIVITIES[[activity]]$station_modes
+    st <- st[vapply(strsplit(st$modes, ",", fixed = TRUE), function(m) any(m %in% modes), logical(1)), ]
+  }
+  st$dist_m <- if (nrow(st)) geosphere::distHaversine(cbind(st$lon, st$lat), c(lon, lat)) else numeric(0)
   st <- st[order(st$dist_m), ]
-  st <- st[!duplicated(st$name) & st$dist_m <= radius_m, c("name", "lon", "lat", "dist_m")]
+  if (!all_systems) st <- st[!duplicated(st$name), ]
+  st <- st[st$dist_m <= radius_m, ]
   rownames(st) <- NULL
   utils::head(st, k)
+}
+
+# Short names of rail systems (a station's network or operator, or its lines')
+RAIL_SYSTEM_SHORT <- c("Metrô Rio" = "Metrô", "MetrôRio" = "Metrô", "Metro Rio" = "Metrô", "VLT Carioca" = "VLT")
+
+# Every rail station (metro, train, light rail / tram) with a name, for the
+# station selects and the map pick: key (its OSM id; s<row> in a reference
+# without ids), name, modes, system (short: its lines' network, else its own
+# network or operator; "" when none), metro lines ("L1/L2"), lon, lat. A
+# station mapped twice (node and area) is kept once. Cached per reference.
+rail_stations <- function(ref = rail_reference()) {
+  empty <- data.frame(key = character(0), name = character(0), modes = character(0), system = character(0),
+                      metro_lines = character(0), lon = numeric(0), lat = numeric(0))
+  if (is.null(ref) || is.null(ref$stations)) return(empty)
+  cache_key <- paste(ref$mtime %||% "", nrow(ref$stations))
+  if (identical(.rail_ref$stations_key, cache_key)) return(.rail_ref$stations_table)
+  st <- ref$stations
+  col <- function(name) if (name %in% names(st)) as.character(st[[name]]) else rep(NA_character_, nrow(st))
+  ok <- !is.na(st$name) & nzchar(st$name) & !is.na(st$modes) & nzchar(st$modes)
+  osm <- col("osm")
+  key <- ifelse(is.na(osm), paste0("s", seq_len(nrow(st))), osm)
+  lines <- col("lines")
+  lines[is.na(lines)] <- ""
+  parsed <- lapply(strsplit(lines, ";", fixed = TRUE), function(l) {
+    p <- strsplit(l, "|", fixed = TRUE)
+    data.frame(route = vapply(p, function(x) x[1] %||% "", ""), net = vapply(p, function(x) if (length(x) >= 2) x[2] else "", ""),
+               ref = vapply(p, function(x) if (length(x) >= 3) x[3] else "", ""))
+  })
+  first_nz <- function(...) {
+    v <- c(...)
+    v <- v[!is.na(v) & nzchar(v)]
+    if (length(v)) v[1] else ""
+  }
+  network <- col("network")
+  operator <- col("operator")
+  system <- vapply(seq_len(nrow(st)), function(i) {
+    nets <- parsed[[i]]$net[nzchar(parsed[[i]]$net)]
+    s <- first_nz(if (length(nets)) names(sort(table(nets), decreasing = TRUE))[1], network[i], operator[i])
+    if (s %in% names(RAIL_SYSTEM_SHORT)) RAIL_SYSTEM_SHORT[[s]] else s
+  }, character(1))
+  metro <- vapply(parsed, function(p) {
+    refs <- unique(p$ref[p$route == "subway" & nzchar(p$ref)])
+    if (!length(refs)) return("")
+    num <- suppressWarnings(as.numeric(refs))
+    paste0("L", refs[order(is.na(num), num, refs)], collapse = "/")
+  }, character(1))
+  out <- data.frame(key = key, name = st$name, modes = st$modes, system = system, metro_lines = metro,
+                    lon = st$lon, lat = st$lat, stringsAsFactors = FALSE)[ok, ]
+  # the same station twice (node and area, same name and system, within 300 m): the node
+  out <- out[order(!startsWith(out$key, "n")), ]
+  dup <- rep(FALSE, nrow(out))
+  grp <- paste(out$name, out$system, out$metro_lines)
+  for (g in unique(grp[duplicated(grp)])) {
+    k <- which(grp == g)
+    for (j in k[-1]) {
+      prev <- k[k < j & !dup[k]]
+      if (any(geosphere::distHaversine(cbind(out$lon[prev], out$lat[prev]), c(out$lon[j], out$lat[j])) < 300)) dup[j] <- TRUE
+    }
+  }
+  out <- out[!dup, ]
+  rownames(out) <- NULL
+  .rail_ref$stations_key <- cache_key
+  .rail_ref$stations_table <- out
+  out
+}
+
+# "Maracanã — Metrô L2", "Maracanã — SuperVia": a station (row of
+# rail_stations()) with its system and metro lines; without a system, its mode
+rail_station_label <- function(st, lang = APP_LANGUAGE) {
+  if (is.null(st) || nrow(st) == 0) return(character(0))
+  mode_word <- c(subway = "Metro", train = "Train", light_rail = "Tram", tram = "Tram")
+  sys <- vapply(seq_len(nrow(st)), function(i) {
+    s <- st$system[i] %||% ""
+    if (is.na(s) || !nzchar(s)) {
+      m <- intersect(names(mode_word), strsplit(st$modes[i] %||% "", ",", fixed = TRUE)[[1]])
+      s <- if (length(m)) tr_lang(mode_word[[m[1]]], lang) else ""
+    }
+    trimws(paste(s, st$metro_lines[i] %||% ""))
+  }, character(1))
+  ifelse(nzchar(sys), paste0(st$name, " \u2014 ", sys), st$name)
 }
 
 
@@ -1154,12 +1326,22 @@ rail_plan <- function(s, activity, origin_idx = NULL, dest_idx = NULL, dep_name 
   di <- dest_idx %||% ends[2]
   if (di <= oi) di <- nrow(s)
 
+  # A chosen station (its key, any system; an older choice by name: the
+  # trip's system) or the automatic pick; "" keeps the recorded point
   choose <- function(i, name, bearing, side) {
     if (!is.null(name)) {
       if (!nzchar(name)) return(NULL)
-      hit <- station_candidates(activity, s$lon[i], s$lat[i], k = 50, ref = ref)
-      hit <- hit[hit$name == name, ]
-      if (nrow(hit)) return(hit[1, ])
+      all <- rail_stations(ref)
+      hit <- all[all$key == name, ]
+      if (nrow(hit) == 0) {
+        hit <- station_candidates(activity, s$lon[i], s$lat[i], k = 50, ref = ref)
+        hit <- hit[hit$name == name, ]
+      }
+      if (nrow(hit)) {
+        hit$dist_m <- geosphere::distHaversine(cbind(hit$lon, hit$lat), c(s$lon[i], s$lat[i]))
+        rownames(hit) <- NULL
+        return(hit[1, ])
+      }
     }
     near <- station_candidates(activity, s$lon[i], s$lat[i], k = 20, radius_m = th$station_radius_m, ref = ref)
     pick_station(near, s$lon[i], s$lat[i], bearing, side, th$station_radius_m)
@@ -1167,10 +1349,10 @@ rail_plan <- function(s, activity, origin_idx = NULL, dest_idx = NULL, dep_name 
   dep <- choose(oi, dep_name, travel_bearing(s, oi, "forward"), "origin")
   arr <- choose(di, arr_name, travel_bearing(s, di, "backward"), "destination")
 
-  # Select options: the 3 nearest stations, plus the pick when it isn't one of them
+  # Select options: the 5 nearest stations of any rail system, plus the pick when it isn't one of them
   options_for <- function(i, picked) {
-    cands <- station_candidates(activity, s$lon[i], s$lat[i], k = 3, ref = ref)
-    if (!is.null(picked) && !picked$name %in% cands$name) cands <- rbind(picked, cands)
+    cands <- station_candidates(activity, s$lon[i], s$lat[i], k = 5, ref = ref, all_systems = TRUE)
+    if (!is.null(picked) && !picked$key %in% cands$key) cands <- rbind(picked[, names(cands)], cands)
     cands
   }
   from <- if (is.null(dep)) c(s$lon[oi], s$lat[oi]) else c(dep$lon, dep$lat)

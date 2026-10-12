@@ -1574,5 +1574,38 @@ check(sprintf("period step: 1 day +1 -> %s..%s, -1 -> %s..%s; a week +1 -> %s..%
         is.null(review_step_range("2026-05-08", "2026-05-07", 1)) && is.null(review_step_range("2026-05-07", "2026-05-07", 0)) &&
         is.null(review_step_range(NA, "2026-05-07", 1)))
 
+# ---- Rail stations of every system: lines, labels, candidates, picks by key ----
+sp <- ll(c(0, 40, 800, 3000, 0, 5000), c(0, 30, 0, 0, 10, 0))
+st_ref <- data.frame(name = c("Maracanã", "Maracanã", "Estácio", "Alfa", "Maracanã", "Rodoviária"),
+                     modes = c("subway", "train", "subway", "train", "subway", ""),
+                     lon = sp[, 1], lat = sp[, 2], osm = c("n1", "n2", "n3", NA, "w9", "n6"),
+                     operator = c("MetrôRio", "SuperVia", NA, NA, "MetrôRio", NA), network = NA_character_)
+stops <- data.frame(route = c("subway", "subway", "train", "subway"), network = c("Metrô Rio", "Metrô Rio", "SuperVia", "Metrô Rio"),
+                    operator = "", ref = c("2", "1", "Deodoro", "2"), lon = ll(c(10, 790, 50, 810), 0)[, 1], lat = ll(c(10, 790, 50, 810), 0)[, 2])
+st_ref$lines <- rail_station_lines(st_ref, stops)
+check(sprintf("station lines by stops within 300 m of a compatible route: %s", paste(st_ref$lines, collapse = " / ")),
+      identical(st_ref$lines[1], "subway|Metrô Rio|2") && identical(st_ref$lines[2], "train|SuperVia|Deodoro") &&
+        setequal(strsplit(st_ref$lines[3], ";")[[1]], c("subway|Metrô Rio|1", "subway|Metrô Rio|2")) && identical(st_ref$lines[4], ""))
+ref_t <- list(stations = st_ref, mtime = "unit-test-1")
+rs <- rail_stations(ref_t)
+lab_pt <- rail_station_label(rs, "pt"); lab_en <- rail_station_label(rs, "en")
+check(sprintf("rail stations: %d (bus station out, area copy of a station out); labels PT %s | EN for one without a system: %s",
+              nrow(rs), paste(lab_pt, collapse = " | "), lab_en[rs$name == "Alfa"]),
+      nrow(rs) == 4 && !"Rodoviária" %in% rs$name && !"w9" %in% rs$key &&
+        identical(lab_pt[rs$key == "n1"], "Maracanã — Metrô L2") && identical(lab_pt[rs$key == "n2"], "Maracanã — SuperVia") &&
+        identical(lab_pt[rs$key == "n3"], "Estácio — Metrô L1/L2") && identical(lab_pt[rs$name == "Alfa"], "Alfa — Trem") &&
+        identical(lab_en[rs$name == "Alfa"], "Alfa — Train") && startsWith(rs$key[rs$name == "Alfa"], "s"))
+c_metro <- station_candidates("metro", sp[1, 1], sp[1, 2], k = 5, ref = ref_t)
+c_all <- station_candidates("metro", sp[1, 1], sp[1, 2], k = 5, ref = ref_t, all_systems = TRUE)
+check(sprintf("candidates: metro trip %s; all systems %s", paste(c_metro$key, collapse = ","), paste(c_all$key, collapse = ",")),
+      identical(c_metro$key, c("n1", "n3")) && identical(c_all$key, c("n1", "n2", "n3", rs$key[rs$name == "Alfa"])))
+s_rt <- samples_at(c(20, 400, 900), c(0, 0, 0), c(0, 60, 120))
+pl_auto <- rail_plan(s_rt, "metro", ref = ref_t)
+pl_key <- rail_plan(s_rt, "metro", dep_name = "n2", arr_name = "", ref = ref_t)
+check(sprintf("rail plan: automatic start %s; picked by key (SuperVia station on a metro trip) %s, end '' -> recorded point %s; start options %s",
+              pl_auto$dep$key, pl_key$dep$key, is.null(pl_key$arr), paste(pl_key$dep_options$key, collapse = ",")),
+      identical(pl_auto$dep$key, "n1") && identical(pl_key$dep$key, "n2") && is.null(pl_key$arr) && "n2" %in% pl_key$dep_options$key &&
+        abs(pl_key$points$lng[1] - sp[2, 1]) < 1e-9)
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

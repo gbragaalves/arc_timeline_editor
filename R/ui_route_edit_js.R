@@ -21,6 +21,11 @@
 #     starts during one; a drag that starts on a pin, a route end or the
 #     editable route line is never a lasso. Map dragging stays off while the
 #     mode is on (wheel zoom works) and Leaflet's boxZoom (Shift + drag) is off.
+#   Station pick (Batch review, rail trips; the pins by the start / end
+#     selects): every rail station as a small marker (labels from zoom 13),
+#     crosshair; a click on or within 300 m of one (the nearest) sends it as
+#     review_station_pick and leaves the mode; Esc or the pin again cancels. The
+#     map still pans (a drag is not a pick).
 #   Ctrl+Z: route_undo (pins, moved ends and exclusions share one history).
 #   Overlays "Bus infrastructure" (GeoJSON by map bounds from the server) and
 #     "Router network" (OSRM /tile vector tiles of the selected profile, drawn
@@ -421,7 +426,98 @@ ROUTE_EDIT_JS <- "
     if (e.key === 'Shift') $('#map').toggleClass('lasso-shift', e.type === 'keydown' && !!lassoScope());
   });
 
-  // ---- Keys: Ctrl+Z undoes route edits; L toggles the lasso, Esc leaves it ----
+  // ---- Station pick (Batch review, rail trips) ----
+  var SP = {which: null, stations: null, lang: null, layer: null, down: null};
+  window.__stationPick = SP;  // read by the browser tests
+  function spLabels() {
+    var map = getMap();
+    if (!map || !SP.layer) return;
+    var show = map.getZoom() >= 13, view = map.getBounds().pad(0.1), n = 0;
+    SP.layer.eachLayer(function(m) {
+      var on = show && n < 250 && view.contains(m.getLatLng());
+      if (on) n++;
+      if (on && !m.getTooltip()) {
+        m.bindTooltip(m.options.stationLabel, {permanent: true, direction: 'right', offset: [5, 0], className: 'station-label',
+                                               interactive: false});
+      } else if (!on && m.getTooltip()) {
+        m.unbindTooltip();
+      }
+    });
+  }
+  function spOff() {
+    var map = getMap();
+    SP.which = null;
+    if (map) {
+      map.off('zoomend moveend', spLabels);
+      if (SP.layer) map.removeLayer(SP.layer);
+    }
+    SP.layer = null;
+    $('#map').removeClass('station-pick');
+    $('[data-station-pick]').removeClass('pick-on');
+  }
+  function spDraw() {
+    var map = getMap(), s = SP.stations;
+    if (!map || !s || SP.layer || !SP.which) return;
+    SP.layer = L.layerGroup();
+    for (var i = 0; i < s.key.length; i++) {
+      L.circleMarker([s.lat[i], s.lng[i]], {radius: 4, color: '#4A148C', weight: 1.5, fillColor: '#fff', fillOpacity: 1,
+                                             interactive: false, stationLabel: s.label[i]}).addTo(SP.layer);
+    }
+    SP.layer.addTo(map);
+    spLabels();
+    map.on('zoomend moveend', spLabels);
+  }
+  function spArm(which) {
+    spOff();
+    SP.which = which;
+    $('#map').addClass('station-pick');
+    $('[data-station-pick=\"' + which + '\"]').addClass('pick-on');
+    if (SP.stations && SP.lang === window.APP_LANG) spDraw(); else send('review_station_list', {which: which});
+  }
+  $(document).on('click', '[data-station-pick]', function(e) {
+    e.preventDefault();
+    var w = $(this).attr('data-station-pick');
+    if (SP.which === w) spOff(); else spArm(w);
+  });
+  Shiny.addCustomMessageHandler('rail_stations', function(msg) {
+    SP.stations = msg;
+    SP.lang = msg.lang;
+    spDraw();
+  });
+  Shiny.addCustomMessageHandler('station_pick_off', function(msg) { spOff(); });
+  // The detail re-renders: the armed pin keeps its highlight; another tab cancels
+  $(document).on('shiny:value', function(e) {
+    if (e.name === 'review_detail' && SP.which) {
+      setTimeout(function() { $('[data-station-pick=\"' + SP.which + '\"]').addClass('pick-on'); }, 0);
+    }
+  });
+  $(document).on('shiny:inputchanged', function(e) { if (e.name === 'mode' && SP.which) spOff(); });
+  // Clicks on the map while armed: the nearest station within 300 m (not a pan)
+  function hookStationPick(map) {
+    var el = map.getContainer();
+    if (el._stationPickHook) return;
+    el._stationPickHook = true;
+    el.addEventListener('mousedown', function(e) { SP.down = {x: e.clientX, y: e.clientY}; }, true);
+    el.addEventListener('click', function(e) {
+      if (!SP.which || !SP.stations || $(e.target).closest('.leaflet-control, .leaflet-popup').length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (SP.down && Math.abs(e.clientX - SP.down.x) + Math.abs(e.clientY - SP.down.y) > 6) return;
+      var ll = map.mouseEventToLatLng(e), s = SP.stations, best = -1, bestD = Infinity;
+      for (var i = 0; i < s.key.length; i++) {
+        var d = ll.distanceTo([s.lat[i], s.lng[i]]);
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      if (best >= 0 && bestD <= 300) {
+        send('review_station_pick', {which: SP.which, key: s.key[best]});
+        spOff();
+      } else {
+        L.popup({closeButton: false, className: 'station-pick-hint'}).setLatLng(ll).setContent(esc(s.none || '')).openOn(map);
+      }
+    }, true);
+  }
+
+  // ---- Keys: Ctrl+Z undoes route edits; L toggles the lasso, Esc leaves it (or the station pick) ----
   $(document).on('keydown', function(e) {
     var m = mode();
     if (m !== 'BatchReview' && m !== 'EditSamples') return;
@@ -434,6 +530,7 @@ ROUTE_EDIT_JS <- "
       e.preventDefault();
       if (m === 'BatchReview') $('#review_lasso_toggle').click(); else setEditLasso(!LASSO.edit);
     } else if (key === 'escape') {
+      if (SP.which) { spOff(); return; }
       if (LASSO.drawing) finishLasso(true);
       if (m === 'BatchReview' && LASSO.review) $('#review_lasso_toggle').click();
       else if (m === 'EditSamples' && LASSO.edit) setEditLasso(false);
@@ -566,6 +663,7 @@ ROUTE_EDIT_JS <- "
     if (!map) { setTimeout(hook, 500); return; }
     window.setupOverlays(map);
     hookLasso(map);
+    hookStationPick(map);
     map.on('layeradd', function(e) {
       var l = e.layer;
       // The route's grab line stays above the lines the server redraws after a re-route

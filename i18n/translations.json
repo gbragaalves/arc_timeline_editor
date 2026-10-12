@@ -2006,5 +2006,25 @@
   "One day forward, or the whole range by its own length; then search (Alt+Right)": {
     "pt": "Um dia para a frente, ou o período inteiro pelo seu tamanho; depois busca (Alt+→)",
     "en": "One day forward, or the whole range by its own length; then search (Alt+→)"
+  },
+  "Nearest stations": {
+    "pt": "Estações mais próximas",
+    "en": "Nearest stations"
+  },
+  "All stations": {
+    "pt": "Todas as estações",
+    "en": "All stations"
+  },
+  "Pick the start station on the map (Esc cancels)": {
+    "pt": "Escolher a estação de início no mapa (Esc cancela)",
+    "en": "Pick the start station on the map (Esc cancels)"
+  },
+  "Pick the end station on the map (Esc cancels)": {
+    "pt": "Escolher a estação de fim no mapa (Esc cancela)",
+    "en": "Pick the end station on the map (Esc cancels)"
+  },
+  "No station within 300 m: click on or next to one (Esc cancels).": {
+    "pt": "Nenhuma estação a menos de 300 m: clique numa estação ou perto dela (Esc cancela).",
+    "en": "No station within 300 m: click on or next to one (Esc cancels)."
   }
 }
