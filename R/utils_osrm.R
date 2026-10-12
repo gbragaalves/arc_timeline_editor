@@ -499,9 +499,7 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
         geom <- rbind(path_points_at(geom, cum, d1), geom[inner, , drop = FALSE], path_points_at(geom, cum, d2))
         colnames(geom) <- c("lon", "lat")
       }
-      pieces[[length(pieces) + 1L]] <- list(coords = geom, idx = r$chunk[ks], ci = ci,
-                                            first = ks[1] == min(which(keep & !is.na(r$mi))),
-                                            last = ks[length(ks)] == max(which(keep & !is.na(r$mi))))
+      pieces[[length(pieces) + 1L]] <- list(coords = geom, idx = r$chunk[ks])
     }
   }
 
@@ -510,23 +508,22 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
     return(result)
   }
 
-  # Join pieces that continue across a chunk boundary: the boundary point
-  # matched in both chunks, or (tidy thins each chunk's points differently)
-  # the last piece of a chunk and the first of the next one, at most 20 s
-  # apart and close for that time (a short straight link instead of a
-  # routed gap, which can loop to reach the other carriageway)
+  # Join consecutive pieces: on the boundary point matched in both chunks, or
+  # by a short straight link when they are at most 20 s apart and close for
+  # that time (tidy thins each chunk's points differently, and OSRM itself
+  # splits where one point snapped to the other carriageway; a routed gap
+  # there can loop to reach it)
   pieces <- pieces[order(vapply(pieces, function(p) p$idx[1] %||% Inf, numeric(1)))]
   merged <- list(pieces[[1]])
   for (p in pieces[-1]) {
     last <- merged[[length(merged)]]
     if (length(last$idx) && length(p$idx) && utils::tail(last$idx, 1) == p$idx[1]) {
       merged[[length(merged)]] <- list(coords = rbind(last$coords, p$coords[-1, , drop = FALSE]),
-                                       idx = c(last$idx, p$idx[-1]), ci = p$ci, last = p$last)
-    } else if (isTRUE(last$last) && isTRUE(p$first) && identical(p$ci, last$ci + 1L) &&
+                                       idx = c(last$idx, p$idx[-1]))
+    } else if (length(last$idx) && length(p$idx) &&
                (dt <- timestamps[p$idx[1]] - timestamps[utils::tail(last$idx, 1)]) <= 20 &&
                path_cumulative_m(rbind(last$coords[nrow(last$coords), ], p$coords[1, ]))[2] <= 30 + 30 * dt) {
-      merged[[length(merged)]] <- list(coords = rbind(last$coords, p$coords), idx = c(last$idx, p$idx), ci = p$ci,
-                                       last = p$last)
+      merged[[length(merged)]] <- list(coords = rbind(last$coords, p$coords), idx = c(last$idx, p$idx))
     } else {
       merged[[length(merged) + 1L]] <- p
     }

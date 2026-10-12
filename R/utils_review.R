@@ -76,8 +76,9 @@ review_activity_of <- function(code) {
 }
 
 # Bump a family's version when its cached metrics change meaning (road 3:
-# official.lua allows wrong-way driving)
-REVIEW_CACHE_VERSION <- c(rail = 1L, road = 3L)
+# official.lua allows wrong-way driving; road 4: busways open to buses in
+# official.lua, overlapping /match chunks, short splits joined)
+REVIEW_CACHE_VERSION <- c(rail = 1L, road = 4L)
 
 
 # ---- Items and samples ----
