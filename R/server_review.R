@@ -3,7 +3,7 @@
 # network (R/utils_review.R), shows each one with a proposed clean path, and
 # exports the accepted fixes as one GPX with one <trk> per trip.
 review_server <- function(input, output, session, tr, current_lang) {
-  REVIEW_GROUPS <- c("review_ref", "review_recorded", "review_proposed", "review_markers", "review_samples")
+  REVIEW_GROUPS <- c("review_ref", "review_recorded", "review_proposed", "review_markers", "review_samples", "review_split")
   SAMPLE_POINT <- "__sample__"  # station select: keep the recorded point
 
   rv <- shiny::reactiveValues(
@@ -20,7 +20,9 @@ review_server <- function(input, output, session, tr, current_lang) {
   proposals <- new.env(parent = emptyenv())      # fixes by trip id: no repeated Google calls
   road_base <- new.env(parent = emptyenv())      # default road proposals by trip id (from the inventory)
   road_alt <- new.env(parent = emptyenv())       # road match + proposal by "id profile", other OSRM profiles
-  overrides <- new.env(parent = emptyenv())      # by trip id: origin_idx, dest_idx, dep, arr, offsets, reroute, pick, profile
+  overrides <- new.env(parent = emptyenv())      # by trip id: origin_idx, dest_idx, dep, arr, offsets, reroute, pick, profile,
+                                                 # split = list(on, alight_idx, after, osrm_walk)
+  jae_all <- read_jae_boardings()                # Jaé taps: split a trip at its boarding
   bulk_pending <- new.env(parent = emptyenv())
   resume_state <- shiny::reactiveVal(NULL)
 
@@ -32,6 +34,13 @@ review_server <- function(input, output, session, tr, current_lang) {
   family_of <- function(activity) REVIEW_ACTIVITIES[[activity]]$family
   # OSRM profile of a road trip: chosen in the profile select, or the activity's
   road_profile <- function(id) get_ov(id)$profile %||% REVIEW_ACTIVITIES[[trip_row(id)$activity]]$osrm
+  # Jaé taps of the trip's mode inside its time range
+  trip_taps <- function(id) {
+    row <- trip_row(id)
+    if (nrow(row) == 0) return(jae_all[0, ])
+    multimodal_taps(jae_all, row$activity, row$start_utc, row$end_utc)
+  }
+  split_on <- function(id) isTRUE(get_ov(id)$split$on)
   local_time <- function(t, fmt) format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), fmt, tz = Sys.timezone())
 
   trip_samples <- function(id) {
@@ -111,6 +120,15 @@ review_server <- function(input, output, session, tr, current_lang) {
         route <- list(coords = r$coords, steps = r$steps)  # steps: for the piecewise timing
       }
       fx <- rail_fix(plan, route, s, act, start_offset_s = o$start_offset, end_offset_s = o$end_offset)
+      # Jaé gate tap vs the computed start (without the manual offsets); while
+      # split, a tap shortly after it moves the start to the tap
+      taps <- trip_taps(id)
+      gate <- if (nrow(taps)) multimodal_rail_gate(taps$datetime_utc[1], fx$t_start - (o$start_offset %||% 0))
+      if (isTRUE(o$split$on) && identical(gate$action, "adjust")) {
+        fx <- rail_fix(plan, route, s, act, start_offset_s = o$start_offset, end_offset_s = o$end_offset,
+                       start_at = gate$start_at)
+      }
+      fx$gate <- gate
       fx$plan <- plan
       fx$route_key <- key
     } else {
@@ -173,8 +191,41 @@ review_server <- function(input, output, session, tr, current_lang) {
     fx$id <- id
     fx$activity <- act
     fx$recorded_km <- fx$recorded_km %||% row$path_km
+    fx$split <- split_proposal(id, act, s, fx, o$split)
     assign(id, fx, envir = proposals)
     fx
+  }
+
+  # Split at the first Jaé tap (when switched on): walk -> wait -> bus / rail
+  # leg -> after. Bus: needs the alighting sample (map click). Rail: the wait
+  # runs until the rail fix's departure; a tap after it is ignored.
+  split_proposal <- function(id, act, s, fx, sp) {
+    if (!isTRUE(sp$on)) return(NULL)
+    taps <- trip_taps(id)
+    if (nrow(taps) == 0) return(NULL)
+    tap <- taps[1, ]
+    walk <- if (isTRUE(sp$osrm_walk)) "osrm" else "recorded"
+    out <- list(tap = tap, after = sp$after %||% "walk", osrm_walk = isTRUE(sp$osrm_walk), alight_idx = sp$alight_idx)
+    rail <- family_of(act) == "rail"
+    if (rail && identical(fx$gate$action, "ignore")) {
+      out$ignored <- TRUE
+      return(out)
+    }
+    if (!rail && is.null(sp$alight_idx)) return(out)
+    out$segments <- tryCatch(
+      shiny::withProgress(message = tr("Splitting the trip..."), value = 0.5, {
+        if (rail) {
+          build_rail_multimodal_segments(s, tap, fx, act, walk)
+        } else {
+          build_multimodal_segments(s, tap, c(s$lon[sp$alight_idx], s$lat[sp$alight_idx]), out$after, walk)
+        }
+      }),
+      error = function(e) {
+        notify(paste(tr("Could not split the trip:"), conditionMessage(e)), type = "error")
+        NULL
+      }
+    )
+    out
   }
 
   select_trip <- function(id, refresh_route = FALSE) {
@@ -421,6 +472,81 @@ review_server <- function(input, output, session, tr, current_lang) {
 
   # ---- Detail of the selected trip ----
 
+  # Jaé tap line with the split button; while split: the alighting (bus), the
+  # OSRM foot fallback, the after-alighting choice (bus) and the segments
+  split_parts <- function(id, act, fx, lang) {
+    taps <- trip_taps(id)
+    if (nrow(taps) == 0) return(list())
+    tap <- taps[1, ]
+    rail <- family_of(act) == "rail"
+    what <- if (rail) tap$label else paste(tr("line"), trimws(tap$linha_ou_estacao))
+    jae_txt <- paste0("Jaé: ", jae_local_time(tap$datetime_utc), " · ", what,
+                      if (nrow(taps) > 1) sprintf(" (+%d)", nrow(taps) - 1) else "")
+    jae_span <- shiny::span(class = "rv-clamp", title = paste0(jae_local_time(tap$datetime_utc, "%H:%M:%S"), " · ", tap$label),
+                            jae_txt)
+    if (rail && identical(fx$gate$action, "ignore")) {
+      msg <- sprintf(tr("The Jaé tap (%s) is more than %d min after the rail leg's start (%s): tap ignored."),
+                     jae_local_time(tap$datetime_utc, "%H:%M:%S"), REVIEW_THRESHOLDS$rail_gate_max_late_s %/% 60,
+                     local_time(fx$path$t[1], "%H:%M:%S"))
+      return(list(shiny::div(class = "rv-jae", jae_span), shiny::div(class = "rv-warn rv-clamp", title = msg, msg)))
+    }
+    on <- split_on(id)
+    # Split with the start moved to the gate tap: said on the Jaé line (the station is in the title)
+    if (on && rail && identical(fx$gate$action, "adjust")) {
+      jae_span <- shiny::span(class = "rv-clamp", title = paste0(jae_local_time(tap$datetime_utc, "%H:%M:%S"), " · ", tap$label),
+                              paste0("Jaé: ", jae_local_time(tap$datetime_utc), " · ", tr("start adjusted to Jaé tap")))
+    }
+    leg <- if (rail) act else "bus"
+    btn <- shiny::tags$button(
+      type = "button", `data-review-split` = "toggle", title = if (on) tr("Cancel split"),
+      class = paste("btn btn-sm", if (on) "btn-outline-secondary rv-split-cancel" else "btn-outline-primary"),
+      if (on) "\u00d7" else sprintf(tr("Split: walk → wait → %s"), tolower(tr(REVIEW_ACTIVITIES[[leg]]$label)))
+    )
+    out <- list(shiny::div(class = paste("rv-jae", if (on) "rv-split-on"), jae_span, btn))
+    sp <- fx$split
+    if (!on || is.null(sp)) return(out)
+    chips <- if (length(sp$segments)) {
+      shiny::div(class = "rv-segs", lapply(sp$segments, function(g) {
+        shiny::span(class = "rv-seg", style = sprintf("border-left-color: %s;", segment_color(g, act)),
+                    title = sprintf("%s · %s–%s", g$name, local_time(g$t_start, "%H:%M:%S"), local_time(g$t_end, "%H:%M:%S")),
+                    sprintf("%s %.1f min", segment_label(g, act), (g$t_end - g$t_start) / 60))
+      }))
+    }
+
+    osrm_box <- shiny::div(
+      class = "rv-split-osrm", title = tr("Fallback: route the walks with OSRM foot instead of the recorded samples."),
+      shiny::checkboxInput("review_split_osrm", "OSRM", isTRUE(sp$osrm_walk))
+    )
+    if (rail) {
+      # The segments and the fallback share a line (the departure is in the start row)
+      return(c(out, list(shiny::div(class = "rv-split-row", chips %||% shiny::span(), osrm_box))))
+    } else {
+      alight <- if (is.null(sp$alight_idx)) {
+        shiny::span(class = "rv-hint", sprintf(tr("Click the map where you got off (after %s)."),
+                                               jae_local_time(tap$datetime_utc, "%H:%M:%S")))
+      } else {
+        shiny::span(sprintf(tr("Alighting: %s"), local_time(trip_samples(id)$t[sp$alight_idx], "%H:%M:%S")))
+      }
+      out <- c(out, list(
+        shiny::div(class = "rv-split-row", alight, osrm_box),
+        shiny::div(class = "rv-split-after",
+                   shiny::radioButtons("review_split_after", NULL, inline = TRUE, selected = sp$after,
+                                       choiceNames = list(tr("Walk (recorded)"), tr("Visit at destination"), tr("Leave as is")),
+                                       choiceValues = list("walk", "visit", "none")))
+      ))
+    }
+    c(out, list(chips))
+  }
+  segment_label <- function(g, act) {
+    switch(g$role, walk_to_stop = , walk_from_stop = tr("Walk"), wait = tr("Wait"), bus = tr("Bus"),
+           at_destination = tr("At destination"), rail = tr(REVIEW_ACTIVITIES[[act]]$label), g$role)
+  }
+  segment_color <- function(g, act) {
+    if (identical(g$role, "rail")) return(REVIEW_ACTIVITIES[[act]]$color)
+    if (identical(g$role, "at_destination")) return(MULTIMODAL_COLORS[["visit"]])
+    MULTIMODAL_COLORS[[g$type]]
+  }
+
   output$review_detail <- shiny::renderUI({
     lang <- current_lang()
     id <- rv$selected
@@ -442,8 +568,8 @@ review_server <- function(input, output, session, tr, current_lang) {
       paste(REVIEW_ACTIVITIES[[act]]$icon, when),
       if (!is.null(stations)) shiny::span(class = "rv-stations", paste0("· ", stations))
     )
-    # Road trips: their OSRM profile, on the title line
-    if (family_of(act) == "road") {
+    # Road trips: their OSRM profile, on the title line (not while split: the bus leg uses bus)
+    if (family_of(act) == "road" && !split_on(id)) {
       title <- shiny::div(
         class = "rv-title-row", title,
         shiny::div(class = "review-profile", title = tr("Routing profile for this trip"),
@@ -454,7 +580,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     fragment <- isTRUE(row$fragment)
     parts <- list(
       title,
-      if (nzchar(reasons)) shiny::div(class = "text-secondary rv-clamp", title = reasons, reasons),
+      # While split, the split rows take the reasons' line (also in the list row's tooltip)
+      if (nzchar(reasons) && !split_on(id)) shiny::div(class = "text-secondary rv-clamp", title = reasons, reasons),
       if (fragment) {
         shiny::div(class = "rv-clamp", title = fragment_text(row$path_km),
                    shiny::span(class = "rv-badge rv-fragment", tr("fragment")),
@@ -465,6 +592,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     if (is.null(fx) || !identical(fx$id, id)) {
       return(shiny::div(class = "review-detail", parts, shiny::div(class = "rv-warn", tr("No proposal for this trip."))))
     }
+    parts <- c(parts, split_parts(id, act, fx, lang))
+    if (family_of(act) == "road" && !is.null(fx$split)) return(shiny::div(class = "review-detail", parts))
     length_line <- sprintf(tr("Proposed %.1f km · recorded %.1f km"),
                            fx$proposed_km %||% (path_cumulative_m(cbind(fx$path$lon, fx$path$lat))[nrow(fx$path)] / 1000),
                            fx$recorded_km)
@@ -626,8 +755,17 @@ review_server <- function(input, output, session, tr, current_lang) {
       notify(tr("No proposal to accept for this trip."), type = "warning")
       return()
     }
+    sp <- fx$split
+    if (!is.null(sp) && !isTRUE(sp$ignored) && is.null(sp$segments)) {
+      notify(tr("Click the map where you got off first."), type = "warning")
+      return()
+    }
     acc <- rv$accepted
-    acc[[id]] <- list(activity = fx$activity, path = fx$path[, c("lon", "lat", "t")], method = fx$method)
+    acc[[id]] <- if (!is.null(sp$segments)) {
+      multimodal_accepted(sp$segments, fx$activity)
+    } else {
+      list(activity = fx$activity, path = fx$path[, c("lon", "lat", "t")], method = fx$method)
+    }
     rv$accepted <- acc
     set_status_and_next(id, "accepted")
   })
@@ -653,7 +791,10 @@ review_server <- function(input, output, session, tr, current_lang) {
   shiny::observeEvent(input$review_reroute, {
     id <- rv$selected
     if (is.null(id)) return()
-    if (family_of(trip_row(id)$activity) == "road") set_ov(id, list(reroute = TRUE))
+    if (family_of(trip_row(id)$activity) == "road") {
+      set_ov(id, list(reroute = TRUE))
+      if (split_on(id)) set_ov(id, list(split = utils::modifyList(get_ov(id)$split, list(on = FALSE))))
+    }
     recompute_selected(refresh_route = TRUE)
   })
 
@@ -665,6 +806,61 @@ review_server <- function(input, output, session, tr, current_lang) {
     set_ov(id, list(profile = input$review_profile, pick = NULL))
     recompute_selected()
   }, ignoreInit = TRUE)
+
+  # ---- Split at the Jaé tap ----
+
+  shiny::observeEvent(input$review_split, {
+    id <- rv$selected
+    if (is.null(id) || nrow(trip_taps(id)) == 0) return()
+    sp <- get_ov(id)$split %||% list(after = "walk", osrm_walk = FALSE)
+    set_ov(id, list(split = utils::modifyList(sp, list(on = !isTRUE(sp$on)))))
+    recompute_selected()
+  })
+
+  split_option <- function(key, value, default) {
+    id <- rv$selected
+    if (is.null(id) || !split_on(id) || is.null(value)) return()
+    sp <- get_ov(id)$split
+    if (identical(sp[[key]] %||% default, value)) return()
+    set_ov(id, list(split = utils::modifyList(sp, stats::setNames(list(value), key))))
+    recompute_selected()
+  }
+  shiny::observeEvent(input$review_split_after, split_option("after", input$review_split_after, "walk"), ignoreInit = TRUE)
+  shiny::observeEvent(input$review_split_osrm, split_option("osrm_walk", isTRUE(input$review_split_osrm), FALSE),
+                      ignoreInit = TRUE)
+
+  # Map click while splitting a road trip: the alighting, snapped to the
+  # recorded sample nearest to it along the recording after the boarding
+  set_alighting <- function(lon, lat) {
+    id <- rv$selected
+    if (is.null(id) || !split_on(id) || family_of(trip_row(id)$activity) != "road") return()
+    taps <- trip_taps(id)
+    if (nrow(taps) == 0 || is.null(lon) || is.null(lat)) return()
+    s <- trip_samples(id)
+    t_tap <- as.numeric(taps$datetime_utc[1])
+    ib <- which(s$t >= t_tap)[1]
+    if (is.na(ib)) return()
+    ia <- multimodal_alighting_index(s, ib, c(lon, lat))
+    # Snapped to a sample after the boarding: refused when that sample is far
+    # from the click (e.g. a click on the walk before the boarding)
+    far <- geosphere::distHaversine(c(lon, lat), c(s$lon[ia], s$lat[ia])) > 100
+    if (s$t[ia] <= t_tap || far) {
+      notify(sprintf(tr("The alighting must come after the boarding (%s)."), jae_local_time(taps$datetime_utc[1], "%H:%M:%S")),
+             type = "warning")
+      return()
+    }
+    sp <- get_ov(id)$split
+    if (identical(sp$alight_idx, ia)) return()
+    set_ov(id, list(split = utils::modifyList(sp, list(alight_idx = ia))))
+    recompute_selected()
+  }
+  shiny::observeEvent(input$map_click, {
+    if (identical(input$mode, "BatchReview")) set_alighting(input$map_click$lng, input$map_click$lat)
+  })
+  shiny::observeEvent(input$map_marker_click, {
+    ev <- input$map_marker_click
+    if (identical(input$mode, "BatchReview") && startsWith(as.character(ev$id %||% ""), "rvs_")) set_alighting(ev$lng, ev$lat)
+  })
 
   # ---- Bulk accept (road activities only) ----
 
@@ -796,8 +992,46 @@ review_server <- function(input, output, session, tr, current_lang) {
       label = paste0(local_time(s$t, "%H:%M:%S"), " · ±", round(s$acc), " m")
     )
 
-    # Proposed clean path and its ends
-    if (!is.null(fx) && identical(fx$id, id)) {
+    # Jaé boarding of a trip with a tap of its mode
+    taps <- trip_taps(id)
+    taps <- taps[!is.na(taps$longitude) & !is.na(taps$latitude), ]
+    if (nrow(taps)) {
+      tap <- taps[1, ]
+      jae_color <- unname(JAE_MODE_COLORS[tap$modo])
+      proxy <- leaflet::addCircleMarkers(
+        proxy, lng = tap$longitude, lat = tap$latitude, radius = 8, color = "white", weight = 2,
+        fillColor = if (is.na(jae_color)) "#1565C0" else jae_color, fillOpacity = 1, group = "review_split",
+        label = paste0("Jaé ", jae_local_time(tap$datetime_utc, "%H:%M:%S"), " · ", tap$label),
+        options = leaflet::pathOptions(bubblingMouseEvents = FALSE)
+      )
+    }
+
+    split <- if (!is.null(fx) && identical(fx$id, id) && !is.null(fx$split) && !isTRUE(fx$split$ignored)) fx$split
+    if (!is.null(split)) {
+      # Split preview: each segment in its colour (walks dashed, waits and visits as dots), the alighting sample
+      for (g in split$segments) {
+        col <- segment_color(g, act)
+        tip <- sprintf("%s · %s–%s", segment_label(g, act), local_time(g$t_start, "%H:%M:%S"), local_time(g$t_end, "%H:%M:%S"))
+        proxy <- if (g$type == "stationary") {
+          leaflet::addCircleMarkers(proxy, lng = g$path$lon[1], lat = g$path$lat[1], radius = 9, color = "white", weight = 2,
+                                    fillColor = col, fillOpacity = 0.95, label = tip, group = "review_split",
+                                    options = leaflet::pathOptions(bubblingMouseEvents = FALSE))
+        } else {
+          leaflet::addPolylines(proxy, lng = g$path$lon, lat = g$path$lat, color = col, weight = if (g$type == "walking") 4 else 5,
+                                opacity = 0.9, dashArray = if (g$type == "walking") "2 7" else NULL, label = tip,
+                                group = "review_split")
+        }
+      }
+      if (!is.null(split$alight_idx)) {
+        ai <- split$alight_idx
+        proxy <- leaflet::addCircleMarkers(
+          proxy, lng = s$lon[ai], lat = s$lat[ai], radius = 7, color = "#C62828", weight = 3, fill = FALSE,
+          label = sprintf(tr("Alighting: %s"), local_time(s$t[ai], "%H:%M:%S")), group = "review_split",
+          options = leaflet::pathOptions(bubblingMouseEvents = FALSE)
+        )
+      }
+    } else if (!is.null(fx) && identical(fx$id, id)) {
+      # Proposed clean path and its ends
       p <- fx$path
       if (!is.null(fx$candidates)) {
         other <- fx$candidates[[if (identical(fx$pick, "via")) "match" else "via"]]$path
@@ -821,8 +1055,8 @@ review_server <- function(input, output, session, tr, current_lang) {
       )
     }
 
-    lons <- c(s$lon, if (!is.null(fx)) fx$path$lon)
-    lats <- c(s$lat, if (!is.null(fx)) fx$path$lat)
+    lons <- c(s$lon, if (!is.null(fx)) fx$path$lon, if (nrow(taps)) taps$longitude[1])
+    lats <- c(s$lat, if (!is.null(fx)) fx$path$lat, if (nrow(taps)) taps$latitude[1])
     leaflet::fitBounds(proxy, min(lons), min(lats), max(lons), max(lats))
   }
 
@@ -868,7 +1102,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         return()
       }
       write_batch_gpx(acc, file)
-      notify(sprintf(tr("Batch GPX: %d tracks."), length(acc)))
+      notify(sprintf(tr("Batch GPX: %d tracks."), review_gpx_track_count(acc)))
     }
   )
 

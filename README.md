@@ -223,6 +223,15 @@ For Rio de Janeiro's Jaé fare card. Set `JAE_CSV_PATH` in `config_local.R` to a
 
 **Start route here** puts the route's first point on the boarding and sets the profile (bus and BRT → bus, metro → metro, VLT → tram). When you calculate the route, the start time is the tap-in time, and the confirmed route is described by the boarding (`<line> · <direction> · veículo <id>` for buses, `Metrô · <station>`, `VLT · <stop>`). A boarding without coordinates shows "no location": after **Start route here**, click its location on the map to set the first point. Boardings already turned into a route in the current session are greyed out.
 
+**Split at the boarding (Batch review).** Arc often starts a bus trip at the front door (and may call the bus ride "car"). A bus or car trip that contains a bus/BRT tap, or a metro or train trip that contains a Metrô gate tap, shows `Jaé: <time> · <line or station>` in the detail and **Split: walk → wait → bus** (or metro). The split replaces the trip with separate tracks, in time order and touching:
+
+- the walk to the stop as recorded, up to the first sample within 40 m of the tap point before the tap (or the nearest one before it);
+- a stationary wait at the stop until the tap;
+- the ride. For a bus, click the map where you got off: the click snaps to the nearest recorded sample after the boarding along the recording, and the bus leg is matched on the bus profile. For rail, the leg is the rail fix; the wait runs until its departure.
+- after alighting (bus): the recorded walk, a visit at the destination until the trip's end, or nothing (*leave as is*).
+
+The map previews each segment in its colour. A tap up to 3 minutes after the rail leg's computed start moves the start to the tap plus `rail_gate_to_train_s` (60 s, in `REVIEW_THRESHOLDS`); a later one is ignored (probably another trip). A Metrô tap without coordinates stands at the departure station. **OSRM** routes the walks with OSRM foot instead, as a fallback.
+
 The CSV is UTF-8, comma-separated, one row per boarding (tap-in only; there is no alighting data), with the columns `datetime_local`, `datetime_utc` (ISO, `Z`), `modo` (`Ônibus` | `BRT` | `Metrô` | `VLT`), `consorcio`, `linha_ou_estacao`, `descricao`, `sentido`, `id_veiculo`, `tipo_transacao`, `produto`, `meio_pagamento`, `valor`, `latitude`, `longitude`, `fonte_coordenada`, `usar_no_arc` (`sim` | `não`), `obs`. Only rows with `usar_no_arc` = `sim` are used, and dates are matched in `America/Sao_Paulo`. Without `JAE_CSV_PATH`, or if the file is missing, nothing is shown. Keep the CSV outside the repository: it holds your trips and locations.
 
 ## Setup

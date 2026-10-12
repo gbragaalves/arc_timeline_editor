@@ -8,6 +8,11 @@
 # segmented controls (see the navigation script at the end).
 
 README_URL <- "https://github.com/gbragaalves/arc_timeline_editor"
+# Test-only (headless runs, set by the test launcher): OSM raster as the default
+# base layer, without MapLibre/OpenFreeMap, whose WebGL is rendered in software
+# there and is very slow. Real use keeps OpenFreeMap.
+MAP_RASTER_BASE <- isTRUE(get0("MAP_RASTER_BASE", ifnotfound = FALSE))
+
 # OpenFreeMap base layer: MapLibre GL + its Leaflet plugin, pinned CDN versions.
 # Attached after leafletOutput() so the scripts load (in order) after leaflet.js.
 MAPLIBRE_DEPS <- list(
@@ -271,6 +276,20 @@ APP_CSS <- "
   .review-detail .rv-title-row .rv-title { flex: 1 1 auto; min-width: 0; }
   .review-detail .review-profile { flex: 0 0 auto; font-weight: 400; }
   .review-profile .selectize-input { line-height: 1.2; vertical-align: top; }
+  .review-detail .rv-jae { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
+  .review-detail .rv-jae > .rv-clamp { flex: 1 1 auto; min-width: 0; }
+  .review-detail .rv-jae.rv-split-on { flex-wrap: nowrap; }
+  .review-detail .rv-jae .btn.rv-split-cancel { padding: 0 7px; font-size: 0.8rem; line-height: 1.15; }
+  .review-detail .rv-jae .btn { flex: 0 0 auto; margin-left: auto; font-size: 0.7rem; padding: 0 6px; line-height: 1.35; }
+  .review-detail .rv-split-row { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+  .review-detail .rv-hint { color: var(--bs-primary-text-emphasis); min-width: 0; }
+  .review-detail .rv-split-row .shiny-input-container, .review-detail .rv-split-after .shiny-input-container {
+    margin-bottom: 0 !important; width: auto;
+  }
+  .review-detail .rv-split-osrm .checkbox, .review-detail .rv-split-osrm .form-check { margin: 0; min-height: 0; white-space: nowrap; }
+  .review-detail .rv-split-after .form-check-inline, .review-detail .rv-split-after .radio-inline { margin-right: 0.45rem; }
+  .review-detail .rv-segs { display: flex; flex-wrap: wrap; gap: 2px 6px; }
+  .review-detail .rv-seg { border-left: 4px solid; padding-left: 3px; white-space: nowrap; }
   .review-detail .rv-warn { color: var(--bs-danger-text-emphasis); }
   .review-detail .rv-clamp { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .review-end {
@@ -825,7 +844,7 @@ ui <- bslib::page_fillable(
       border = FALSE,
       border_radius = FALSE,
       leaflet::leafletOutput("map", height = "100%"),
-      htmltools::attachDependencies(shiny::tags$span(class = "d-none"), MAPLIBRE_DEPS)
+      if (!MAP_RASTER_BASE) htmltools::attachDependencies(shiny::tags$span(class = "d-none"), MAPLIBRE_DEPS)
     )
   ),
 
@@ -881,6 +900,11 @@ ui <- bslib::page_fillable(
       // Road detours: pick the matched path or the one through the recording
       $(document).on('click', '[data-review-pick]', function() {
         Shiny.setInputValue('review_pick', {key: $(this).attr('data-review-pick'), ts: Date.now()}, {priority: 'event'});
+      });
+
+      // Split at the Jaé tap: on / off
+      $(document).on('click', '[data-review-split]', function() {
+        Shiny.setInputValue('review_split', {action: $(this).attr('data-review-split'), ts: Date.now()}, {priority: 'event'});
       });
 
       // Keys: A accept, S skip, R re-route (Batch review only, not while typing)

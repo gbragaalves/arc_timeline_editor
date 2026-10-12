@@ -131,6 +131,10 @@
     "pt": "Avião",
     "en": "Airplane"
   },
+  "Alighting: %s": {
+    "pt": "Descida: %s",
+    "en": "Alighting: %s"
+  },
   "All samples were ignored.": {
     "pt": "Todas as amostras foram ignoradas.",
     "en": "All samples were ignored."
@@ -150,6 +154,10 @@
   "Arc JSON package": {
     "pt": "Pacote JSON do Arc",
     "en": "Arc JSON package"
+  },
+  "At destination": {
+    "pt": "No destino",
+    "en": "At destination"
   },
   "available": {
     "pt": "disponível",
@@ -210,6 +218,10 @@
   "Cancel": {
     "pt": "Cancelar",
     "en": "Cancel"
+  },
+  "Cancel split": {
+    "pt": "Cancelar divisão",
+    "en": "Cancel split"
   },
   "Cannot delete first/last node.": {
     "pt": "Não é possível excluir o primeiro/último nó.",
@@ -275,6 +287,14 @@
     "pt": "Clique no mapa para definir os pontos.",
     "en": "Click the map to set the points."
   },
+  "Click the map where you got off (after %s).": {
+    "pt": "Clique no mapa onde você desceu (depois de %s).",
+    "en": "Click the map where you got off (after %s)."
+  },
+  "Click the map where you got off first.": {
+    "pt": "Primeiro clique no mapa onde você desceu.",
+    "en": "Click the map where you got off first."
+  },
   "Click to re-check.": {
     "pt": "Clique para verificar de novo.",
     "en": "Click to re-check."
@@ -318,6 +338,10 @@
   "Could not route through the recorded path (OSRM).": {
     "pt": "Não foi possível rotear pelo trajeto gravado (OSRM).",
     "en": "Could not route through the recorded path (OSRM)."
+  },
+  "Could not split the trip:": {
+    "pt": "Não foi possível dividir a viagem:",
+    "en": "Could not split the trip:"
   },
   "Course:": {
     "pt": "Rumo:",
@@ -538,6 +562,10 @@
   "Failed to interpolate OSRM route coordinates.": {
     "pt": "Falha ao interpolar as coordenadas da rota OSRM.",
     "en": "Failed to interpolate OSRM route coordinates."
+  },
+  "Fallback: route the walks with OSRM foot instead of the recorded samples.": {
+    "pt": "Alternativa: rotear as caminhadas com o OSRM a pé em vez de usar as amostras gravadas.",
+    "en": "Fallback: route the walks with OSRM foot instead of the recorded samples."
   },
   "Fare card tap-ins on this date. A route started here takes the boarding's place, time, profile and description.": {
     "pt": "Validações do cartão nesta data. Uma rota iniciada aqui usa o local, o horário, o perfil e a descrição do embarque.",
@@ -858,6 +886,14 @@
   "Latitude:": {
     "pt": "Latitude:",
     "en": "Latitude:"
+  },
+  "Leave as is": {
+    "pt": "Deixar como está",
+    "en": "Leave as is"
+  },
+  "line": {
+    "pt": "linha",
+    "en": "line"
   },
   "Load": {
     "pt": "Carregar",
@@ -1491,9 +1527,21 @@
     "pt": "Velocidade:",
     "en": "Speed:"
   },
+  "Split: walk → wait → %s": {
+    "pt": "Dividir: caminhada → espera → %s",
+    "en": "Split: walk → wait → %s"
+  },
+  "Splitting the trip...": {
+    "pt": "Dividindo a viagem...",
+    "en": "Splitting the trip..."
+  },
   "Start": {
     "pt": "Início",
     "en": "Start"
+  },
+  "start adjusted to Jaé tap": {
+    "pt": "início ajustado ao toque",
+    "en": "start adjusted to Jaé tap"
   },
   "Start date": {
     "pt": "Data de início",
@@ -1522,6 +1570,14 @@
   "Taxi": {
     "pt": "Táxi",
     "en": "Taxi"
+  },
+  "The alighting must come after the boarding (%s).": {
+    "pt": "A descida tem de ser depois do embarque (%s).",
+    "en": "The alighting must come after the boarding (%s)."
+  },
+  "The Jaé tap (%s) is more than %d min after the rail leg's start (%s): tap ignored.": {
+    "pt": "O toque no Jaé (%s) é mais de %d min depois do início do trecho sobre trilhos (%s): toque ignorado.",
+    "en": "The Jaé tap (%s) is more than %d min after the rail leg's start (%s): tap ignored."
   },
   "The OSRM server did not respond at:": {
     "pt": "O servidor OSRM não respondeu em:",
@@ -1631,9 +1687,25 @@
     "pt": "Visita adicionada.",
     "en": "Visit added."
   },
+  "Visit at destination": {
+    "pt": "Visita no destino",
+    "en": "Visit at destination"
+  },
   "Visit name": {
     "pt": "Nome da visita",
     "en": "Visit name"
+  },
+  "Wait": {
+    "pt": "Espera",
+    "en": "Wait"
+  },
+  "Walk": {
+    "pt": "Caminhada",
+    "en": "Walk"
+  },
+  "Walk (recorded)": {
+    "pt": "Caminhada (gravada)",
+    "en": "Walk (recorded)"
   },
   "Walking": {
     "pt": "Caminhada",

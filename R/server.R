@@ -48,6 +48,8 @@ function(el, x) {
   if (window.applyI18n) window.applyI18n(window.APP_LANG);
 }
 "
+# MAP_RASTER_BASE (test-only): no OpenFreeMap layer, only the translations
+MAP_I18N_JS <- "function(el, x) { if (window.applyI18n) window.applyI18n(window.APP_LANG); }"
 
 # ---- Service status (top-bar dots), cached per R process ----
 .service_status <- new.env(parent = emptyenv())
@@ -332,11 +334,11 @@ server <- function(input, output, session) {
       ) |>
       # First base group is the one shown by default
       leaflet::addLayersControl(
-        baseGroups = c("OpenFreeMap", "OSM", "CartoDB", i18n_key("Satellite"), "Topo"),  # labels translated client-side
+        baseGroups = c(if (!MAP_RASTER_BASE) "OpenFreeMap", "OSM", "CartoDB", i18n_key("Satellite"), "Topo"),  # labels translated client-side
         options = leaflet::layersControlOptions(collapsed = TRUE)
       ) |>
       leaflet::setView(lng = -43.2, lat = -22.9, zoom = 11) |>
-      htmlwidgets::onRender(OPENFREEMAP_JS)
+      htmlwidgets::onRender(if (MAP_RASTER_BASE) MAP_I18N_JS else OPENFREEMAP_JS)
   })
 
   # Helper: update points on the map
