@@ -64,11 +64,12 @@ icloud_path <- function(...) {
 
 # Backup UUID whose samples/ has the most recently modified file (cached).
 # Returns NULL on failure; the rclone output is kept in .icloud_state$last_error.
-icloud_active_backup <- function() {
+# run: the rclone runner (rclone_run; replaced in tests).
+icloud_active_backup <- function(run = rclone_run) {
   if (!is.null(ICLOUD_BACKUP_ID) && nzchar(ICLOUD_BACKUP_ID)) return(ICLOUD_BACKUP_ID)
   if (!is.null(.icloud_state$backup_id)) return(.icloud_state$backup_id)
 
-  res <- rclone_run(c("lsf", "--dirs-only", icloud_path("Backup")), timeout = 120)
+  res <- run(c("lsf", "--dirs-only", icloud_path("Backup")), timeout = 120)
   if (!res$ok) {
     .icloud_state$last_error <- res$output
     message("[iCloud] Could not list backups")
@@ -77,7 +78,7 @@ icloud_active_backup <- function() {
 
   dirs <- sub("/$", "", res$stdout[nzchar(res$stdout)])
   latest <- vapply(dirs, function(d) {
-    r <- rclone_run(c("lsjson", icloud_path("Backup", d, "samples")), timeout = 120)
+    r <- run(c("lsjson", icloud_path("Backup", d, "samples")), timeout = 120)
     if (!r$ok) {
       .icloud_state$last_error <- r$output
       return(NA_real_)
@@ -211,13 +212,22 @@ icloud_push_file <- function(local_file, subdir = "GPX", lang = "en") {
   res <- rclone_run(c("copyto", normalizePath(local_file), dest), timeout = 300)
   if (!res$ok) return(list(ok = FALSE, message = icloud_error_hint(res$output, lang)))
 
+  # Every GPX sent: in the send log, with a local copy (see utils_icloud_cleanup.R)
+  if (identical(subdir, "GPX") && exists("gpx_send_log_add", mode = "function")) {
+    tryCatch(gpx_send_log_add(local_file), error = function(e) message("[iCloud] GPX send log: ", conditionMessage(e)))
+  }
   list(ok = TRUE, message = sprintf(icloud_msg("Sent to %s", lang), dest))
+}
+
+# rclone output meaning the iCloud login (trust token) expired
+icloud_auth_expired <- function(output) {
+  any(grepl("auth|trust ?token|\\b40[13]\\b|reconnect", as.character(output %||% character(0)), ignore.case = TRUE))
 }
 
 # User-facing hint for a failed rclone call
 icloud_error_hint <- function(output, lang = "en") {
   output <- as.character(output %||% character(0))
-  if (any(grepl("auth|trust ?token|\\b40[13]\\b|reconnect", output, ignore.case = TRUE))) {
+  if (icloud_auth_expired(output)) {
     return(sprintf(icloud_msg("iCloud authorization expired. In a terminal, run: rclone reconnect %s:", lang), ICLOUD_REMOTE))
   }
 

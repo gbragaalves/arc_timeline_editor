@@ -9,6 +9,8 @@ location_history/cache/
 items/
 reference/
 scratch/
+logs/
+exports/
 
 # Local configuration (private data)
 config_local.R
