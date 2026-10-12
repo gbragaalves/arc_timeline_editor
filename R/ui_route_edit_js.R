@@ -12,8 +12,15 @@
 #     review_pin_rule; a splice warning) and never re-routes; right-click on a
 #     spliced stretch opens the leg menu (OSRM route, recorded path, straight
 #     line: review_leg_mode). Right-click or double-click removes a pin.
-#   Lasso (Batch review, "lasso_mode"): the recorded samples circled are sent
-#     as review_lasso_samples (kept out of /match).
+#   Lasso (Batch review: the samples circled are sent as review_lasso_samples,
+#     kept out of /match; Edit Samples: they join the selection for Ignore /
+#     Discard / Exclude from snap, window.editLassoSelect in ui.R): a drag
+#     draws a lasso while the tab's lasso mode is on (its button or L; Esc
+#     leaves it; it stays on across lassos) or with Shift held. Lasso drags
+#     are taken in the capture phase, so the map never pans and no marker drag
+#     starts during one; a drag that starts on a pin, a route end or the
+#     editable route line is never a lasso. Map dragging stays off while the
+#     mode is on (wheel zoom works) and Leaflet's boxZoom (Shift + drag) is off.
 #   Ctrl+Z: route_undo (pins, moved ends and exclusions share one history).
 #   Overlays "Bus infrastructure" (GeoJSON by map bounds from the server) and
 #     "Router network" (OSRM /tile vector tiles of the selected profile, drawn
@@ -21,7 +28,7 @@
 ROUTE_EDIT_JS <- "
 (function() {
   var RE = {scope: null, on: false, layer: null, ctrl: [], fixedEnds: false, path: [], cum: [], info: {}, legs: [],
-            rules: false, labels: {}, windowM: 300};
+            rules: false, labels: {}, windowM: 300, dragging: false};
   window.__routeEdit = RE;  // read by the browser tests
   function getMap() { var w = HTMLWidgets.find('#map'); return w && w.getMap(); }
   function mode() { return $('#mode input:checked').val(); }
@@ -93,7 +100,8 @@ ROUTE_EDIT_JS <- "
     samplesPassThrough(map, false);
     RE.hit = null;
     if (RE.layer) RE.layer.clearLayers();
-    if (map) { map.dragging.enable(); map.doubleClickZoom.enable(); }
+    RE.dragging = false;
+    if (map) { syncDragging(map); map.doubleClickZoom.enable(); }
   }
 
   Shiny.addCustomMessageHandler('route_edit', function(msg) {
@@ -134,7 +142,8 @@ ROUTE_EDIT_JS <- "
     hit.on('mousedown', function(e) {
       if (e.originalEvent.button !== 0) return;
       L.DomEvent.stop(e);
-      map.dragging.disable();
+      RE.dragging = true;
+      syncDragging(map);
       var start = e.containerPoint, moved = false, leg = nearestLeg(map, e.latlng);
       // Batch review: a local splice between anchors around the grab point
       var gd = splices ? projectOnPath(map, e.latlng) : null;
@@ -153,7 +162,8 @@ ROUTE_EDIT_JS <- "
         map.off('mousemove', move);
         map.off('mouseup', up);
         $(document).off('mouseup.routeedit');
-        map.dragging.enable();
+        RE.dragging = false;
+        syncDragging(map);
         RE.layer.removeLayer(ghost);
         RE.layer.removeLayer(preview);
         if (moved && ev && ev.latlng) {
@@ -291,8 +301,10 @@ ROUTE_EDIT_JS <- "
     if (map) map.closePopup();
   });
 
-  // ---- Lasso (Batch review): circle samples to keep them out of /match ----
-  var lasso = {on: false, svg: null, pts: []};
+  // ---- Lasso (Batch review and Edit Samples) ----
+  var LASSO = {review: false, edit: false, drawing: false, applied: false, scope: null, shift: false, svg: null, pts: [],
+               noClickUntil: 0};
+  window.__lasso = LASSO;  // read by the browser tests
   function pointInPolygon(x, y, poly) {
     var inside = false;
     for (var i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -301,45 +313,115 @@ ROUTE_EDIT_JS <- "
     }
     return inside;
   }
+  function lassoScope() { var m = mode(); return m === 'BatchReview' ? 'review' : (m === 'EditSamples' ? 'edit' : null); }
+  function lassoOn() { var sc = lassoScope(); return !!(sc && LASSO[sc]); }
+  // Map dragging: off while the tab's lasso mode is on, a lasso is drawn or the
+  // route is dragged; back on in the review tabs (elsewhere only if turned off here)
+  function syncDragging(map) {
+    map = map || getMap();
+    if (!map) return;
+    var off = lassoOn() || LASSO.drawing || RE.dragging;
+    if (off) map.dragging.disable();
+    else if (lassoScope() || LASSO.applied) map.dragging.enable();
+    LASSO.applied = off;
+    $('#map').toggleClass('lasso-mode', lassoOn());
+    $('#edit_lasso_toggle').toggleClass('lasso-on btn-primary', LASSO.edit).toggleClass('btn-outline-secondary', !LASSO.edit);
+  }
+  window.syncMapDragging = syncDragging;
   Shiny.addCustomMessageHandler('lasso_mode', function(msg) {
-    var map = getMap();
-    lasso.on = !!msg.on;
-    $('#map').toggleClass('lasso-mode', lasso.on);
-    if (map) { if (lasso.on) map.dragging.disable(); else map.dragging.enable(); }
+    LASSO.review = !!msg.on;
+    syncDragging();
   });
-  $(document).on('mousedown', '#map', function(e) {
-    if (!lasso.on || e.button !== 0 || mode() !== 'BatchReview') return;
-    if ($(e.target).closest('.leaflet-control').length) return;
-    e.preventDefault();
-    e.stopPropagation();
-    var map = getMap();
-    var off = $('#map').offset();
-    lasso.pts = [];
-    if (lasso.svg) lasso.svg.remove();
-    lasso.svg = $('<svg class=\"selection-lasso\"><polyline points=\"\"></polyline></svg>').css({
-      position: 'fixed', left: off.left + 'px', top: off.top + 'px', width: $('#map').width() + 'px', height: $('#map').height() + 'px'
+  function setEditLasso(on) {
+    LASSO.edit = !!on;
+    if (!LASSO.edit && window.editLassoOff) window.editLassoOff();  // turning it off clears the selection, as before
+    syncDragging();
+  }
+  $(document).on('click', '#edit_lasso_toggle', function(e) { e.preventDefault(); setEditLasso(!LASSO.edit); });
+  $(document).on('shiny:inputchanged', function(e) { if (e.name === 'mode') setTimeout(function() { syncDragging(); }, 0); });
+
+  // A drag from here is not a lasso: a control, a popup, a route end, the editable route line, a pin
+  function notLassoTarget(map, t) {
+    if ($(t).closest('.leaflet-control, .leaflet-popup, .route-end, .route-hit').length) return true;
+    var pin = false;
+    map.eachLayer(function(l) {
+      if (l._icon && (l._icon === t || l._icon.contains(t)) && l.options && /_pins$/.test(l.options.group || '')) pin = true;
     });
-    $('body').append(lasso.svg);
-    $(document).on('mousemove.rvlasso', function(ev) {
-      lasso.pts.push({x: ev.pageX - off.left, y: ev.pageY - off.top});
-      lasso.svg.find('polyline').attr('points', lasso.pts.map(function(p) { return p.x + ',' + p.y; }).join(' '));
-    });
-    $(document).on('mouseup.rvlasso', function() {
-      $(document).off('mousemove.rvlasso mouseup.rvlasso');
-      if (lasso.svg) lasso.svg.remove();
-      lasso.svg = null;
-      if (lasso.pts.length < 3 || !map) return;
+    return pin;
+  }
+  // The scope a mouse press starts a lasso in, or null
+  function lassoStartScope(e) {
+    if (e.button !== 0 || LASSO.drawing) return null;
+    var sc = lassoScope(), map = getMap();
+    if (!sc || !map || !(LASSO[sc] || e.shiftKey)) return null;
+    return notLassoTarget(map, e.target) ? null : sc;
+  }
+  function finishLasso(cancel) {
+    $(document).off('.lassodraw');
+    if (LASSO.svg) LASSO.svg.remove();
+    LASSO.svg = null;
+    var map = getMap(), sc = LASSO.scope, pts = LASSO.pts;
+    LASSO.drawing = false;
+    LASSO.noClickUntil = Date.now() + 400;   // the click that ends a drag is not a map click
+    syncDragging(map);
+    if (cancel || pts.length < 3 || !map) return;
+    if (sc === 'review') {
       var ids = [];
       map.eachLayer(function(layer) {
         if (!layer.options || layer.options.group !== 'review_samples' || !layer.options.layerId || !layer.getLatLng) return;
         var p = map.latLngToContainerPoint(layer.getLatLng());
-        if (pointInPolygon(p.x, p.y, lasso.pts)) ids.push(String(layer.options.layerId));
+        if (pointInPolygon(p.x, p.y, pts)) ids.push(String(layer.options.layerId));
       });
-      if (ids.length) send('review_lasso_samples', {ids: ids});
+      if (ids.length) send('review_lasso_samples', {ids: ids, shift: LASSO.shift});
+    } else if (sc === 'edit' && window.editLassoSelect) {
+      window.editLassoSelect(pts);
+    }
+  }
+  function startLasso(sc, e) {
+    var map = getMap(), $m = $('#map'), off = $m.offset();
+    LASSO.drawing = true;
+    LASSO.scope = sc;
+    LASSO.shift = !LASSO[sc];
+    LASSO.pts = [{x: e.pageX - off.left, y: e.pageY - off.top}];
+    syncDragging(map);
+    if (LASSO.svg) LASSO.svg.remove();
+    LASSO.svg = $('<svg class=\"selection-lasso\"><polyline points=\"\"></polyline></svg>').css({
+      position: 'fixed', left: off.left + 'px', top: off.top + 'px', width: $m.width() + 'px', height: $m.height() + 'px'
     });
+    $('body').append(LASSO.svg);
+    $(document).on('mousemove.lassodraw', function(ev) {
+      LASSO.pts.push({x: ev.pageX - off.left, y: ev.pageY - off.top});
+      LASSO.svg.find('polyline').attr('points', LASSO.pts.map(function(p) { return p.x + ',' + p.y; }).join(' '));
+    });
+    $(document).on('mouseup.lassodraw', function() { finishLasso(false); });
+  }
+  // Capture phase on the map: Leaflet (map pan, marker drags) never sees a lasso drag
+  function hookLasso(map) {
+    var el = map.getContainer();
+    if (el._lassoHook) return;
+    el._lassoHook = true;
+    map.boxZoom.disable();   // Shift + drag is the lasso
+    el.addEventListener('pointerdown', function(e) {
+      if (e.pointerType === 'mouse' && lassoStartScope(e)) e.stopPropagation();
+    }, true);
+    el.addEventListener('mousedown', function(e) {
+      if (LASSO.drawing) { e.preventDefault(); e.stopPropagation(); return; }
+      var sc = lassoStartScope(e);
+      if (!sc) return;
+      e.preventDefault();
+      e.stopPropagation();
+      startLasso(sc, e);
+    }, true);
+    el.addEventListener('click', function(e) {
+      if (Date.now() < LASSO.noClickUntil) { e.preventDefault(); e.stopPropagation(); }
+    }, true);
+  }
+  // Shift held over the map: the lasso cursor
+  $(document).on('keydown keyup', function(e) {
+    if (e.key === 'Shift') $('#map').toggleClass('lasso-shift', e.type === 'keydown' && !!lassoScope());
   });
 
-  // ---- Keys: Ctrl+Z undoes route edits; L toggles the lasso (Batch review) ----
+  // ---- Keys: Ctrl+Z undoes route edits; L toggles the lasso, Esc leaves it ----
   $(document).on('keydown', function(e) {
     var m = mode();
     if (m !== 'BatchReview' && m !== 'EditSamples') return;
@@ -348,9 +430,13 @@ ROUTE_EDIT_JS <- "
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && key === 'z') {
       e.preventDefault();
       send('route_undo', {scope: m === 'EditSamples' ? 'edit' : 'review'});
-    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && key === 'l' && m === 'BatchReview') {
+    } else if (!e.ctrlKey && !e.metaKey && !e.altKey && key === 'l') {
       e.preventDefault();
-      $('#review_lasso_toggle').click();
+      if (m === 'BatchReview') $('#review_lasso_toggle').click(); else setEditLasso(!LASSO.edit);
+    } else if (key === 'escape') {
+      if (LASSO.drawing) finishLasso(true);
+      if (m === 'BatchReview' && LASSO.review) $('#review_lasso_toggle').click();
+      else if (m === 'EditSamples' && LASSO.edit) setEditLasso(false);
     }
   });
 
@@ -479,6 +565,7 @@ ROUTE_EDIT_JS <- "
     var map = getMap();
     if (!map) { setTimeout(hook, 500); return; }
     window.setupOverlays(map);
+    hookLasso(map);
     map.on('layeradd', function(e) {
       var l = e.layer;
       // The route's grab line stays above the lines the server redraws after a re-route

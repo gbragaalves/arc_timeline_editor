@@ -1447,10 +1447,6 @@
     "pt": "Seleção limpa.",
     "en": "Selection cleared."
   },
-  "Selection mode": {
-    "pt": "Modo de seleção",
-    "en": "Selection mode"
-  },
   "Selection mode (lasso)": {
     "pt": "Modo de seleção (laço)",
     "en": "Selection mode (lasso)"
@@ -1843,10 +1839,6 @@
     "pt": "Pacote de notas aguardando Restore desde %s",
     "en": "Notes package waiting for Restore since %s"
   },
-  "Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes.": {
-    "pt": "Excluir amostras do casamento (L): circule as amostras com tremor do GPS (ex.: parado num sinal); elas ainda contam no tempo do trajeto. Ctrl+Z desfaz.",
-    "en": "Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes."
-  },
   "Clear exclusions": {
     "pt": "Limpar exclusões",
     "en": "Clear exclusions"
@@ -1858,10 +1850,6 @@
   "%d samples kept out of the matching (Ctrl+Z undoes).": {
     "pt": "%d amostras fora do casamento (Ctrl+Z desfaz).",
     "en": "%d samples kept out of the matching (Ctrl+Z undoes)."
-  },
-  "Lasso: circle the jittery samples to keep them out of the matching (L to leave).": {
-    "pt": "Laço: circule as amostras com tremor para tirá-las do casamento (L para sair).",
-    "en": "Lasso: circle the jittery samples to keep them out of the matching (L to leave)."
   },
   "kept out of the matching": {
     "pt": "fora do casamento",
@@ -1982,5 +1970,25 @@
   "Pin %s: the route through it is much longer than the stretch it replaces, even with wider windows.": {
     "pt": "Pino %s: a rota por ele é bem mais longa que o trecho que substitui, mesmo com janelas maiores.",
     "en": "Pin %s: the route through it is much longer than the stretch it replaces, even with wider windows."
+  },
+  "Lasso": {
+    "pt": "Laço",
+    "en": "Lasso"
+  },
+  "Shift + drag = lasso": {
+    "pt": "Shift + arrastar = laço",
+    "en": "Shift + drag = lasso"
+  },
+  "Lasso (L): every drag on the map selects the samples it circles; it stays on until you click again or press Esc.": {
+    "pt": "Laço (L): cada arrasto no mapa seleciona as amostras que ele circunda; fica ligado até você clicar de novo ou apertar Esc.",
+    "en": "Lasso (L): every drag on the map selects the samples it circles; it stays on until you click again or press Esc."
+  },
+  "Exclude samples from the matching (L): every drag on the map circles jittery samples (e.g. stopped at a light), until you click again or press Esc; they still time the path. Ctrl+Z undoes.": {
+    "pt": "Tirar amostras do casamento (L): cada arrasto no mapa circunda amostras com tremor (por exemplo, parado num sinal), até você clicar de novo ou apertar Esc; elas continuam contando no tempo do trajeto. Ctrl+Z desfaz.",
+    "en": "Exclude samples from the matching (L): every drag on the map circles jittery samples (e.g. stopped at a light), until you click again or press Esc; they still time the path. Ctrl+Z undoes."
+  },
+  "Lasso: every drag circles jittery samples to keep them out of the matching; it stays on until you press L or Esc or click the button.": {
+    "pt": "Laço: cada arrasto circunda amostras com tremor para tirá-las do casamento; fica ligado até você apertar L ou Esc ou clicar no botão.",
+    "en": "Lasso: every drag circles jittery samples to keep them out of the matching; it stays on until you press L or Esc or click the button."
   }
 }

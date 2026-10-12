@@ -686,10 +686,11 @@ review_server <- function(input, output, session, tr, current_lang) {
         ),
         shiny::tags$button(
           id = "review_lasso_toggle", type = "button", `data-review-pin` = "lasso",
-          class = paste("btn btn-sm rv-pin-btn", if (isTRUE(rv$lasso_mode)) "btn-primary" else "btn-outline-secondary"),
-          title = tr("Exclude samples from the matching (L): circle jittery samples (e.g. stopped at a light); they still time the path. Ctrl+Z undoes."),
+          class = paste("btn btn-sm rv-pin-btn", if (isTRUE(rv$lasso_mode)) "btn-primary lasso-on" else "btn-outline-secondary"),
+          title = tr("Exclude samples from the matching (L): every drag on the map circles jittery samples (e.g. stopped at a light), until you click again or press Esc; they still time the path. Ctrl+Z undoes."),
           paste0("\u27B0", if (n_excl > 0) n_excl else "")
         ),
+        shiny::span(class = "lasso-hint", tr("Shift + drag = lasso")),
         shiny::div(class = "review-profile", title = tr("Routing profile for this trip"),
                    shiny::selectInput("review_profile", NULL, choices = tr_choices(profile_choices(REVIEW_PROFILE_CHOICES), lang),
                                       selected = road_profile(id), width = "84px"))
@@ -1099,10 +1100,11 @@ review_server <- function(input, output, session, tr, current_lang) {
     assign(id, h[-length(h)], envir = edit_hist)
     set_route_edits(id, pins = last$pins, ends = last$ends, excl = last$excl, legs = last$legs, record = FALSE)
   })
-  # Lasso: the samples inside are kept out of /match (they still time the path)
+  # Lasso (the mode on, or Shift + drag): the samples inside are kept out of
+  # /match (they still time the path)
   shiny::observeEvent(input$review_lasso_samples, {
     id <- pin_trip()
-    if (is.null(id) || !isTRUE(rv$lasso_mode)) return()
+    if (is.null(id) || !(isTRUE(rv$lasso_mode) || isTRUE(input$review_lasso_samples$shift))) return()
     s <- trip_samples(id)
     k <- suppressWarnings(as.integer(sub("^rvs_", "", unlist(input$review_lasso_samples$ids))))
     k <- k[!is.na(k) & k >= 1 & k <= nrow(s)]
@@ -1185,7 +1187,7 @@ review_server <- function(input, output, session, tr, current_lang) {
       }
       set_lasso_mode(!isTRUE(rv$lasso_mode))
       if (isTRUE(rv$lasso_mode)) {
-        notify(tr("Lasso: circle the jittery samples to keep them out of the matching (L to leave)."), duration = 5)
+        notify(tr("Lasso: every drag circles jittery samples to keep them out of the matching; it stays on until you press L or Esc or click the button."), duration = 5)
       }
     } else if (identical(action, "clear_excl") && !is.null(id)) {
       set_route_edits(id, excl = NULL)

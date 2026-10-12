@@ -301,7 +301,12 @@ APP_CSS <- "
   .review-detail .rv-pin-btn { flex: 0 0 auto; font-size: 0.72rem; padding: 0 5px; line-height: 1.35; }
   .review-detail .rv-pin-amb { display: flex; align-items: center; gap: 6px; }
   .review-detail .rv-pin-amb select { width: auto; font-size: 0.72rem; padding: 0 1.6rem 0 0.4rem; min-height: 0; }
-  .leaflet-container.lasso-mode, .leaflet-container.lasso-mode .leaflet-interactive { cursor: crosshair; }
+  .leaflet-container.lasso-mode, .leaflet-container.lasso-mode .leaflet-interactive,
+  .leaflet-container.lasso-shift, .leaflet-container.lasso-shift .leaflet-interactive { cursor: crosshair; }
+  .leaflet-container.lasso-mode .route-hit, .leaflet-container.lasso-mode .route-end { cursor: grab; }
+  .btn.lasso-on, .btn.lasso-on:hover, .btn.lasso-on:focus { background: #ff6600; border-color: #ff6600; color: #fff;
+    box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.35); }
+  .lasso-hint { font-size: 0.68rem; color: #6c757d; white-space: nowrap; }
   .leaflet-interactive.route-hit { cursor: grab; }
   .route-end { border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); cursor: grab; }
   .route-end-start { background: #2E7D32; }
@@ -564,8 +569,12 @@ edit_samples_pane <- shiny::tagList(
         shiny::tags$button(type = "button", `data-edit-pin` = "clear", class = "btn btn-sm btn-outline-secondary", t_("Clear pins"))
       ),
       shiny::div(
-        class = "d-flex align-items-center",
-        shiny::checkboxInput("selection_mode", t_("Selection mode"), FALSE),
+        class = "d-flex align-items-center gap-2 mb-1",
+        shiny::tags$button(id = "edit_lasso_toggle", type = "button", class = "btn btn-sm btn-outline-secondary",
+                           `data-i18n-title` = "Lasso (L): every drag on the map selects the samples it circles; it stays on until you click again or press Esc.",
+                           title = tr_lang("Lasso (L): every drag on the map selects the samples it circles; it stays on until you click again or press Esc."),
+                           "\u27B0 ", t_("Lasso")),
+        shiny::span(class = "lasso-hint", t_("Shift + drag = lasso")),
         help_icon("Draw a lasso on the map to select multiple samples at once for bulk ignore, discard or exclusion from the Snap routing.")
       ),
       shiny::div(
@@ -1202,115 +1211,33 @@ ui <- bslib::page_fillable(
         }, 300);
       });
 
-      // ---- Selection mode (lasso) ----
-      var selectionMode = false;
-      var lassoSvg = null;
-      var lassoPoints = [];
+      // ---- Sample selection (Edit Samples) ----
+      // The lasso itself is drawn by ROUTE_EDIT_JS (ui_route_edit_js.R: the
+      // Lasso button, L, Esc, Shift + drag); it calls these two
       var selectedSampleIds = [];
       var mapInstance = null;
 
-      // Listen to selection mode checkbox changes
-      $(document).on('shiny:inputchanged', function(e) {
-        if (e.name === 'selection_mode') {
-          selectionMode = e.value;
-
-          // Get map instance
-          var widget = HTMLWidgets.find('#map');
-          if (widget) mapInstance = widget.getMap();
-
-          if (mapInstance) {
-            if (selectionMode) {
-              // Disable map dragging
-              mapInstance.dragging.disable();
-              $('#map').css('cursor', 'crosshair');
-            } else {
-              // Re-enable map dragging
-              mapInstance.dragging.enable();
-              $('#map').css('cursor', '');
-              // Clear selection on deactivation
-              selectedSampleIds = [];
-              Shiny.setInputValue('selected_samples', []);
-              updateSelectionVisual();
-            }
+      // Samples inside a lasso (container points) join the selection
+      window.editLassoSelect = function(pts) {
+        var widget = HTMLWidgets.find('#map');
+        if (widget) mapInstance = widget.getMap();
+        if (!mapInstance || !pts || pts.length < 3) return;
+        mapInstance.eachLayer(function(layer) {
+          if (layer.options && layer.options.layerId && layer.options.group === 'edit_samples' && layer.getLatLng) {
+            var point = mapInstance.latLngToContainerPoint(layer.getLatLng());
+            var id = layer.options.layerId;
+            if (pointInPolygon(point.x, point.y, pts) && selectedSampleIds.indexOf(id) === -1) selectedSampleIds.push(id);
           }
-        }
-      });
-
-      // Create lasso SVG
-      function createLassoSvg() {
-        if (lassoSvg) lassoSvg.remove();
-        var mapEl = $('#map');
-        var offset = mapEl.offset();
-        lassoSvg = $('<svg class=\"selection-lasso\"><polyline points=\"\"></polyline></svg>');
-        lassoSvg.css({
-          position: 'fixed',
-          left: offset.left + 'px',
-          top: offset.top + 'px',
-          width: mapEl.width() + 'px',
-          height: mapEl.height() + 'px'
         });
-        $('body').append(lassoSvg);
-        return lassoSvg;
-      }
-
-      // Mouse down on the map
-      $('#map').on('mousedown', function(e) {
-        if (!selectionMode) return;
-        if (e.button !== 0) return;
-
-        e.preventDefault();
-        e.stopPropagation();
-
-        var mapOffset = $('#map').offset();
-        lassoPoints = [];
-        createLassoSvg();
-
-        $(document).on('mousemove.lasso', function(e) {
-          var x = e.pageX - mapOffset.left;
-          var y = e.pageY - mapOffset.top;
-          lassoPoints.push({x: x, y: y});
-
-          var pointsStr = lassoPoints.map(function(p) { return p.x + ',' + p.y; }).join(' ');
-          lassoSvg.find('polyline').attr('points', pointsStr);
-        });
-
-        $(document).on('mouseup.lasso', function(e) {
-          $(document).off('mousemove.lasso mouseup.lasso');
-
-          if (lassoPoints.length < 3) {
-            if (lassoSvg) lassoSvg.remove();
-            lassoSvg = null;
-            return;
-          }
-
-          // Close the polygon
-          lassoPoints.push(lassoPoints[0]);
-
-          // Find samples inside the lasso
-          if (!mapInstance) return;
-
-          var mapOffset = $('#map').offset();
-
-          mapInstance.eachLayer(function(layer) {
-            if (layer.options && layer.options.layerId && layer.options.draggable) {
-              var point = mapInstance.latLngToContainerPoint(layer.getLatLng());
-
-              if (pointInPolygon(point.x, point.y, lassoPoints)) {
-                var id = layer.options.layerId;
-                if (selectedSampleIds.indexOf(id) === -1) {
-                  selectedSampleIds.push(id);
-                }
-              }
-            }
-          });
-
-          if (lassoSvg) lassoSvg.remove();
-          lassoSvg = null;
-
-          Shiny.setInputValue('selected_samples', selectedSampleIds);
-          updateSelectionVisual();
-        });
-      });
+        Shiny.setInputValue('selected_samples', selectedSampleIds);
+        updateSelectionVisual();
+      };
+      // Lasso mode off: the selection is cleared
+      window.editLassoOff = function() {
+        selectedSampleIds = [];
+        Shiny.setInputValue('selected_samples', []);
+        updateSelectionVisual();
+      };
 
       // Check if point is inside polygon (ray casting)
       function pointInPolygon(x, y, polygon) {
