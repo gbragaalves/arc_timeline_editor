@@ -305,14 +305,13 @@ review_server <- function(input, output, session, tr, current_lang) {
 
   # ---- Find ----
 
-  shiny::observeEvent(input$review_find, {
-    acts <- intersect(input$review_activities, names(REVIEW_ACTIVITIES))
+  # The search: trips of acts from..to (dates), measured; the list on step 2
+  run_find <- function(acts, from, to) {
+    acts <- intersect(acts, names(REVIEW_ACTIVITIES))
     if (length(acts) == 0) {
       notify(tr("Choose at least one activity."), type = "error")
       return()
     }
-    from <- input$review_from
-    to <- input$review_to
     if (length(from) == 0 || length(to) == 0 || is.na(from) || is.na(to) || from > to) {
       notify(tr("Invalid date range."), type = "error")
       return()
@@ -365,6 +364,47 @@ review_server <- function(input, output, session, tr, current_lang) {
     resume_state(NULL)
     save_state()
     bslib::accordion_panel_open("review_steps", "review")
+  }
+  shiny::observeEvent(input$review_find, run_find(input$review_activities, input$review_from, input$review_to))
+
+  # The last trip types and "Only flagged" in this browser (localStorage, sent
+  # by the client at page load), applied once; until the client reports those
+  # types back, the language relabel keeps them too
+  saved <- new.env(parent = emptyenv())
+  shiny::observeEvent(input$review_saved_filters, {
+    sv <- input$review_saved_filters
+    acts <- intersect(as.character(unlist(sv$activities)), names(REVIEW_ACTIVITIES))
+    if (length(acts)) {
+      saved$acts <- acts
+      shiny::updateSelectizeInput(session, "review_activities", selected = acts)
+    }
+    if (is.logical(sv$only_flagged) && length(sv$only_flagged) == 1) {
+      shiny::updateCheckboxInput(session, "review_only_flagged", value = sv$only_flagged)
+    }
+  }, once = TRUE)
+  shiny::observeEvent(input$review_activities, {
+    if (!is.null(saved$acts) && setequal(input$review_activities, saved$acts)) saved$acts <- NULL
+  })
+
+  # "Everything in range": every trip type, flagged or not, by date; the
+  # search runs once those show (after this flush)
+  shiny::observeEvent(input$review_find_all, {
+    acts <- names(REVIEW_ACTIVITIES)
+    shiny::updateSelectizeInput(session, "review_activities", selected = acts)
+    shiny::updateCheckboxInput(session, "review_only_flagged", value = FALSE)
+    shiny::updateSelectInput(session, "review_sort", selected = "date")
+    from <- input$review_from
+    to <- input$review_to
+    session$onFlushed(function() shiny::withReactiveDomain(session, shiny::isolate(run_find(acts, from, to))), once = TRUE)
+  })
+
+  # Day stepping (the step buttons, Alt+arrows): a one-day range moves one day,
+  # a longer one by its own length; then the search
+  shiny::observeEvent(input$review_step, {
+    r <- review_step_range(input$review_from, input$review_to, input$review_step$dir)
+    if (is.null(r)) return()
+    session$userData$set_date_range("review_from", "review_to", r$from, r$to)
+    run_find(input$review_activities, r$from, r$to)
   })
 
   output$review_summary <- shiny::renderUI({
@@ -421,8 +461,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     rv$proposal <- NULL
     if (!is.null(st$params)) {
       shiny::updateSelectizeInput(session, "review_activities", selected = st$params$activities)
-      shiny::updateDateInput(session, "review_from", value = st$params$from)
-      shiny::updateDateInput(session, "review_to", value = st$params$to)
+      session$userData$set_date_range("review_from", "review_to", st$params$from, st$params$to)
     }
     resume_state(NULL)
     bslib::accordion_panel_open("review_steps", "review")
@@ -1573,7 +1612,7 @@ review_server <- function(input, output, session, tr, current_lang) {
   shiny::observeEvent(current_lang(), {
     lang <- current_lang()
     shiny::updateSelectizeInput(session, "review_activities", choices = tr_choices(REVIEW_ACTIVITY_CHOICES, lang),
-                                selected = shiny::isolate(input$review_activities))
+                                selected = saved$acts %||% shiny::isolate(input$review_activities))
     shiny::updateSelectInput(session, "review_sort", choices = tr_choices(REVIEW_SORT_CHOICES, lang),
                              selected = shiny::isolate(input$review_sort) %||% "date")
   }, ignoreInit = TRUE)

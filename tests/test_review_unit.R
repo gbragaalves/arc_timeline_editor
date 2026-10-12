@@ -1564,5 +1564,15 @@ check("maintenance: its process gone -> stale (no maintenance); no file -> none;
         grepl("^Routing under maintenance since", osrm_maintenance_notice(m_bad, "en")))
 unlink(mf)
 
+# ---- Period stepping (Batch review) ----
+st1 <- review_step_range("2026-05-07", "2026-05-07", 1); st2 <- review_step_range("2026-05-07", "2026-05-07", -1)
+stw <- review_step_range("2026-05-04", "2026-05-10", 1); stm <- review_step_range("2026-02-26", "2026-03-01", -1)
+check(sprintf("period step: 1 day +1 -> %s..%s, -1 -> %s..%s; a week +1 -> %s..%s; 4 days across a month end -1 -> %s..%s; invalid -> NULL",
+              st1$from, st1$to, st2$from, st2$to, stw$from, stw$to, stm$from, stm$to),
+      identical(c(st1$from, st1$to), as.Date(c("2026-05-08", "2026-05-08"))) && identical(c(st2$from, st2$to), as.Date(c("2026-05-06", "2026-05-06"))) &&
+        identical(c(stw$from, stw$to), as.Date(c("2026-05-11", "2026-05-17"))) && identical(c(stm$from, stm$to), as.Date(c("2026-02-22", "2026-02-25"))) &&
+        is.null(review_step_range("2026-05-08", "2026-05-07", 1)) && is.null(review_step_range("2026-05-07", "2026-05-07", 0)) &&
+        is.null(review_step_range(NA, "2026-05-07", 1)))
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

@@ -1990,5 +1990,21 @@
   "Lasso: every drag circles jittery samples to keep them out of the matching; it stays on until you press L or Esc or click the button.": {
     "pt": "Laço: cada arrasto circunda amostras com tremor para tirá-las do casamento; fica ligado até você apertar L ou Esc ou clicar no botão.",
     "en": "Lasso: every drag circles jittery samples to keep them out of the matching; it stays on until you press L or Esc or click the button."
+  },
+  "Everything in range": {
+    "pt": "Tudo do período",
+    "en": "Everything in range"
+  },
+  "All the trip types, flagged or not, by date": {
+    "pt": "Todos os tipos de viagem, sinalizadas ou não, por data",
+    "en": "All the trip types, flagged or not, by date"
+  },
+  "One day back, or the whole range by its own length; then search (Alt+Left)": {
+    "pt": "Um dia para trás, ou o período inteiro pelo seu tamanho; depois busca (Alt+←)",
+    "en": "One day back, or the whole range by its own length; then search (Alt+←)"
+  },
+  "One day forward, or the whole range by its own length; then search (Alt+Right)": {
+    "pt": "Um dia para a frente, ou o período inteiro pelo seu tamanho; depois busca (Alt+→)",
+    "en": "One day forward, or the whole range by its own length; then search (Alt+→)"
   }
 }

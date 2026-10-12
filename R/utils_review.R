@@ -92,6 +92,20 @@ review_activity_of <- function(code) {
 REVIEW_CACHE_VERSION <- c(rail = 1L, road = 5L)
 
 
+# Day stepping of a review period (from, to: dates; dir: -1 back, 1 forward):
+# a one-day range moves one day, a longer one by its own length. NULL when
+# the range or the direction is invalid.
+review_step_range <- function(from, to, dir) {
+  dir <- sign(suppressWarnings(as.numeric(dir %||% 0)))
+  from <- as.Date(from)
+  to <- as.Date(to)
+  if (length(dir) != 1 || is.na(dir) || dir == 0 || length(from) != 1 || length(to) != 1 || is.na(from) || is.na(to) ||
+      from > to) return(NULL)
+  len <- as.integer(to - from) + 1L
+  list(from = from + dir * len, to = to + dir * len)
+}
+
+
 # ---- Items and samples ----
 
 # Timeline items overlapping [from, to] (local dates) from items/YYYY-MM.json.

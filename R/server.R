@@ -252,6 +252,45 @@ server <- function(input, output, session) {
   })
 
 
+  # ---- Date ranges: the end follows the start ----
+  # Changing a start date sets its end date to the same day (one pick is one
+  # day; the end's calendar then opens on the start's month); an end date set
+  # before its start moves the start to that day. Times stay. Dates the app
+  # sets itself (a dialog opening, a resumed review, day stepping) go through
+  # set_date_range() / note_date_start(), so the rule doesn't touch their end.
+  date_prog <- new.env(parent = emptyenv())
+  note_date_start <- function(start_id, value) assign(start_id, as.character(as.Date(value)), envir = date_prog)
+  set_date_range <- function(start_id, end_id, from, to) {
+    note_date_start(start_id, from)
+    shiny::updateDateInput(session, start_id, value = as.Date(from))
+    shiny::updateDateInput(session, end_id, value = as.Date(to))
+  }
+  session$userData$set_date_range <- set_date_range
+  link_date_pair <- function(start_id, end_id) {
+    force(start_id)   # called in a loop: bind the ids now, not when an observer first runs
+    force(end_id)
+    shiny::observeEvent(input[[start_id]], {
+      s <- input[[start_id]]
+      prog <- date_prog[[start_id]]
+      if (!is.null(prog)) {
+        rm(list = start_id, envir = date_prog)
+        if (identical(as.character(s), prog)) return()
+      }
+      if (length(s) == 1 && !is.na(s) && !identical(input[[end_id]], s)) shiny::updateDateInput(session, end_id, value = s)
+    }, ignoreInit = TRUE)
+    shiny::observeEvent(input[[end_id]], {
+      s <- input[[start_id]]
+      e <- input[[end_id]]
+      if (length(s) == 1 && length(e) == 1 && !is.na(s) && !is.na(e) && e < s) shiny::updateDateInput(session, start_id, value = e)
+    }, ignoreInit = TRUE)
+  }
+  for (pair in list(c("review_from", "review_to"), c("visit_date_start", "visit_date_end"),
+                    c("manual_date_start", "manual_date_end"), c("import_date_start", "import_date_end"),
+                    c("edit_samples_date_start", "edit_samples_date_end"), c("osrm_date_start", "osrm_date_end"),
+                    c("edit_date_start", "edit_date_end"))) {
+    link_date_pair(pair[1], pair[2])
+  }
+
   # When the main date changes, replicate to other date fields
   shiny::observeEvent(input$work_date, {
     d <- input$work_date
@@ -846,6 +885,7 @@ server <- function(input, output, session) {
     date_tz <- if (!is.null(jae)) Sys.timezone() else "UTC"
 
 
+    note_date_start("osrm_date_start", as.Date(suggested_start, tz = date_tz))
     shiny::showModal(
       shiny::modalDialog(
         title = tr("OSRM route times"),
@@ -1684,6 +1724,7 @@ server <- function(input, output, session) {
         secf <- item_end_offset(it) %||% sec
         tsf_local <- tsf_utc + secf
 
+        note_date_start("edit_date_start", as.Date(ts_local))
         shiny::showModal(
           shiny::modalDialog(
             title = tr("Edit item"),

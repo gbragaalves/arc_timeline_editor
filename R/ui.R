@@ -235,6 +235,8 @@ APP_CSS <- "
     margin-bottom: 0.3rem;
   }
   .range-row .shiny-input-container { margin-bottom: 0 !important; }
+  .range-step { display: flex; justify-content: space-between; margin: -0.1rem 0 0.3rem; }
+  .range-step .btn { padding: 0 10px; line-height: 1.4; font-size: 0.72rem; }
   .review-toolbar { display: flex; flex-wrap: nowrap; gap: 4px; align-items: center; justify-content: space-between; }
   .review-toolbar .shiny-input-container { margin-bottom: 0 !important; }
   .review-toolbar .shiny-options-group { white-space: nowrap; }
@@ -694,10 +696,29 @@ batch_review_pane <- shiny::tagList(
         shiny::span(class = "dt-label", t_("To")),
         date_input("review_to", NULL, Sys.Date(), width = "100%")
       ),
+      # Day stepping: one day, or the whole range by its own length (Alt+arrows); then a search
+      shiny::div(
+        class = "range-step",
+        shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", `data-review-step` = "-1",
+                           `data-i18n-title` = "One day back, or the whole range by its own length; then search (Alt+Left)",
+                           title = tr_lang("One day back, or the whole range by its own length; then search (Alt+Left)"), "\u25C0"),
+        shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", `data-review-step` = "1",
+                           `data-i18n-title` = "One day forward, or the whole range by its own length; then search (Alt+Right)",
+                           title = tr_lang("One day forward, or the whole range by its own length; then search (Alt+Right)"), "\u25B6")
+      ),
       if (icloud_available()) {
         shiny::checkboxInput("review_fetch_icloud", t_("Fetch everything from iCloud first"), FALSE)
       },
-      bslib::input_task_button("review_find", t_("Find trips"), label_busy = t_("Searching..."), class = "btn-sm w-100"),
+      shiny::div(
+        class = "btn-row",
+        bslib::input_task_button("review_find", t_("Find trips"), label_busy = t_("Searching..."), type = "outline-primary",
+                                 class = "btn-sm"),
+        htmltools::tagAppendAttributes(
+          bslib::input_task_button("review_find_all", t_("Everything in range"), label_busy = t_("Searching..."), class = "btn-sm"),
+          `data-i18n-title` = "All the trip types, flagged or not, by date",
+          title = tr_lang("All the trip types, flagged or not, by date")
+        )
+      ),
       shiny::uiOutput("review_summary")
     ),
     bslib::accordion_panel(
@@ -995,6 +1016,34 @@ ui <- bslib::page_fillable(
       Shiny.addCustomMessageHandler('pin_mode', function(msg) {
         $('#map').toggleClass('pin-mode', !!msg.on);
         if (msg.scope === 'edit') $('#edit_pin_toggle').toggleClass('btn-primary', !!msg.on).toggleClass('btn-outline-secondary', !msg.on);
+      });
+
+      // Batch review day stepping: the step buttons, Alt+Left / Alt+Right (not while typing)
+      function reviewStep(dir) { Shiny.setInputValue('review_step', {dir: dir, ts: Date.now()}, {priority: 'event'}); }
+      $(document).on('click', '[data-review-step]', function(e) { e.preventDefault(); reviewStep(Number($(this).attr('data-review-step'))); });
+      $(document).on('keydown', function(e) {
+        if ($('#mode input:checked').val() !== 'BatchReview' || !e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+        if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+        if ($(e.target).is('input, textarea, select, [contenteditable]') || $('.modal.show').length) return;
+        e.preventDefault();
+        reviewStep(e.key === 'ArrowLeft' ? -1 : 1);
+      });
+
+      // Batch review: the last trip types and 'Only flagged', remembered in this browser.
+      // Read at page load and sent to the server, which applies them once
+      // (review_saved_filters); every change after that is stored.
+      function rvStore(k, v) {
+        try {
+          if (v === undefined) return JSON.parse(localStorage.getItem(k));
+          localStorage.setItem(k, JSON.stringify(v));
+        } catch (err) { return null; }
+        return null;
+      }
+      var rvSaved = {activities: rvStore('arc_review_activities'), only_flagged: rvStore('arc_review_only_flagged')};
+      $(document).on('shiny:connected', function() { Shiny.setInputValue('review_saved_filters', rvSaved); });
+      $(document).on('shiny:inputchanged', function(e) {
+        if (e.name === 'review_activities') rvStore('arc_review_activities', e.value || []);
+        if (e.name === 'review_only_flagged') rvStore('arc_review_only_flagged', !!e.value);
       });
 
       // Keys: A accept, S skip, R re-route (Batch review only, not while typing)
