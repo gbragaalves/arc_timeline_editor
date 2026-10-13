@@ -272,14 +272,22 @@ review_server <- function(input, output, session, tr, current_lang) {
     row <- trip_row(id)
     rail <- family_of(row$activity) == "rail"
     name_of <- function(st) if (rail && !is.null(st$name)) st$name else ""
+    # an anchored end: the wait there is named after the anchor and sits at its node (merging into the visit)
+    anchored <- function(w) {
+      inf <- fx$ends_info[[w]]
+      if (identical(inf$source, "anchor")) inf
+    }
     list(span = c(as.numeric(row$start_utc), as.numeric(row$end_utc)), s = trip_samples(id),
-         fill = get_ov(id)$fill %||% list(), places = list(before = name_of(fx$plan$dep), after = name_of(fx$plan$arr)),
+         fill = get_ov(id)$fill %||% list(),
+         places = list(before = if (rail) name_of(fx$plan$dep) else anchored("start")$anchor %||% "",
+                       after = if (rail) name_of(fx$plan$arr) else anchored("end")$anchor %||% ""),
          keep_start = (rail && isTRUE(fx$start_at_tap)) || (!rail && !is.null(fx$t_start_new)),
-         keep_end = !rail && !is.null(fx$t_end_new))
+         keep_end = !rail && !is.null(fx$t_end_new),
+         wait_at = list(before = anchored("start")$wait, after = anchored("end")$wait))
   }
   cover_accept <- function(id, fx, entry) {
     a <- cover_args(id, fx)
-    review_cover_entry(entry, a$span, a$s, a$fill, a$places, a$keep_start, keep_end = a$keep_end)
+    review_cover_entry(entry, a$span, a$s, a$fill, a$places, a$keep_start, keep_end = a$keep_end, wait_at = a$wait_at)
   }
   # The coverage of the current proposal (the split's segments while split)
   cover_preview <- function(id, fx) {
@@ -287,7 +295,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     main <- if (length(fx$split$segments) && !isTRUE(fx$split$ignored)) fx$split$segments else
       review_main_segments(list(activity = fx$activity, path = fx$path))
     a <- cover_args(id, fx)
-    review_cover(main, a$span, a$s, a$fill, a$places, a$keep_start, keep_end = a$keep_end)
+    review_cover(main, a$span, a$s, a$fill, a$places, a$keep_start, keep_end = a$keep_end, wait_at = a$wait_at)
   }
 
   # Split at the first Jaé tap (when switched on): walk -> wait -> bus / rail

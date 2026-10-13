@@ -2127,5 +2127,30 @@ check(sprintf("feature off without ROUTE_ANCHORS: config %s, anchors %s, ends %s
               if (is.null(other)) "unused" else "used", length(same)),
       is.null(off_cfg) && is.null(off_an) && is.null(off_e$start) && is.null(off_e$end) && is.null(other) && length(same) == 2)
 
+# An anchor projected onto a street keeps its node: a wait filled at that end goes to the node (merging into
+# the visit there), while the route still ends at the street point
+po <- anchor_point_from_osm(list(name = "H", project_onto = "Rua X"), node, roads)
+h_rec <- c(list(name = "H", radius_m = 300, valid_from = "2000-01-01", valid_to = NA), po)
+s_h <- samples_at(c(-1000, -500, -10, 2, 0), c(0, 0, 5, 28, 31), c(0, 250, 500, 550, 600))
+e_h <- trip_anchor_ends(s_h, "2026-06-01", list(h_rec))
+te_h <- review_trip_ends(NULL, e_h)
+route_h <- ll(c(-1000, 0), c(0, 0))
+main_h <- review_main_segments(list(activity = "car", path = data.frame(lon = route_h[, 1], lat = route_h[, 2], t = c(0, 500))))
+cv_node <- review_cover(main_h, c(0, 600), s_h, wait_at = list(after = te_h$info$end$wait), places = list(after = "H"))
+cv_street <- review_cover(main_h, c(0, 600), s_h)
+wait_of <- function(cv) Filter(function(g) identical(g$role, "cover") && identical(g$type, "stationary"), cv$segments)[[1]]$path
+off_node <- max(geosphere::distHaversine(as.matrix(wait_of(cv_node)[, c("lon", "lat")]), ll(0, 30)[1, ]))
+off_street <- max(geosphere::distHaversine(as.matrix(wait_of(cv_street)[, c("lon", "lat")]), ll(0, 0)[1, ]))
+main_end <- utils::tail(cv_node$segments[[1]]$path, 1)
+check(sprintf("anchor with project_onto: node kept %s, the end's wait point is the node %s; the 100 s wait after the route goes to the node (max %.1f m off), named %s; the route still ends at the street point (%.1f m); without it the wait stays at the street point (%.1f m)",
+              !is.null(po$node_lon), isTRUE(geosphere::distHaversine(te_h$info$end$wait, ll(0, 30)[1, ]) < 0.01), off_node,
+              wait_of(cv_node) |> nrow() > 0 && identical(Filter(function(g) identical(g$role, "cover"), cv_node$segments)[[1]]$gpx_name, "H"),
+              geosphere::distHaversine(c(main_end$lon, main_end$lat), ll(0, 0)[1, ]), off_street),
+      !is.null(po$node_lon) && geosphere::distHaversine(te_h$info$end$wait, ll(0, 30)[1, ]) < 0.01 &&
+        identical(cv_node$gaps$after$mode, "wait") && off_node < 0.5 &&
+        identical(Filter(function(g) identical(g$role, "cover"), cv_node$segments)[[1]]$gpx_name, "H") &&
+        geosphere::distHaversine(c(main_end$lon, main_end$lat), ll(0, 0)[1, ]) < 0.5 && off_street < 0.5 &&
+        is.null(review_trip_ends(list(end = unname(ll(5, 5)[1, ])), e_h)$info$end$wait))
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

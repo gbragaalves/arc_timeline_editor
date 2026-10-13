@@ -79,7 +79,8 @@ osm_opl_parse <- function(lines) {
 # "way", tags, coords, nodes = data.frame(lon, lat, entrance) of its nodes);
 # roads: list of list(name, highway, coords). A node: itself; with
 # project_onto, its projection onto the nearest road of that name (never a road
-# of another name, e.g. a condominium's internal one). A way that is a road:
+# of another name, e.g. a condominium's internal one), keeping the node
+# (node_lon, node_lat: a wait there merges into the visit). A way that is a road:
 # the road (kind "road": the point on it nearest each trip's end). A building
 # or area: its entrance node (entrance=main first), else the point of the
 # nearest routable road nearest to its centroid. list(kind = "point" | "road",
@@ -101,7 +102,8 @@ anchor_point_from_osm <- function(cfg, el, roads) {
     p <- c(el$lon, el$lat)
     if (is.null(cfg$project_onto) || !nzchar(cfg$project_onto)) return(point(p, "node"))
     hit <- nearest_on(p, Filter(function(r) identical(r$name, cfg$project_onto), routable))
-    return(if (is.null(hit)) point(p, "node (no road named like project_onto)") else point(hit$pt, "project_onto"))
+    if (is.null(hit)) return(point(p, "node (no road named like project_onto)"))
+    return(c(point(hit$pt, "project_onto"), list(node_lon = unname(p[1]), node_lat = unname(p[2]))))
   }
   if (isTRUE(el$tags$highway %in% ANCHOR_ROAD_TYPES)) return(list(kind = "road", coords = el$coords, how = "road"))
   ent <- el$nodes[!is.na(el$nodes$entrance), , drop = FALSE]
@@ -214,7 +216,9 @@ route_anchors_stale <- function(file = ROUTE_ANCHORS_FILE, cfg = route_anchors_c
 # The anchors at a trip's ends: its first (last) sample within an anchor's
 # radius_m, on a date the anchor is valid (valid_from .. valid_to, local
 # dates; NA open); the nearest wins. A road anchor's point is the one on it
-# nearest that sample. list(start, end): each NULL or list(name, lon, lat, dist_m).
+# nearest that sample. list(start, end): each NULL or list(name, lon, lat,
+# dist_m, wait: where a wait there goes, the original node of an anchor
+# projected onto a street, else NULL).
 trip_anchor_ends <- function(s, day, anchors = route_anchors()) {
   out <- list(start = NULL, end = NULL)
   if (!length(anchors) || is.null(s) || !nrow(s)) return(out)
@@ -236,7 +240,10 @@ trip_anchor_ends <- function(s, day, anchors = route_anchors()) {
         c(a$lon, a$lat)
       }
       d <- geosphere::distHaversine(p, pt)
-      if (d <= a$radius_m && (is.null(best) || d < best$dist_m)) best <- list(name = a$name, lon = unname(pt[1]), lat = unname(pt[2]), dist_m = d)
+      if (d <= a$radius_m && (is.null(best) || d < best$dist_m)) {
+        best <- list(name = a$name, lon = unname(pt[1]), lat = unname(pt[2]), dist_m = d,
+                     wait = if (!is.null(a$node_lon)) c(a$node_lon, a$node_lat))
+      }
     }
     best
   }
@@ -246,7 +253,7 @@ trip_anchor_ends <- function(s, day, anchors = route_anchors()) {
 # A trip's ends for the splice: a dragged one (user_ends: start / end, c(lon,
 # lat)) wins over its anchor (trip_anchor_ends()). list(ends (start / end:
 # c(lon, lat)), info (per end: source "drag" | "anchor", anchor: the anchor's
-# name there, if any))
+# name there, if any; wait: an anchored end's wait point))
 review_trip_ends <- function(user_ends, anchored) {
   ends <- list()
   info <- list()
@@ -256,7 +263,7 @@ review_trip_ends <- function(user_ends, anchored) {
       info[[w]] <- list(source = "drag", anchor = anchored[[w]]$name)
     } else if (!is.null(anchored[[w]])) {
       ends[[w]] <- c(anchored[[w]]$lon, anchored[[w]]$lat)
-      info[[w]] <- list(source = "anchor", anchor = anchored[[w]]$name)
+      info[[w]] <- list(source = "anchor", anchor = anchored[[w]]$name, wait = anchored[[w]]$wait)
     }
   }
   list(ends = ends, info = info)

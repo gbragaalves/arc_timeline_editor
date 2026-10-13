@@ -3644,12 +3644,15 @@ multimodal_note_range <- function(t_start, t_end, margin_s = 15, min_leg_s = 40)
 #   "extend": the main tracks' times scaled to start (end) at the span's end;
 #   "auto" (default): "wait" when the recorded samples in the gap stay within
 #     cover$wait_m of that point (or there are none), else "walk".
-# places$before / $after: the wait's name (the station). Returns
+# places$before / $after: the wait's name (the station); wait_at$before /
+# $after: where a wait goes instead of the main track's end (c(lon, lat):
+# an anchor's original node, so it merges into the visit there; the route and
+# a walk still end at the track's end). Returns
 # list(segments (the fills with role "cover"), gaps = list(before, after:
 # list(side, gap_s, mode, auto, place, from, to)), span (the covered range),
 # raw (the main tracks' range before any change)).
 review_cover <- function(segments, span, s = NULL, fill = list(), places = list(), keep_start = FALSE,
-                         th = REVIEW_THRESHOLDS, keep_end = FALSE) {
+                         th = REVIEW_THRESHOLDS, keep_end = FALSE, wait_at = list()) {
   cv <- th$cover
   span <- as.numeric(span)
   n <- length(segments)
@@ -3691,19 +3694,21 @@ review_cover <- function(segments, span, s = NULL, fill = list(), places = list(
     from <- if (before) lo else t1
     to <- if (before) t0 else hi
     anchor <- if (before) first_xy else last_xy
+    at <- if (side %in% names(wait_at)) as.numeric(wait_at[[side]])
+    wait_xy <- if (length(at) == 2 && all(is.finite(at))) at else anchor
     pts <- if (is.null(s) || nrow(s) == 0) {
       data.frame(lon = numeric(0), lat = numeric(0), t = numeric(0))
     } else {
       s[s$t > from & s$t < to, c("lon", "lat", "t")]
     }
-    stays <- nrow(pts) == 0 || max(geosphere::distHaversine(cbind(pts$lon, pts$lat), anchor)) <= cv$wait_m
+    stays <- nrow(pts) == 0 || max(geosphere::distHaversine(cbind(pts$lon, pts$lat), wait_xy)) <= cv$wait_m
     auto <- if (stays) "wait" else "walk"
     want <- pick(fill, side, "auto")
     if (!want %in% c("wait", "walk", "extend")) want <- auto
     gap <- to - from
     mode <- if (gap <= 0) "none" else if (gap < cv$stretch_s) "stretch" else want
     list(side = side, gap_s = max(gap, 0), mode = mode, auto = auto, place = pick(places, side, ""),
-         from = from, to = to, anchor = anchor, samples = pts)
+         from = from, to = to, anchor = anchor, wait_xy = wait_xy, samples = pts)
   }
   gaps <- list(before = side_info("before"), after = side_info("after"))
 
@@ -3720,7 +3725,7 @@ review_cover <- function(segments, span, s = NULL, fill = list(), places = list(
   }
   fill_track <- function(g) {
     if (g$mode == "wait") {
-      w <- multimodal_stationary("cover", "Wait", g$anchor, g$from, g$to, cv$wait_every_s)
+      w <- multimodal_stationary("cover", "Wait", g$wait_xy, g$from, g$to, cv$wait_every_s)
       if (nzchar(g$place)) w$gpx_name <- g$place
       return(w)
     }
@@ -3755,8 +3760,8 @@ review_main_segments <- function(a) {
 # An accepted fix covering its original item (review_cover()): its tracks as
 # segments, its joined path, span, covered = TRUE and the gaps
 review_cover_entry <- function(a, span, s = NULL, fill = list(), places = list(), keep_start = FALSE,
-                               th = REVIEW_THRESHOLDS, keep_end = FALSE) {
-  cv <- review_cover(review_main_segments(a), span, s, fill, places, keep_start, th, keep_end)
+                               th = REVIEW_THRESHOLDS, keep_end = FALSE, wait_at = list()) {
+  cv <- review_cover(review_main_segments(a), span, s, fill, places, keep_start, th, keep_end, wait_at)
   joined <- do.call(rbind, lapply(cv$segments, function(g) g$path[, c("lon", "lat", "t")]))
   a$path <- joined[c(TRUE, diff(joined$t) > 0), ]
   rownames(a$path) <- NULL
