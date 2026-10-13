@@ -1751,5 +1751,112 @@ Sys.setenv(GOOGLE_MAPS_API_KEY = key_before)
 check(sprintf("Google failure reasons: %s", paste(names(reasons), reasons, sep = " = ", collapse = "; ")),
       identical(unname(reasons), c("no_transit", "no_transit BUS", "zero_results", "status OVER_QUERY_LIMIT", "request")))
 
+# ---- GPX coverage of the original item (every export path) ----
+C0 <- 1760000000
+# Tracks of a GPX: start, end (epoch s), type, in time order
+gpx_ranges <- function(gpx) {
+  doc <- xml2::read_xml(paste(gpx, collapse = "\n"))
+  ns <- xml2::xml_ns(doc)
+  trks <- xml2::xml_find_all(doc, ".//d1:trk", ns)
+  out <- do.call(rbind, lapply(trks, function(tk) {
+    tt <- as.numeric(as.POSIXct(xml2::xml_text(xml2::xml_find_all(tk, ".//d1:time", ns)), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
+    ty <- xml2::xml_text(xml2::xml_find_first(tk, "./d1:type", ns))
+    data.frame(start = min(tt), end = max(tt), type = ty, n = length(tt))
+  }))
+  out[order(out$start), ]
+}
+covers <- function(r, span) {
+  isTRUE(r$start[1] == round(span[1]) && r$end[nrow(r)] == round(span[2]) && all(r$start[-1] == r$end[-nrow(r)]))
+}
+gpx_of <- function(acc) { inp <- review_gpx_input(acc); build_gpx(inp$items, inp$samples, "2026-10-12T12:00:00Z") }
+types <- function(r) paste(r$type, collapse = "/")
+# Main: (0,0) at +120 s to (2000,0) at +480 s; recorded: waiting near the start until +110, walking away after +480
+main_path <- function(t0 = 120, t1 = 480) {
+  x <- seq(0, 2000, by = 200)
+  p <- ll(x, 0 * x)
+  data.frame(lon = p[, 1], lat = p[, 2], t = C0 + seq(t0, t1, length.out = length(x)))
+}
+s_cov <- rbind(samples_at(c(0, 30, 60, 20, 10), c(0, 20, 40, 30, 10), C0 + c(5, 30, 60, 90, 110)),
+               samples_at(c(2050, 2200, 2400, 2600), c(0, 0, 0, 0), C0 + c(500, 530, 560, 590)))
+span1 <- C0 + c(0, 600)
+a1 <- review_cover_entry(list(activity = "bus", path = main_path(), method = "match"), span1, s_cov)
+r1 <- gpx_ranges(gpx_of(list(t1 = a1)))
+check(sprintf("coverage, single trip: %s; tracks %s over %+.0f..%+.0f s, contiguous %s",
+              paste(vapply(a1$cover_gaps, function(g) sprintf("%s %.0f s -> %s", g$side, g$gap_s, g$mode), ""), collapse = ", "),
+              types(r1), r1$start[1] - C0, r1$end[nrow(r1)] - C0, covers(r1, span1)),
+      covers(r1, span1) && identical(r1$type, c("stationary", "bus", "walking")) &&
+        identical(vapply(a1$cover_gaps, `[[`, "", "mode"), c(before = "wait", after = "walk")))
+# Batch: two trips, one accepted before the rule (span only: covered at export by extending)
+span2 <- C0 + c(3000, 3400)
+old <- list(activity = "car", path = transform(main_path(3100, 3350), t = t), method = "match", span = span2)
+r2 <- gpx_ranges(gpx_of(list(t1 = a1, t2 = old)))
+in_span <- function(r, sp) r[r$start >= round(sp[1]) & r$end <= round(sp[2]), ]
+check(sprintf("coverage, batch: %d tracks; trip 1 %s, trip 2 (older state, extended at export) %s %s",
+              nrow(r2), covers(in_span(r2, span1), span1), covers(in_span(r2, span2), span2), types(in_span(r2, span2))),
+      nrow(r2) == 4 && covers(in_span(r2, span1), span1) && covers(in_span(r2, span2), span2) && identical(in_span(r2, span2)$type, "car"))
+# Multimodal split (walk -> wait -> bus, "leave as is" after the alighting): the rest filled
+seg_walk <- list(role = "walk_to_stop", type = "walking", name = "Walk to the stop", t_start = C0 + 10, t_end = C0 + 60,
+                 path = multimodal_path(samples_at(c(0, 30), c(0, 20), C0 + c(10, 60))[, c("lon", "lat", "t")], C0 + 10, C0 + 60))
+seg_wait <- multimodal_stationary("wait", "Wait at the stop", unlist(ll(30, 20)), C0 + 60, C0 + 120, 30)
+seg_bus <- list(role = "bus", type = "bus", name = "Bus", t_start = C0 + 120, t_end = C0 + 480, path = main_path())
+a3 <- review_cover_entry(multimodal_accepted(list(seg_walk, seg_wait, seg_bus), "bus"), span1, s_cov)
+r3 <- gpx_ranges(gpx_of(list(t3 = a3)))
+check(sprintf("coverage, multimodal split: %s; tracks %s, contiguous %s",
+              paste(vapply(a3$cover_gaps, function(g) sprintf("%s %.0f s -> %s", g$side, g$gap_s, g$mode), ""), collapse = ", "),
+              types(r3), covers(r3, span1)),
+      covers(r3, span1) && identical(r3$type, c("stationary", "walking", "stationary", "bus", "walking")))
+# Fragment: a 40 s trip, the proposal 2 s short at the start and 3 s at the end: stretched, no extra track
+span4 <- C0 + c(5000, 5040)
+a4 <- review_cover_entry(list(activity = "car", path = main_path(5002, 5037), method = "match"), span4, s_cov)
+r4 <- gpx_ranges(gpx_of(list(t4 = a4)))
+check(sprintf("coverage, fragment (gaps 2 s / 3 s): %s; %d track %+.0f..%+.0f s",
+              paste(vapply(a4$cover_gaps, `[[`, "", "mode"), collapse = "/"), nrow(r4), r4$start[1] - span4[1], r4$end[1] - span4[1]),
+      nrow(r4) == 1 && covers(r4, span4) && identical(unname(vapply(a4$cover_gaps, `[[`, "", "mode")), c("stretch", "stretch")))
+
+# Stationary vs walking; explicit choices; tiny gaps; reaching outside the span
+mode_with <- function(s, fill = list(), path = main_path(), span = span1) {
+  vapply(review_cover(review_main_segments(list(activity = "bus", path = path)), span, s, fill)$gaps, `[[`, "", "mode")
+}
+s_near <- samples_at(c(0, 100, 250), c(0, 50, 0), C0 + c(20, 60, 100))
+s_away <- samples_at(c(0, 200, 400), c(0, 0, 0), C0 + c(20, 60, 100))
+m_near <- mode_with(s_near)[["before"]]
+m_away <- mode_with(s_away)[["before"]]
+m_none <- mode_with(s_near[0, ])[["before"]]
+m_walk <- mode_with(s_near, list(before = "walk"))[["before"]]
+ext <- review_cover(review_main_segments(list(activity = "bus", path = main_path())), span1, s_near, list(before = "extend", after = "extend"))
+check(sprintf("gap fill: samples within 250 m -> %s, reaching 400 m -> %s, none -> %s, chosen walk -> %s; extend -> %d track %+.0f..%+.0f s, increasing %s",
+              m_near, m_away, m_none, m_walk, length(ext$segments), ext$segments[[1]]$path$t[1] - C0,
+              utils::tail(ext$segments[[1]]$path$t, 1) - C0, all(diff(ext$segments[[1]]$path$t) > 0)),
+      m_near == "wait" && m_away == "walk" && m_none == "wait" && m_walk == "walk" && length(ext$segments) == 1 &&
+        ext$segments[[1]]$path$t[1] == span1[1] && utils::tail(ext$segments[[1]]$path$t, 1) == span1[2] &&
+        all(diff(ext$segments[[1]]$path$t) > 0))
+tiny <- mode_with(s_near, path = main_path(4, 595))
+small <- mode_with(s_near, path = main_path(6, 594))
+over <- review_cover(review_main_segments(list(activity = "metro", path = main_path(-150, 480))), span1, s_cov)
+kept <- review_cover(review_main_segments(list(activity = "metro", path = main_path(-150, 480))), span1, s_cov, keep_start = TRUE)
+check(sprintf("tiny gaps: 4 s / 5 s -> %s; 6 s / 6 s -> %s; a start 150 s before the trip -> fitted from %+.0f s (raw %+.0f); from a Jaé tap -> kept, span from %+.0f s",
+              paste(tiny, collapse = "/"), paste(small, collapse = "/"), over$segments[[1]]$path$t[1] - C0, over$raw[1] - C0, kept$span[1] - C0),
+      identical(unname(tiny), c("stretch", "wait")) && identical(unname(small), c("wait", "wait")) &&
+        over$segments[[1]]$path$t[1] == span1[1] && over$raw[1] == C0 - 150 && kept$span[1] == C0 - 150 &&
+        kept$segments[[1]]$path$t[1] == C0 - 150)
+
+# Edit Samples (single trip): the snapped stretch inside the original item, gaps filled from the original samples
+arc_sample <- function(x, y, t) {
+  p <- ll(x, y)
+  list(date = format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+       location = list(latitude = p[1, 2], longitude = p[1, 1]), confirmedActivityType = 21L)
+}
+orig <- c(lapply(seq(0, 110, by = 10), function(k) arc_sample(k %% 40, 0, C0 + k)),
+          lapply(seq(120, 480, by = 30), function(k) arc_sample((k - 120) * 5.5, 0, C0 + k)),
+          lapply(seq(490, 600, by = 10), function(k) arc_sample(2000 + (k - 480) * 5, 0, C0 + k)))
+snapped <- lapply(seq(150, 450, by = 30), function(k) arc_sample((k - 120) * 5.5, 3, C0 + k))
+pkg <- build_edit_package(snapped, orig, NULL, "additive", "2026-10-12T12:00:00Z")
+r5 <- gpx_ranges(build_edit_gpx(pkg, "2026-10-12T12:00:00Z", orig))
+r5_old <- gpx_ranges(build_edit_gpx(pkg, "2026-10-12T12:00:00Z"))
+check(sprintf("coverage, Edit Samples GPX: %s over %+.0f..%+.0f s, contiguous %s (without the originals: %s %+.0f..%+.0f s)",
+              types(r5), r5$start[1] - C0, r5$end[nrow(r5)] - C0, covers(r5, C0 + c(0, 600)), types(r5_old),
+              r5_old$start[1] - C0, r5_old$end[1] - C0),
+      covers(r5, C0 + c(0, 600)) && identical(r5$type, c("stationary", "bus", "walking")) && nrow(r5_old) == 1)
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

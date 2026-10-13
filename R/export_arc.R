@@ -570,11 +570,29 @@ build_gpx <- function(items, samples, now_utc = format(Sys.time(), "%Y-%m-%dT%H:
   )
 }
 
-# GPX of an edit package (corrected route): one track named "Arc edit <start>"
-build_edit_gpx <- function(pkg, now_utc) {
+# GPX of an edit package (corrected route): one track named "Arc edit <start>".
+# With the original samples (originals), the tracks cover the original item's
+# time range exactly (review_cover(): the gaps filled from the recorded
+# samples, as a wait or a walk), since Arc replaces only what a GPX covers.
+build_edit_gpx <- function(pkg, now_utc, originals = NULL) {
   item <- pkg$item
   item$description <- "Arc edit"
-  build_gpx(list(item), pkg$samples, now_utc)
+  as_df <- function(ss) {
+    t <- as.POSIXct(vapply(ss, function(x) as.character(x$date %||% NA_character_)[1], character(1)),
+                    format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
+    d <- data.frame(lon = vapply(ss, sample_lon, numeric(1)), lat = vapply(ss, sample_lat, numeric(1)), t = as.numeric(t))
+    d <- d[stats::complete.cases(d), , drop = FALSE]
+    d <- d[order(d$t), , drop = FALSE]
+    d[!duplicated(d$t), , drop = FALSE]
+  }
+  orig <- if (length(originals)) as_df(originals) else NULL
+  main <- as_df(pkg$samples)
+  if (is.null(orig) || nrow(orig) == 0 || nrow(main) == 0) return(build_gpx(list(item), pkg$samples, now_utc))
+  code <- item$trip$confirmedActivityType %||% item$trip$classifiedActivityType
+  seg <- list(role = "main", name = "Arc edit", code = code, path = main, t_start = main$t[1], t_end = main$t[nrow(main)])
+  cov <- review_cover(list(seg), range(orig$t), orig)
+  inp <- review_gpx_input(list(edit = list(segments = cov$segments, covered = TRUE)))
+  build_gpx(inp$items, inp$samples, now_utc)
 }
 
 # GPX filename for the day timeline: arc_timeline_<work_date>_<HHMM of first sample, local>.gpx

@@ -357,6 +357,12 @@ APP_CSS <- "
   .review-end .btn-group { grid-column: 2 / 4; }
   .review-end .rv-station-pick { grid-column: 1; padding: 0 2px; font-size: 0.66rem; line-height: 1.25; }
   .review-end .btn-group.rv-adj-short { grid-column: 2; }
+  .rv-cover { font-size: 0.76rem; line-height: 1.25; color: var(--bs-secondary-color); }
+  .rv-cover-row { display: flex; align-items: center; column-gap: 4px; min-width: 0; margin-top: 1px; }
+  .rv-cover-row .rv-cover-lead { flex: 0 0 auto; white-space: nowrap; }
+  .rv-cover-row .form-group { margin: 0; flex: 1 1 auto; min-width: 0; }
+  .rv-cover-row select.form-select, .rv-cover-row select { font-size: 0.75rem; line-height: 1.2; padding: 1px 1.6rem 1px 4px;
+    height: 1.35rem; min-height: 0; width: 100%; background-position: right 4px center; background-size: 10px 8px; }
   .review-end .rv-end-src { grid-column: 3; font-size: 0.72rem; color: var(--bs-secondary-color); text-align: center; align-self: center; }
   .btn.pick-on, .btn.pick-on:hover, .btn.pick-on:focus { background: #ff6600; border-color: #ff6600; color: #fff;
     box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.35); }
@@ -1122,14 +1128,15 @@ ui <- bslib::page_fillable(
         var row = box.querySelector('.review-row.selected');
         var below = function() { return row.getBoundingClientRect().bottom - box.getBoundingClientRect().bottom; };
         var keep = row && below() <= 1 && row.getBoundingClientRect().top >= box.getBoundingClientRect().top - 1;
-        // .sidebar-content is as tall as its content; the aside is the full column
-        box.style.height = '60px';
+        // .sidebar-content is as tall as its content; the aside is the full column.
+        // At least two whole rows (46 px)
+        box.style.height = '46px';
         var limit = aside.getBoundingClientRect().bottom - (parseFloat(getComputedStyle(sb).paddingBottom) || 0);
         var bottom = sb.getBoundingClientRect().top;
         Array.prototype.forEach.call(sb.children, function(c) {
           if (c.offsetParent) bottom = Math.max(bottom, c.getBoundingClientRect().bottom);
         });
-        box.style.height = Math.max(60, 60 + Math.floor(limit - bottom) - 2) + 'px';
+        box.style.height = Math.max(46, 46 + Math.floor(limit - bottom) - 2) + 'px';
         if (keep && below() > 0) box.scrollTop += Math.ceil(below()) + 1;
       };
       var fitSoon = function() { setTimeout(window.fitReviewList, 60); };

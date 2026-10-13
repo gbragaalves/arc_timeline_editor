@@ -241,6 +241,30 @@ review_server <- function(input, output, session, tr, current_lang) {
     fx
   }
 
+  # Coverage of the original item (review_cover()): its span, recorded
+  # samples, the fill choices, the wait's place (rail: the stations); a
+  # departure from a Jaé tap stays where it is
+  cover_args <- function(id, fx) {
+    row <- trip_row(id)
+    rail <- family_of(row$activity) == "rail"
+    name_of <- function(st) if (rail && !is.null(st$name)) st$name else ""
+    list(span = c(as.numeric(row$start_utc), as.numeric(row$end_utc)), s = trip_samples(id),
+         fill = get_ov(id)$fill %||% list(), places = list(before = name_of(fx$plan$dep), after = name_of(fx$plan$arr)),
+         keep_start = rail && isTRUE(fx$start_at_tap))
+  }
+  cover_accept <- function(id, fx, entry) {
+    a <- cover_args(id, fx)
+    review_cover_entry(entry, a$span, a$s, a$fill, a$places, a$keep_start)
+  }
+  # The coverage of the current proposal (the split's segments while split)
+  cover_preview <- function(id, fx) {
+    if (is.null(fx$path)) return(NULL)
+    main <- if (length(fx$split$segments) && !isTRUE(fx$split$ignored)) fx$split$segments else
+      review_main_segments(list(activity = fx$activity, path = fx$path))
+    a <- cover_args(id, fx)
+    review_cover(main, a$span, a$s, a$fill, a$places, a$keep_start)
+  }
+
   # Split at the first Jaé tap (when switched on): walk -> wait -> bus / rail
   # leg -> after. Bus: needs the alighting sample (map click). Rail: the wait
   # runs until the rail fix's departure; a tap after it is ignored.
@@ -753,7 +777,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     # A rail trip without a route keeps its station rows (fx$path NULL)
     no_path <- is.null(fx$path)
     if (!no_path) parts <- c(parts, split_parts(id, act, fx, lang))
-    if (family_of(act) == "road" && !is.null(fx$split)) return(shiny::div(class = "review-detail", parts))
+    if (family_of(act) == "road" && !is.null(fx$split)) return(shiny::div(class = "review-detail", parts, cover_notice(id, fx, lang)))
     length_line <- if (!no_path) {
       sprintf(tr("Proposed %.1f km · recorded %.1f km"),
               fx$proposed_km %||% (path_cumulative_m(cbind(fx$path$lon, fx$path$lat))[nrow(fx$path)] / 1000),
@@ -891,7 +915,56 @@ review_server <- function(input, output, session, tr, current_lang) {
         }
       ))
     }
-    shiny::div(class = "review-detail", parts)
+    shiny::div(class = "review-detail", parts, cover_notice(id, fx, lang))
+  })
+
+  # Gaps over cover$notice_s between the proposal and the original item, with
+  # the fill of each (select); a proposal reaching outside the item is fitted
+  # into it
+  cover_notice <- function(id, fx, lang) {
+    cv <- tryCatch(cover_preview(id, fx), error = function(e) NULL)
+    if (is.null(cv)) return(NULL)
+    th <- REVIEW_THRESHOLDS$cover
+    row <- trip_row(id)
+    hm <- function(t) local_time(t, "%H:%M")
+    big <- Filter(function(g) g$mode %in% c("wait", "walk", "extend") && g$gap_s > th$notice_s, cv$gaps)
+    over <- cv$raw[1] < cv$span[1] - th$notice_s || cv$raw[2] > cv$span[2] + th$notice_s
+    if (!length(big) && !over) return(NULL)
+    head <- sprintf(tr("Proposal covers %s–%s of %s–%s"), hm(cv$raw[1]), hm(cv$raw[2]), hm(row$start_utc), hm(row$end_utc))
+    labels <- function(g) {
+      wait <- if (nzchar(g$place)) sprintf(tr("wait at %s"), g$place) else if (g$side == "before") tr("wait at the start") else
+        tr("wait at the end")
+      c(wait = wait, walk = tr("recorded walk"), extend = tr("extend the main leg"))
+    }
+    mins <- function(g) max(1, round(g$gap_s / 60))
+    rows <- lapply(big, function(g) {
+      lab <- labels(g)
+      shiny::div(
+        class = "rv-cover-row", `data-cover-side` = g$side,
+        shiny::span(class = "rv-cover-lead", sprintf(if (g$side == "before") tr("%d min before:") else tr("%d min after:"), mins(g))),
+        shiny::selectInput(paste0("review_fill_", g$side), NULL, choices = stats::setNames(names(lab), lab), selected = g$mode,
+                           selectize = FALSE, width = "auto")
+      )
+    })
+    fitted <- if (over) tr("it will be fitted into the trip's time.")
+    full <- paste(c(head, vapply(big, function(g) sprintf(tr("%d min will be filled as %s"), mins(g), labels(g)[[g$mode]]), ""), fitted),
+                  collapse = "; ")
+    shiny::div(class = "rv-cover", title = full,
+               shiny::div(class = "rv-clamp rv-cover-head", paste0(head, if (over) paste0(": ", fitted) else if (length(big)) ";")),
+               rows)
+  }
+  for (side in c("before", "after")) local({
+    sd <- side
+    shiny::observeEvent(input[[paste0("review_fill_", sd)]], {
+      id <- rv$selected
+      v <- input[[paste0("review_fill_", sd)]]
+      if (is.null(id) || is.null(rv$proposal) || !v %in% c("wait", "walk", "extend")) return()
+      cv <- tryCatch(cover_preview(id, rv$proposal), error = function(e) NULL)
+      if (identical(cv$gaps[[sd]]$mode, v)) return()  # a re-render, not a choice
+      f <- get_ov(id)$fill %||% list()
+      f[[sd]] <- v
+      set_ov(id, list(fill = f))
+    }, ignoreInit = TRUE)
   })
 
   # Station selects, time adjustments, start/end from the map
@@ -990,12 +1063,13 @@ review_server <- function(input, output, session, tr, current_lang) {
       return()
     }
     acc <- rv$accepted
-    acc[[id]] <- if (!is.null(sp$segments)) {
+    # Its tracks cover the original item exactly (the gaps filled)
+    acc[[id]] <- cover_accept(id, fx, if (!is.null(sp$segments)) {
       segs <- multimodal_label_segments(sp$segments, split_stop(id, sp), jae_leg_text(sp$tap))
       multimodal_accepted(segs, fx$activity, tap = sp$tap)
     } else {
       list(activity = fx$activity, path = fx$path[, c("lon", "lat", "t")], method = fx$method)
-    }
+    })
     rv$accepted <- acc
     set_status_and_next(id, "accepted")
   })
@@ -1379,8 +1453,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     acc <- rv$accepted
     st <- rv$status
     for (id in names(fixes)) {
-      acc[[id]] <- list(activity = fixes[[id]]$activity, path = fixes[[id]]$path[, c("lon", "lat", "t")],
-                        method = fixes[[id]]$method)
+      acc[[id]] <- cover_accept(id, fixes[[id]], list(activity = fixes[[id]]$activity,
+                                                     path = fixes[[id]]$path[, c("lon", "lat", "t")], method = fixes[[id]]$method))
       st[[id]] <- "accepted"
     }
     rv$accepted <- acc
@@ -1579,6 +1653,11 @@ review_server <- function(input, output, session, tr, current_lang) {
   export_set <- function() {
     acc <- rv$accepted
     if (isTRUE(input$review_only_checked)) acc <- acc[intersect(names(acc), rv$checked)]
+    # Fixes accepted before the coverage rule: covered now (gaps filled from the recording)
+    for (id in names(acc)) {
+      if (isTRUE(acc[[id]]$covered) || nrow(trip_row(id)) == 0) next
+      acc[[id]] <- tryCatch(cover_accept(id, list(activity = acc[[id]]$activity), acc[[id]]), error = function(e) acc[[id]])
+    }
     acc
   }
 

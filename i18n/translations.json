@@ -2090,5 +2090,45 @@
   "Start from the Jaé tap at %s: departure at tap + %d s.": {
     "pt": "Início pelo toque no Jaé às %s: partida = toque + %d s.",
     "en": "Start from the Jaé tap at %s: departure at tap + %d s."
+  },
+  "Proposal covers %s–%s of %s–%s": {
+    "pt": "Proposta cobre %s–%s de %s–%s",
+    "en": "Proposal covers %s–%s of %s–%s"
+  },
+  "%d min will be filled as %s": {
+    "pt": "%d min serão preenchidos como %s",
+    "en": "%d min will be filled as %s"
+  },
+  "wait at %s": {
+    "pt": "espera em %s",
+    "en": "wait at %s"
+  },
+  "wait at the start": {
+    "pt": "espera no início",
+    "en": "wait at the start"
+  },
+  "wait at the end": {
+    "pt": "espera no fim",
+    "en": "wait at the end"
+  },
+  "recorded walk": {
+    "pt": "caminhada gravada",
+    "en": "recorded walk"
+  },
+  "extend the main leg": {
+    "pt": "estender o trecho principal",
+    "en": "extend the main leg"
+  },
+  "it will be fitted into the trip's time.": {
+    "pt": "será ajustada ao horário da viagem.",
+    "en": "it will be fitted into the trip's time."
+  },
+  "%d min before:": {
+    "pt": "%d min antes:",
+    "en": "%d min before:"
+  },
+  "%d min after:": {
+    "pt": "%d min depois:",
+    "en": "%d min after:"
   }
 }

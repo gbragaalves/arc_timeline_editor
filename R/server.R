@@ -2834,7 +2834,7 @@ server <- function(input, output, session) {
         return()
       }
 
-      writeLines(build_edit_gpx(pkg, now_utc), file)
+      writeLines(build_edit_gpx(pkg, now_utc, original_samples()), file)
       n_points <- sum(vapply(pkg$samples, sample_has_coords, logical(1)))
       shiny::showNotification(sprintf(tr("Exported GPX with %d points"), n_points), type = "message")
     }
@@ -2903,7 +2903,7 @@ server <- function(input, output, session) {
     gpx_name <- edit_gpx_filename(pkg)
     gpx_path <- file.path(tempfile("arc_gpx_"), gpx_name)
     dir.create(dirname(gpx_path))
-    writeLines(build_edit_gpx(pkg, now_utc), gpx_path)
+    writeLines(build_edit_gpx(pkg, now_utc, original_samples()), gpx_path)
 
     res <- shiny::withProgress(message = tr("Sending GPX to iCloud..."), value = 0.3, {
       icloud_push_file(gpx_path, subdir = "GPX", lang = current_lang())

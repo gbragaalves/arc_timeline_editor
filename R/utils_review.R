@@ -42,6 +42,12 @@ REVIEW_THRESHOLDS <- list(
   rail_osm = list(snap_m = 300, step_m = 25, pad_m = 3000, transfer_m = 250, transfer_cost_m = 500, untagged_factor = 2,
                   arrival_m = 300, max_speed_kmh = 80),
   transfer_dwell_point_s = 120,  # waiting at a transfer: one point every 2 min
+  # Coverage of the original item on export (review_cover): a gap under
+  # stretch_s stretches the main track; over notice_s it shows in the panel;
+  # "auto" fills with a wait when the recorded samples in the gap stay within
+  # wait_m of the main track's end, else with them as a walk; a wait gets a
+  # point every wait_every_s
+  cover = list(stretch_s = 5, notice_s = 60, wait_m = 300, wait_every_s = 60),
   station_radius_m  = 600,  # stations considered for the endpoints
   good_accuracy_m   = 50,   # origin/destination samples
   min_pair_s        = 5,    # max speed ignores sample pairs closer in time
@@ -1713,12 +1719,14 @@ rail_proposal <- function(s, activity, trip_t, o = list(), tap = NULL, prev = NU
     gate <- if (at_tap) station_gate(trip_t[1]) else if (!is.null(tap_t)) multimodal_rail_gate(tap_t, trip_t[1], th)
     start_at <- if (isTRUE(gate$action %in% c("station", "adjust"))) gate$start_at
     fx <- rail_osm_fix(plan, route, s, trip_t, th, so, eo, start_at = start_at)
+    fx$start_at_tap <- !is.null(start_at)
   } else {
     fx <- rail_fix(plan, route, s, activity, th, so, eo, ref = ref)
     base_start <- fx$t_start - so
     gate <- if (at_tap) station_gate(base_start) else if (!is.null(tap_t)) multimodal_rail_gate(tap_t, base_start, th)
     if (identical(gate$action, "station") || (isTRUE(o$split$on) && identical(gate$action, "adjust"))) {
       fx <- rail_fix(plan, route, s, activity, th, so, eo, ref = ref, start_at = gate$start_at)
+      fx$start_at_tap <- TRUE
     }
   }
   fx$gate <- gate
@@ -2831,17 +2839,159 @@ multimodal_note_range <- function(t_start, t_end, margin_s = 15, min_leg_s = 40)
 }
 
 
+# ---- Coverage of the original item ----
+
+# Arc replaces only the time range a GPX covers, so the tracks of an accepted
+# trip must cover its original item exactly (span: start, end; epoch s).
+# segments: the main tracks in time order (each with path = data.frame(lon,
+# lat, t), and t_start / t_end); s: the recorded samples (lon, lat, t). A main
+# track reaching outside the span (e.g. a station time extrapolated before the
+# first sample) is scaled into it, unless keep_start (the departure from a
+# Jaé tap: the span starts there). Then each gap, by fill$before / fill$after:
+#   under cover$stretch_s: the first (last) point moved to the span's end;
+#   "wait": a stationary track at the main track's first (last) point;
+#   "walk": the recorded samples in the gap (no OSRM), ending at the main
+#     track's start (starting at its end);
+#   "extend": the main tracks' times scaled to start (end) at the span's end;
+#   "auto" (default): "wait" when the recorded samples in the gap stay within
+#     cover$wait_m of that point (or there are none), else "walk".
+# places$before / $after: the wait's name (the station). Returns
+# list(segments (the fills with role "cover"), gaps = list(before, after:
+# list(side, gap_s, mode, auto, place, from, to)), span (the covered range),
+# raw (the main tracks' range before any change)).
+review_cover <- function(segments, span, s = NULL, fill = list(), places = list(), keep_start = FALSE,
+                         th = REVIEW_THRESHOLDS) {
+  cv <- th$cover
+  span <- as.numeric(span)
+  n <- length(segments)
+  last_row <- function(p) p[nrow(p), ]
+  retime <- function(a0, a1, b0, b1) {
+    if (a1 <= a0) return(invisible(NULL))
+    f <- function(t) b0 + (t - a0) * (b1 - b0) / (a1 - a0)
+    segments <<- lapply(segments, function(g) {
+      g$path$t <- f(g$path$t)
+      if (!is.null(g$t_start)) g$t_start <- f(g$t_start)
+      if (!is.null(g$t_end)) g$t_end <- f(g$t_end)
+      g
+    })
+  }
+  t0 <- segments[[1]]$path$t[1]
+  t1 <- last_row(segments[[n]]$path)$t
+  raw <- c(t0, t1)
+  lo <- if (keep_start) min(span[1], t0) else span[1]
+  hi <- span[2]
+  if (t0 < lo || t1 > hi) {
+    b0 <- max(t0, lo)
+    b1 <- min(t1, hi)
+    if (b1 <= b0) {
+      b0 <- lo
+      b1 <- hi
+    }
+    retime(t0, t1, b0, b1)
+    t0 <- b0
+    t1 <- b1
+  }
+  pick <- function(x, side, default) {
+    v <- if (!is.null(x) && side %in% names(x)) x[[side]] else NULL
+    if (is.null(v) || length(v) != 1 || is.na(v)) default else v
+  }
+  first_xy <- unlist(segments[[1]]$path[1, c("lon", "lat")])
+  last_xy <- unlist(last_row(segments[[n]]$path)[c("lon", "lat")])
+  side_info <- function(side) {
+    before <- side == "before"
+    from <- if (before) lo else t1
+    to <- if (before) t0 else hi
+    anchor <- if (before) first_xy else last_xy
+    pts <- if (is.null(s) || nrow(s) == 0) {
+      data.frame(lon = numeric(0), lat = numeric(0), t = numeric(0))
+    } else {
+      s[s$t > from & s$t < to, c("lon", "lat", "t")]
+    }
+    stays <- nrow(pts) == 0 || max(geosphere::distHaversine(cbind(pts$lon, pts$lat), anchor)) <= cv$wait_m
+    auto <- if (stays) "wait" else "walk"
+    want <- pick(fill, side, "auto")
+    if (!want %in% c("wait", "walk", "extend")) want <- auto
+    gap <- to - from
+    mode <- if (gap <= 0) "none" else if (gap < cv$stretch_s) "stretch" else want
+    list(side = side, gap_s = max(gap, 0), mode = mode, auto = auto, place = pick(places, side, ""),
+         from = from, to = to, anchor = anchor, samples = pts)
+  }
+  gaps <- list(before = side_info("before"), after = side_info("after"))
+
+  e0 <- if (gaps$before$mode == "extend") lo else t0
+  e1 <- if (gaps$after$mode == "extend") hi else t1
+  if (e0 != t0 || e1 != t1) retime(t0, t1, e0, e1)
+  if (gaps$before$mode == "stretch") {
+    segments[[1]]$path$t[1] <- lo
+    if (!is.null(segments[[1]]$t_start)) segments[[1]]$t_start <- lo
+  }
+  if (gaps$after$mode == "stretch") {
+    segments[[n]]$path$t[nrow(segments[[n]]$path)] <- hi
+    if (!is.null(segments[[n]]$t_end)) segments[[n]]$t_end <- hi
+  }
+  fill_track <- function(g) {
+    if (g$mode == "wait") {
+      w <- multimodal_stationary("cover", "Wait", g$anchor, g$from, g$to, cv$wait_every_s)
+      if (nzchar(g$place)) w$gpx_name <- g$place
+      return(w)
+    }
+    if (g$mode != "walk") return(NULL)
+    pts <- g$samples
+    path <- if (g$side == "before") {
+      xy <- if (nrow(pts)) c(pts$lon[1], pts$lat[1]) else g$anchor
+      rbind(data.frame(lon = xy[1], lat = xy[2], t = g$from), pts, data.frame(lon = g$anchor[1], lat = g$anchor[2], t = g$to))
+    } else {
+      xy <- if (nrow(pts)) c(pts$lon[nrow(pts)], pts$lat[nrow(pts)]) else g$anchor
+      rbind(data.frame(lon = g$anchor[1], lat = g$anchor[2], t = g$from), pts, data.frame(lon = xy[1], lat = xy[2], t = g$to))
+    }
+    list(role = "cover", type = "walking", name = "Walk", t_start = g$from, t_end = g$to,
+         path = multimodal_path(path, g$from, g$to))
+  }
+  before <- fill_track(gaps$before)
+  after <- fill_track(gaps$after)
+  list(segments = c(if (!is.null(before)) list(before), segments, if (!is.null(after)) list(after)),
+       gaps = lapply(gaps, function(g) g[c("side", "gap_s", "mode", "auto", "place", "from", "to")]),
+       span = c(lo, hi), raw = raw)
+}
+
+# The main tracks of an accepted fix: its segments (a split) or its path as
+# one track of its activity
+review_main_segments <- function(a) {
+  if (!is.null(a$segments)) return(a$segments)
+  p <- a$path[, c("lon", "lat", "t")]
+  list(list(role = "main", name = REVIEW_ACTIVITIES[[a$activity]]$label, code = REVIEW_ACTIVITIES[[a$activity]]$code,
+            path = p, t_start = p$t[1], t_end = p$t[nrow(p)]))
+}
+
+# An accepted fix covering its original item (review_cover()): its tracks as
+# segments, its joined path, span, covered = TRUE and the gaps
+review_cover_entry <- function(a, span, s = NULL, fill = list(), places = list(), keep_start = FALSE,
+                               th = REVIEW_THRESHOLDS) {
+  cv <- review_cover(review_main_segments(a), span, s, fill, places, keep_start, th)
+  joined <- do.call(rbind, lapply(cv$segments, function(g) g$path[, c("lon", "lat", "t")]))
+  a$path <- joined[c(TRUE, diff(joined$t) > 0), ]
+  rownames(a$path) <- NULL
+  a$segments <- cv$segments
+  a$span <- cv$span
+  a$cover_gaps <- cv$gaps
+  a$covered <- TRUE
+  a
+}
+
 # ---- Export and state ----
 
 # build_gpx() inputs for accepted fixes (named list by trip id; each with
 # activity and path = data.frame(lon, lat, t)). A split trip (segments: name,
 # type, path, gpx_name, desc; see multimodal_accepted) gives one track per
 # segment.
+# A fix with its original span not yet covered (an older saved state) is
+# covered here by extending its main tracks (no samples needed).
 review_gpx_input <- function(accepted) {
   items <- list()
   samples <- list()
   for (id in names(accepted)) {
     a <- accepted[[id]]
+    if (!isTRUE(a$covered) && length(a$span) == 2) a <- review_cover_entry(a, a$span, fill = list(before = "extend", after = "extend"))
     parts <- a$segments %||% list(list(name = REVIEW_ACTIVITIES[[a$activity]]$label, path = a$path,
                                        code = REVIEW_ACTIVITIES[[a$activity]]$code))
     for (g in parts) {
