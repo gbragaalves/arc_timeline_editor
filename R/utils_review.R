@@ -1858,7 +1858,8 @@ rail_relation_label <- function(name, ref = "") {
 # route relation running that way: of the directed relations of their system
 # with a stop at a (within rail_rel$stop_m; one named like the station first)
 # and a later stop at b, the shortest; hint (a line's name, e.g. Google's)
-# breaks ties. list(coords, rel, line, label, length_m) or NULL.
+# breaks ties. list(coords, rel, line, label, length_m, board, alight (the
+# stops it uses: name, lon, lat, named = named like the station)) or NULL.
 rail_relation_leg <- function(a, b, ref = rail_reference(), th = REVIEW_THRESHOLDS, hint = NULL) {
   rr <- ref$routes
   rs <- ref$route_stops
@@ -1888,14 +1889,53 @@ rail_relation_leg <- function(a, b, ref = rail_reference(), th = REVIEW_THRESHOL
       if (!length(y)) next
       y <- y[which.min(st$along_m[y])]
       score <- st$along_m[y] - st$along_m[x] + stop_m * (!ia$named) + stop_m * (!ib$named) - stop_m * hinted
-      if (is.null(best) || score < best$score) best <- list(score = score, i = i, d = c(st$along_m[x], st$along_m[y]))
+      if (is.null(best) || score < best$score) {
+        best <- list(score = score, i = i, d = c(st$along_m[x], st$along_m[y]),
+                     board = list(name = st$name[x], lon = st$lon[x], lat = st$lat[x], named = ia$named),
+                     alight = list(name = st$name[y], lon = st$lon[y], lat = st$lat[y], named = ib$named))
+      }
     }
   }
   if (is.null(best)) return(NULL)
   xy <- ref$route_xy[[rr$rel[best$i]]]
   co <- base_between(xy, path_cumulative_m(xy), best$d[1], best$d[2])
   list(coords = co, rel = rr$rel[best$i], line = rr$line[best$i], label = rail_relation_label(rr$name[best$i], rr$ref[best$i]),
-       length_m = best$d[2] - best$d[1])
+       length_m = best$d[2] - best$d[1], board = best$board, alight = best$alight)
+}
+
+# A transfer station (stations[2 .. n-1]) whose next ride boards at another
+# station of its system within rail_rel$walk_max_m (its line doesn't stop
+# there: Carlos Pellegrini -> 9 de Julio), or whose ride in alights at one:
+# that station is added next to it (source "auto"), so the change is a walk
+# (rail_links()), as if it had been set by hand.
+rail_fill_transfers <- function(stations, ref = rail_reference(), th = REVIEW_THRESHOLDS) {
+  n <- length(stations)
+  if (n < 3) return(stations)
+  other <- function(stop, x) {
+    if (is.null(stop) || isTRUE(stop$named)) return(NULL)
+    st <- rail_station_near(stop$name, c(stop$lon, stop$lat), ref, th)
+    if (is.null(st) || identical(st$key, x$key) || !identical(st$system, x$system) ||
+        geosphere::distHaversine(c(st$lon, st$lat), c(x$lon, x$lat)) > th$rail_rel$walk_max_m) return(NULL)
+    st$source <- "auto"
+    st
+  }
+  near <- function(p, q) geosphere::distHaversine(c(p$lon, p$lat), c(q$lon, q$lat)) <= th$rail_rel$walk_max_m
+  out <- list(stations[[1]])
+  for (k in 2:(n - 1)) {
+    x <- stations[[k]]
+    prev <- out[[length(out)]]
+    if (!(length(out) > 1 && near(prev, x))) {   # not already a walk from the previous transfer
+      a <- other(rail_relation_leg(prev, x, ref, th)$alight, x)
+      if (!is.null(a)) out[[length(out) + 1L]] <- a
+    }
+    out[[length(out) + 1L]] <- x
+    nxt <- stations[[k + 1L]]
+    if (!(k + 1L < n && near(x, nxt))) {           # not already a walk to the next transfer
+      b <- other(rail_relation_leg(x, nxt, ref, th)$board, x)
+      if (!is.null(b)) out[[length(out) + 1L]] <- b
+    }
+  }
+  c(out, list(stations[[n]]))
 }
 
 # The rail station of a Google stop (name, xy: lon, lat): within
@@ -2151,6 +2191,8 @@ rail_proposal <- function(s, activity, trip_t, o = list(), tap = NULL, prev = NU
     sts <- c(list(plan$dep), plan$xfers, list(plan$arr))
     sts <- sts[c(TRUE, vapply(seq_along(sts)[-1], function(k) !identical(sts[[k]]$key, sts[[k - 1L]]$key), logical(1)))]
     if (length(sts) < 2) return(none("same_station"))
+    sts <- rail_fill_transfers(sts, ref, th)
+    plan$xfers <- sts[-c(1, length(sts))]
     links <- rail_links(sts, th)
     if (is.list(links)) return(none(links$error))
     hints <- NULL

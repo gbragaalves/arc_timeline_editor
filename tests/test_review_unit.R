@@ -2014,5 +2014,17 @@ check(sprintf("Google as a hint: nothing against it -> %s, transfers %s (%s), le
         all(vapply(fg$plan$xfers, `[[`, "", "source") == "google") && identical(fg$timing, "steps") && nrow(fg$walk_times) == 1 &&
         identical(fd$source, "osm_rails") && identical(fd$plan$dep$name, "P0"))
 
+# One transfer station set, the next line boarding at another station 180 m away (or the line in alighting at one):
+# that station is added, the change becomes a walk
+f_one <- rail_proposal(tr_s, "metro", tr_t, o = list(dep = key("P1"), xfers = key("Q"), arr = key("R2")), google_fn = no_google, ref = rref)
+f_mir <- rail_proposal(tr_s, "metro", tr_t, o = list(dep = key("P1"), xfers = key("Q2"), arr = key("R2")), google_fn = no_google, ref = rref)
+xf <- function(fx) paste(vapply(fx$plan$xfers, function(x) sprintf("%s (%s)", x$name, x$source), ""), collapse = " > ")
+lk <- function(fx) paste(vapply(fx$rail_legs %||% list(), `[[`, "", "kind"), collapse = "/")
+check(sprintf("one transfer row: Q set -> transfers %s, legs %s; Q2 set -> %s, legs %s",
+              xf(f_one), lk(f_one), xf(f_mir), lk(f_mir)),
+      identical(lk(f_one), "ride/walk/ride") && identical(xf(f_one), "Q (chosen) > Q2 (auto)") &&
+        identical(lk(f_mir), "ride/walk/ride") && identical(xf(f_mir), "Q (auto) > Q2 (chosen)") &&
+        abs(f_one$rail_legs[[2]]$walk_s - fw$rail_legs[[2]]$walk_s) < 1e-6)
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

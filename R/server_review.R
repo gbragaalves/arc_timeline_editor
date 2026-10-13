@@ -1028,13 +1028,13 @@ review_server <- function(input, output, session, tr, current_lang) {
     station_changed(if (ev$which == "start") "dep" else "arr", ev$key)
   })
 
-  # Transfer stations of a rail trip: set by hand (overrides xfers; "" for a
-  # row not filled yet), else the plan's (Google's transfers); editing a row
-  # makes them all set by hand
+  # Transfer stations of a rail trip: the plan's (Google's, or those set by
+  # hand plus any added automatically for a walk), then the rows set by hand
+  # but not filled yet (""); editing a row makes them all set by hand
   xfer_rows <- function(id, fx) {
     keys <- get_ov(id)$xfers
-    if (is.null(keys)) keys <- vapply(fx$plan$xfers %||% list(), function(x) as.character(x$key), character(1))
-    keys
+    plan_keys <- vapply(fx$plan$xfers %||% list(), function(x) as.character(x$key), character(1))
+    if (is.null(keys)) plan_keys else c(plan_keys, keys[!nzchar(keys)])
   }
   xfer_set <- function(id, keys) {
     set_ov(id, list(xfers = keys))
