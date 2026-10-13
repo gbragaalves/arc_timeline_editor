@@ -356,6 +356,8 @@ APP_CSS <- "
   }
   .review-end .btn-group { grid-column: 2 / 4; }
   .review-end .rv-station-pick { grid-column: 1; padding: 0 2px; font-size: 0.66rem; line-height: 1.25; }
+  .review-end .btn-group.rv-adj-short { grid-column: 2; }
+  .review-end .rv-end-src { grid-column: 3; font-size: 0.72rem; color: var(--bs-secondary-color); text-align: center; align-self: center; }
   .btn.pick-on, .btn.pick-on:hover, .btn.pick-on:focus { background: #ff6600; border-color: #ff6600; color: #fff;
     box-shadow: 0 0 0 3px rgba(255, 102, 0, 0.35); }
   .leaflet-container.station-pick, .leaflet-container.station-pick .leaflet-interactive { cursor: crosshair; }

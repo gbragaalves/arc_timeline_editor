@@ -222,19 +222,27 @@ google_directions_get <- function(params) {
 # Returns: list(coords = matrix(lon, lat), distance_m, duration_s, steps) or
 # NULL. coords, distance_m and duration_s cover the TRANSIT steps of the
 # requested mode only (no walking); steps: transit_route_steps(), all steps.
+# on_fail(code, detail) is told why when NULL: "no_key", "request" (request,
+# HTTP or parse failure, timeout), "status" (detail: Google's status),
+# "zero_results", "no_transit" (routes without a leg of the mode; detail: the
+# vehicle types they have, "" when walking only), "no_polyline", "points".
 calculate_google_transit_route <- function(points, transit_mode = c("subway", "train", "tram"),
-                                           ref_time_utc = NULL) {
+                                           ref_time_utc = NULL, on_fail = NULL) {
   transit_mode <- match.arg(transit_mode)
+  fail <- function(code, detail = "") {
+    if (is.function(on_fail)) on_fail(code, detail)
+    NULL
+  }
 
   key <- Sys.getenv("GOOGLE_MAPS_API_KEY")
   if (is.null(key) || !nzchar(key)) {
     message("[Google API] GOOGLE_MAPS_API_KEY not configured.")
-    return(NULL)
+    return(fail("no_key"))
   }
 
   if (nrow(points) < 2) {
     message("[Google API] At least 2 points required.")
-    return(NULL)
+    return(fail("points"))
   }
 
   origin <- paste0(points$lat[1], ",", points$lng[1])
@@ -262,28 +270,28 @@ calculate_google_transit_route <- function(points, transit_mode = c("subway", "t
   }
   accepted_types <- GOOGLE_ACCEPTED_VEHICLE_TYPES[[transit_mode]]
 
-  # Request at `departure`; returns list(route, found_modes), or NULL when the
-  # request itself failed (no retry then)
+  # Request at `departure`; returns list(route, found_modes, n_routes), or
+  # list(fail = c(code, detail)) when the request itself failed (no retry then)
   request_at <- function(departure) {
     params$departure_time <- as.character(as.integer(as.numeric(departure)))
     message("[Google API] Transit departure_time: ", fmt_departure(departure))
     js <- google_directions_get(params)
-    if (is.null(js)) return(NULL)
+    if (is.null(js)) return(list(fail = c("request", "")))
     if (!js$status %in% c("OK", "ZERO_RESULTS")) {
       message("[Google API] Status: ", js$status, " ", js$error_message)
-      return(NULL)
+      return(list(fail = c("status", js$status)))
     }
 
     # First route that actually uses the requested transport mode
     for (r in js$routes) {
       if (any(extract_vehicle_types(r) %in% accepted_types)) return(list(route = r))
     }
-    list(route = NULL, found_modes = unique(unlist(lapply(js$routes, extract_vehicle_types))))
+    list(route = NULL, found_modes = unique(unlist(lapply(js$routes, extract_vehicle_types))), n_routes = length(js$routes))
   }
 
   departure <- transit_departure_time(ref_time_utc, tz)
   attempt <- request_at(departure)
-  if (is.null(attempt)) return(NULL)
+  if (!is.null(attempt$fail)) return(fail(attempt$fail[1], attempt$fail[2]))
 
   # Requested mode not running at that time (e.g. metro closed at night):
   # retry once at the next weekday at 10:00
@@ -296,7 +304,7 @@ calculate_google_transit_route <- function(points, transit_mode = c("subway", "t
         "). Retrying at the next weekday 10:00."
       )
       attempt <- request_at(retry_departure)
-      if (is.null(attempt)) return(NULL)
+      if (!is.null(attempt$fail)) return(fail(attempt$fail[1], attempt$fail[2]))
     }
   }
 
@@ -306,7 +314,8 @@ calculate_google_transit_route <- function(points, transit_mode = c("subway", "t
       "[Google API] No route found using ", transit_mode,
       ". Modes found: ", paste(attempt$found_modes, collapse = ", ")
     )
-    return(NULL)
+    if (!isTRUE(attempt$n_routes > 0)) return(fail("zero_results"))
+    return(fail("no_transit", paste(attempt$found_modes, collapse = ",")))
   }
 
   # Extract only TRANSIT steps of the requested mode (no walking segments)
@@ -318,7 +327,7 @@ calculate_google_transit_route <- function(points, transit_mode = c("subway", "t
 
   if (length(coords_list) == 0) {
     message("[Google API] No TRANSIT step of the requested mode has a polyline.")
-    return(NULL)
+    return(fail("no_polyline"))
   }
 
   # Concatenate coordinates from all accepted transit steps
@@ -327,7 +336,7 @@ calculate_google_transit_route <- function(points, transit_mode = c("subway", "t
 
   if (nrow(coords_mat) < 2) {
     message("[Google API] Transit polyline with less than 2 points.")
-    return(NULL)
+    return(fail("no_polyline"))
   }
 
   list(

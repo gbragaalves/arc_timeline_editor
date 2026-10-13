@@ -30,6 +30,17 @@ REVIEW_THRESHOLDS <- list(
   max_time_adjust_s = 180,  # cap for each station time adjustment
   rail_gate_to_train_s = 60,   # RAIL_GATE_TO_TRAIN_S: Jaé gate tap -> train, when the tap is after the computed start
   rail_gate_max_late_s = 180,  # a gate tap later than this after the computed start is ignored (another trip)
+  rail_tap_lead_s = 900,       # a Jaé rail tap up to 15 min before the trip's start is its gate tap
+  rail_tap_station_m = 300,    # the tap's station (the trip's start, departing at tap + rail_gate_to_train_s) when this close
+  # Route along the OSM rails when Google has no transit leg (rail_osm_route,
+  # rail_osm_fix): each station joins the nearest track within snap_m; tracks
+  # are densified every step_m, taken within max(pad_m, half the stations'
+  # distance) of them; a line change costs transfer_cost_m and needs a station
+  # of the system within transfer_m of both lines; a track of no line costs
+  # untagged_factor x its length; the arrival is the last sample within
+  # arrival_m of the end station; at most max_speed_kmh on average
+  rail_osm = list(snap_m = 300, step_m = 25, pad_m = 3000, transfer_m = 250, transfer_cost_m = 500, untagged_factor = 2,
+                  arrival_m = 300, max_speed_kmh = 80),
   transfer_dwell_point_s = 120,  # waiting at a transfer: one point every 2 min
   station_radius_m  = 600,  # stations considered for the endpoints
   good_accuracy_m   = 50,   # origin/destination samples
@@ -290,14 +301,15 @@ build_rail_reference <- function(pbf = OSM_PBF_FILE, out = RAIL_REFERENCE_FILE, 
   step(0.8, "rails + stations")
   rails <- rail_lines_from_features(features)
   stations <- stations_from_features(features)
-  stops <- if (identical(method, "osmium")) {
-    step(0.85, "lines of the stations")
-    tryCatch(rail_route_stops(pbf), error = function(e) {
+  routes <- if (identical(method, "osmium")) {
+    step(0.85, "lines of the stations and rails")
+    tryCatch(rail_routes(pbf), error = function(e) {
       message("[Rails] route relations failed: ", conditionMessage(e))
       NULL
     })
   }
-  stations$lines <- rail_station_lines(stations, stops)
+  stations$lines <- rail_station_lines(stations, routes$stops)
+  rails$lines <- rail_way_lines(rails$osm, routes$track)
 
   dir.create(dirname(out), recursive = TRUE, showWarnings = FALSE)
   tmp <- paste0(out, ".tmp.gpkg")
@@ -330,16 +342,18 @@ rail_features_osmium <- function(pbf) {
   }
   run(c("tags-filter", normalizePath(pbf),
         paste0("w/railway=", paste(RAIL_LINE_TYPES, collapse = ",")),
-        "nwr/railway=station,halt", "nwr/public_transport=station",
+        "nwr/railway=station,halt,tram_stop", "nwr/public_transport=station",
         "-o", filtered, "--overwrite"))
   run(c("export", filtered, "-f", "geojsonseq", "-a", "type,id", "-o", seq_file, "--overwrite"))
   sf::st_read(seq_file, quiet = TRUE)
 }
 
-# Route relations (subway, train, light rail, tram, monorail) as points: their
-# stop and platform members (a way at the mean of its nodes), with the route's
-# type, network, operator and ref (osmium)
-rail_route_stops <- function(pbf) {
+# Route relations (subway, train, light rail, tram, monorail) (osmium): stops,
+# their stop and platform members as points (a way at the mean of its nodes)
+# with the route's type, network, operator and ref; track, the ways the route
+# runs on (its other way members) with its line id (rail_line_id()).
+# list(stops, track = data.frame(way = "w<id>", line))
+rail_routes <- function(pbf) {
   tmp_dir <- tempfile("routes_")
   dir.create(tmp_dir)
   on.exit(unlink(tmp_dir, recursive = TRUE), add = TRUE)
@@ -386,15 +400,37 @@ rail_route_stops <- function(pbf) {
     role <- unescape(sub("^[^@]*@?", "", mem))
     ref <- sub("@.*$", "", mem)
     keep <- grepl("^(stop|platform)", role)
-    if (!any(keep)) return(NULL)
+    get <- function(k) if (k %in% names(kv)) kv[[k]] else ""
+    track <- unique(ref[!keep & startsWith(ref, "w")])
+    track <- if (length(track)) {
+      data.frame(way = track, line = rail_line_id(get("route"), get("network"), get("operator"), get("ref")))
+    }
     xy <- rbind(nodes[intersect(ref[keep], rownames(nodes)), , drop = FALSE], ways[intersect(ref[keep], rownames(ways)), , drop = FALSE])
     xy <- xy[!is.na(xy$lon) & !is.na(xy$lat), , drop = FALSE]
-    if (nrow(xy) == 0) return(NULL)
-    get <- function(k) if (k %in% names(kv)) kv[[k]] else ""
-    data.frame(route = get("route"), network = get("network"), operator = get("operator"), ref = get("ref"),
-               lon = xy$lon, lat = xy$lat)
+    stops <- if (nrow(xy)) {
+      data.frame(route = get("route"), network = get("network"), operator = get("operator"), ref = get("ref"),
+                 lon = xy$lon, lat = xy$lat)
+    }
+    list(stops = stops, track = track)
   })
-  do.call(rbind, out)
+  list(stops = do.call(rbind, lapply(out, `[[`, "stops")), track = do.call(rbind, lapply(out, `[[`, "track")))
+}
+
+# Line id of a route: "route|network|ref" (the operator when no network)
+rail_line_id <- function(route, network, operator, ref) {
+  net <- ifelse(!is.na(network) & nzchar(network), network, operator)
+  paste(route, net, ref, sep = "|")
+}
+
+# The lines running on each rail way (osm: "w<id>"; track: rail_routes()$track),
+# as "line;line"; "" for none
+rail_way_lines <- function(osm, track) {
+  out <- rep("", length(osm))
+  if (is.null(track) || nrow(track) == 0) return(out)
+  by_way <- vapply(split(track$line, track$way), function(l) paste(unique(l), collapse = ";"), character(1))
+  hit <- !is.na(osm) & osm %in% names(by_way)
+  out[hit] <- by_way[osm[hit]]
+  out
 }
 
 # The lines of each station: the routes with a stop or platform within
@@ -412,8 +448,8 @@ rail_station_lines <- function(stations, stops, radius_m = 300) {
     near <- which(d <= radius_m)
     near <- near[vapply(near, function(k) any(m %in% fits[[stops$route[k]]]), logical(1))]
     if (!length(near)) next
-    net <- ifelse(nzchar(stops$network[near]), stops$network[near], stops$operator[near])
-    out[i] <- paste(unique(paste(stops$route[near], net, stops$ref[near], sep = "|")), collapse = ";")
+    out[i] <- paste(unique(rail_line_id(stops$route[near], stops$network[near], stops$operator[near], stops$ref[near])),
+                    collapse = ";")
   }
   out
 }
@@ -432,7 +468,7 @@ rail_features_gdal <- function(pbf) {
     x
   }
   station_where <- paste(sprintf("other_tags LIKE '%%%s%%'",
-                                 c('"railway"=>"station"', '"railway"=>"halt"', '"public_transport"=>"station"')),
+                                 c('"railway"=>"station"', '"railway"=>"halt"', '"railway"=>"tram_stop"', '"public_transport"=>"station"')),
                          collapse = " OR ")
 
   lines <- sf::st_read(pbf, query = sprintf(
@@ -449,19 +485,34 @@ rail_features_gdal <- function(pbf) {
   do.call(rbind, parts)
 }
 
+# "n123", "w456", "r789" from osmium's "@type" / "@id" (sf reads them as
+# X.type / X.id); NA without them
+osm_ids <- function(x) {
+  pick <- function(names) {
+    hit <- intersect(names, names(x))
+    if (length(hit)) as.character(x[[hit[1]]]) else rep(NA_character_, nrow(x))
+  }
+  type <- pick(c("@type", "X.type", "X_type"))
+  id <- pick(c("@id", "X.id", "X_id"))
+  ifelse(is.na(type) | is.na(id), NA_character_, paste0(substr(type, 1, 1), id))
+}
+
 rail_lines_from_features <- function(x) {
   col <- function(name) if (name %in% names(x)) x[[name]] else rep(NA_character_, nrow(x))
   gt <- as.character(sf::st_geometry_type(x))
   keep <- gt %in% c("LINESTRING", "MULTILINESTRING") & col("railway") %in% RAIL_LINE_TYPES &
     !(col("service") %in% RAIL_EXCLUDED_SERVICE)
-  rails <- sf::st_sf(railway = col("railway")[keep], name = col("name")[keep], geometry = sf::st_geometry(x)[keep])
+  osm <- osm_ids(x)
+  rails <- sf::st_sf(railway = col("railway")[keep], name = col("name")[keep], osm = osm[keep],
+                     geometry = sf::st_geometry(x)[keep])
   suppressWarnings(sf::st_cast(rails, "LINESTRING"))
 }
 
 stations_from_features <- function(x) {
   col <- function(name) if (name %in% names(x)) x[[name]] else rep(NA_character_, nrow(x))
   gt <- as.character(sf::st_geometry_type(x))
-  is_station <- col("railway") %in% c("station", "halt") | col("public_transport") %in% "station"
+  # Tram stops too (the VLT's and the Santa Teresa tram's stops are mostly only that)
+  is_station <- col("railway") %in% c("station", "halt", "tram_stop") | col("public_transport") %in% "station"
   # Closed ways come as both outline and area: points and areas only
   keep <- is_station & gt %in% c("POINT", "POLYGON", "MULTIPOLYGON")
   geom <- sf::st_geometry(x)[keep]
@@ -479,13 +530,13 @@ stations_from_features <- function(x) {
     m <- STATION_MODES[vapply(STATION_MODES, function(k) identical(col(k)[i], "yes"), logical(1))]
     st <- col("station")[i]
     if (!is.na(st) && st %in% STATION_MODES) m <- c(m, st)
+    if (identical(col("railway")[i], "tram_stop")) m <- c(m, "tram")
     if (st %in% "train" || (length(m) == 0 && col("railway")[i] %in% c("station", "halt"))) m <- c(m, "train")
     paste(unique(m), collapse = ",")
   }, character(1))
 
   xy <- sf::st_coordinates(geom)
-  osm <- ifelse(is.na(col("@type")[keep]) | is.na(col("@id")[keep]), NA_character_,
-                paste0(substr(col("@type")[keep], 1, 1), col("@id")[keep]))
+  osm <- osm_ids(x)[keep]
   sf::st_sf(name = col("name")[keep], modes = modes, lon = xy[, 1], lat = xy[, 2], osm = osm,
             operator = col("operator")[keep], network = col("network")[keep], geometry = geom)
 }
@@ -1129,10 +1180,16 @@ angle_diff <- function(a, b) abs((a - b + 180) %% 360 - 180)
 # radius_m: the origin prefers a station behind the direction of travel (the
 # train left it before the first sample), the destination one ahead of it.
 # Returns the chosen row (data.frame) or NULL to keep the sample point.
+# strict: only a station in the right direction (or under 30 m), else NULL
+# (also without a direction);
+# exclude: station keys left out.
 pick_station <- function(candidates, lon, lat, bearing, side = c("origin", "destination"),
-                         radius_m = REVIEW_THRESHOLDS$station_radius_m) {
+                         radius_m = REVIEW_THRESHOLDS$station_radius_m, strict = FALSE, exclude = NULL) {
   side <- match.arg(side)
-  cand <- candidates[candidates$dist_m <= radius_m, ]
+  if (strict && is.na(bearing)) return(NULL)
+  keep <- candidates$dist_m <= radius_m
+  if (length(exclude)) keep <- keep & !candidates$key %in% exclude
+  cand <- candidates[keep, ]
   if (nrow(cand) == 0) return(NULL)
   if (!is.na(bearing)) {
     b <- if (side == "origin") {
@@ -1141,7 +1198,7 @@ pick_station <- function(candidates, lon, lat, bearing, side = c("origin", "dest
       geosphere::bearing(c(lon, lat), cbind(cand$lon, cand$lat))       # sample -> station
     }
     good <- !is.na(b) & angle_diff(b, bearing) < 90 | cand$dist_m < 30
-    if (any(good)) cand <- cand[good, ]
+    if (any(good)) cand <- cand[good, ] else if (strict) return(NULL)
   }
   cand[which.min(cand$dist_m), ]
 }
@@ -1316,11 +1373,16 @@ format_rail_legs <- function(legs, lang = "en", google = FALSE) {
 }
 
 # Endpoints and stations for a rail fix. Overrides: origin_idx/dest_idx (sample
-# rows, from "Set as start/end"), dep_name/arr_name (station names from the
-# selects; "" = keep the sample point). Returns the plan, including the points
-# and reference time for calculate_google_transit_route().
+# rows, from "Set as start/end"), dep_name/arr_name (station keys from the
+# selects; "" = keep the sample point). tap_station (rail_tap_station()): the
+# start unless one was chosen. The automatic picks never give the same station
+# at both ends: the farther one from its sample looks again, up to twice
+# station_radius_m and only in the direction of travel, else keeps the
+# sample. Each station gets source "jae", "chosen" or "auto". Returns the
+# plan, including the points and reference time for
+# calculate_google_transit_route().
 rail_plan <- function(s, activity, origin_idx = NULL, dest_idx = NULL, dep_name = NULL, arr_name = NULL,
-                      th = REVIEW_THRESHOLDS, ref = rail_reference()) {
+                      th = REVIEW_THRESHOLDS, ref = rail_reference(), tap_station = NULL) {
   ends <- review_endpoints(s, th)
   oi <- origin_idx %||% ends[1]
   di <- dest_idx %||% ends[2]
@@ -1346,8 +1408,32 @@ rail_plan <- function(s, activity, origin_idx = NULL, dest_idx = NULL, dep_name 
     near <- station_candidates(activity, s$lon[i], s$lat[i], k = 20, radius_m = th$station_radius_m, ref = ref)
     pick_station(near, s$lon[i], s$lat[i], bearing, side, th$station_radius_m)
   }
-  dep <- choose(oi, dep_name, travel_bearing(s, oi, "forward"), "origin")
-  arr <- choose(di, arr_name, travel_bearing(s, di, "backward"), "destination")
+  again <- function(i, bearing, side, exclude) {
+    near <- station_candidates(activity, s$lon[i], s$lat[i], k = 20, radius_m = 2 * th$station_radius_m, ref = ref)
+    pick_station(near, s$lon[i], s$lat[i], bearing, side, 2 * th$station_radius_m, strict = TRUE, exclude = exclude)
+  }
+  b_dep <- travel_bearing(s, oi, "forward")
+  b_arr <- travel_bearing(s, di, "backward")
+  jae <- is.null(dep_name) && !is.null(tap_station) && nrow(tap_station) == 1
+  dep <- if (jae) {
+    st <- tap_station
+    st$dist_m <- geosphere::distHaversine(c(st$lon, st$lat), c(s$lon[oi], s$lat[oi]))
+    st
+  } else {
+    choose(oi, dep_name, b_dep, "origin")
+  }
+  arr <- choose(di, arr_name, b_arr, "destination")
+  if (!is.null(dep) && !is.null(arr) && identical(dep$key, arr$key)) {
+    auto_dep <- is.null(dep_name) && !jae
+    auto_arr <- is.null(arr_name)
+    if (auto_dep && (!auto_arr || dep$dist_m >= arr$dist_m)) {
+      dep <- again(oi, b_dep, "origin", arr$key)
+    } else if (auto_arr) {
+      arr <- again(di, b_arr, "destination", dep$key)
+    }
+  }
+  if (!is.null(dep)) dep$source <- if (jae) "jae" else if (is.null(dep_name)) "auto" else "chosen"
+  if (!is.null(arr)) arr$source <- if (is.null(arr_name)) "auto" else "chosen"
 
   # Select options: the 5 nearest stations of any rail system, plus the pick when it isn't one of them
   options_for <- function(i, picked) {
@@ -1362,6 +1448,316 @@ rail_plan <- function(s, activity, origin_idx = NULL, dest_idx = NULL, dep_name 
     dep_options = options_for(oi, dep), arr_options = options_for(di, arr),
     points = data.frame(lat = c(from[2], to[2]), lng = c(from[1], to[1])),
     ref_time_utc = as.POSIXct(s$t[oi], origin = "1970-01-01", tz = "UTC")
+  )
+}
+
+# ---- Jaé gate tap, route along the OSM rails, the rail proposal ----
+
+# The Jaé gate tap of a rail trip: a tap of its mode from th$rail_tap_lead_s
+# before the start to the end, after `after` (epoch s: the end of the previous
+# rail trip, whose own tap comes before it); the last one by the start +
+# rail_gate_max_late_s, else the first. Zero or one row.
+rail_trip_tap <- function(boardings, activity, start_utc, end_utc, after = -Inf, th = REVIEW_THRESHOLDS) {
+  taps <- multimodal_taps(boardings, activity, as.numeric(start_utc) - th$rail_tap_lead_s, end_utc)
+  t <- as.numeric(taps$datetime_utc)
+  taps <- taps[t > after, , drop = FALSE]
+  t <- t[t > after]
+  if (nrow(taps) == 0) return(taps)
+  early <- which(t <= as.numeric(start_utc) + th$rail_gate_max_late_s)
+  taps[if (length(early)) max(early) else 1L, , drop = FALSE]
+}
+
+# The station of a Jaé rail tap: the nearest station of the activity's modes
+# within th$rail_tap_station_m of it (a row of station_candidates(), with
+# source "jae", tap_t and tap_dist_m), or NULL (no such station, no tap
+# coordinates)
+rail_tap_station <- function(tap, activity, th = REVIEW_THRESHOLDS, ref = rail_reference()) {
+  if (is.null(tap) || nrow(tap) == 0 || is.na(tap$longitude[1]) || is.na(tap$latitude[1])) return(NULL)
+  near <- station_candidates(activity, tap$longitude[1], tap$latitude[1], k = 1, radius_m = th$rail_tap_station_m, ref = ref)
+  if (nrow(near) == 0) return(NULL)
+  near$tap_dist_m <- near$dist_m
+  near$source <- "jae"
+  near$tap_t <- as.numeric(tap$datetime_utc[1])
+  near
+}
+
+# System (short name, as in rail_stations()) and label ("Metrô L2",
+# "SuperVia Deodoro") of line ids
+rail_line_system <- function(ids) {
+  net <- vapply(strsplit(ids, "|", fixed = TRUE), function(p) if (length(p) >= 2) p[2] else "", character(1))
+  short <- unname(RAIL_SYSTEM_SHORT[net])
+  ifelse(is.na(short), net, short)
+}
+rail_line_label <- function(ids) {
+  p <- strsplit(ids, "|", fixed = TRUE)
+  vapply(seq_along(ids), function(i) {
+    ref <- if (length(p[[i]]) >= 3) p[[i]][3] else ""
+    if (identical(p[[i]][1], "subway") && nzchar(ref)) ref <- paste0("L", ref)
+    trimws(paste(rail_line_system(ids[i]), ref))
+  }, character(1))
+}
+
+# Path along the OSM rails (the reference's rails) between two stations (rows
+# of rail_stations()), for when Google has no transit leg. Stations of
+# different systems get none. With the system's lines (rails$lines) the path
+# rides them, changing line only where both pass within transfer_m of a
+# station of the system; else (no line information, or the lines don't join
+# the stations) any track of the activity's rail types or of the system's
+# lines, a track of no line costing untagged_factor x. Tracks are undirected.
+# Returns list(ok = TRUE, coords (lon, lat), length_m, lines (ids, in order),
+# transfers (station names), mode = "lines" | "tracks") or list(ok = FALSE,
+# reason = "same_station" | "systems" | "no_rails" | "not_connected", station).
+rail_osm_route <- function(dep, arr, activity, ref = rail_reference(), th = REVIEW_THRESHOLDS) {
+  o <- th$rail_osm
+  if (identical(dep$key, arr$key)) return(list(ok = FALSE, reason = "same_station"))
+  sys_dep <- dep$system %||% ""
+  sys_arr <- arr$system %||% ""
+  if (nzchar(sys_dep) && nzchar(sys_arr) && sys_dep != sys_arr) return(list(ok = FALSE, reason = "systems"))
+  sys <- if (nzchar(sys_dep)) sys_dep else sys_arr
+  if (is.null(ref) || nrow(ref$rails) == 0) return(list(ok = FALSE, reason = "no_rails", station = dep$name))
+
+  lon <- c(dep$lon, arr$lon)
+  lat <- c(dep$lat, arr$lat)
+  pad <- max(o$pad_m, geosphere::distHaversine(c(lon[1], lat[1]), c(lon[2], lat[2])) / 2)
+  pad_lat <- pad / 110540
+  pad_lon <- pad / (111320 * cos(mean(lat) * pi / 180))
+  b <- ref$bbox
+  near <- b[, "xmax"] >= min(lon) - pad_lon & b[, "xmin"] <= max(lon) + pad_lon &
+    b[, "ymax"] >= min(lat) - pad_lat & b[, "ymin"] <= max(lat) + pad_lat
+  rails <- ref$rails[near, ]
+  way_lines <- if ("lines" %in% names(rails)) {
+    strsplit(ifelse(is.na(rails$lines), "", rails$lines), ";", fixed = TRUE)
+  } else {
+    rep(list(character(0)), nrow(rails))
+  }
+  sys_lines <- lapply(way_lines, function(l) l[nzchar(sys) & rail_line_system(l) == sys])
+  types <- REVIEW_ACTIVITIES[[activity]]$rail_types
+  usable <- lengths(sys_lines) > 0 | (rails$railway %in% types & (lengths(way_lines) == 0 | !nzchar(sys)))
+  if (!any(usable)) return(list(ok = FALSE, reason = "no_rails", station = dep$name))
+
+  # Track vertices (metric, densified), shared where the ways share an OSM node
+  crs <- utm_epsg(lon, lat)
+  xy <- sf::st_coordinates(sf::st_geometry(rails))
+  m <- to_metric(xy[, "X"], xy[, "Y"], crs)
+  pieces <- lapply(split(seq_len(nrow(m)), xy[, "L1"]), function(i) {
+    d <- densify_xy(m[i, , drop = FALSE], o$step_m)
+    cbind(d$x, d$y)
+  })
+  n_per <- vapply(pieces, nrow, integer(1))
+  P <- do.call(rbind, pieces)
+  way <- rep(seq_along(pieces), n_per)
+  vkey <- paste(round(P[, 1], 1), round(P[, 2], 1))
+  vid <- match(vkey, unique(vkey))
+  V <- P[!duplicated(vkey), , drop = FALSE]
+  i <- setdiff(seq_len(nrow(P)), cumsum(n_per))
+  seg <- data.frame(a = vid[i], b = vid[i + 1L], len = sqrt(rowSums((P[i + 1L, , drop = FALSE] - P[i, , drop = FALSE])^2)),
+                    way = way[i])
+  seg <- seg[seg$a != seg$b & usable[seg$way], ]
+  st_m <- to_metric(lon, lat, crs)
+
+  # Edges from node `name` to the vertices (`states`, at vertices `verts`)
+  # within radius of point p, at 3 x the distance (+ extra): the nearest track
+  # wins, and each parallel track (one per direction, often not joined in
+  # OSM) or line keeps its own way in
+  join <- function(name, p, radius, verts, states = as.character(verts), extra = 0) {
+    d <- sqrt((V[verts, 1] - p[1])^2 + (V[verts, 2] - p[2])^2)
+    k <- d <= radius
+    if (!any(k)) return(NULL)
+    data.frame(a = name, b = states[k], w = 3 * d[k] + extra)
+  }
+  solve <- function(edges) {
+    g <- igraph::graph_from_data_frame(edges[, c("a", "b")], directed = FALSE)
+    if (!all(c("S", "T") %in% igraph::V(g)$name)) return(NULL)
+    p <- suppressWarnings(igraph::shortest_paths(g, "S", "T", weights = edges$w, output = "vpath")$vpath[[1]])
+    if (length(p) == 0) NULL else igraph::V(g)$name[p][-c(1, length(p))]
+  }
+  finish <- function(vertices, lines, transfers, mode) {
+    ll <- from_metric(V[vertices, 1], V[vertices, 2], crs)
+    ll <- ll[c(TRUE, rowSums(abs(diff(ll))) > 0), , drop = FALSE]
+    list(ok = TRUE, coords = ll, length_m = path_cumulative_m(ll)[nrow(ll)], lines = lines, transfers = transfers, mode = mode)
+  }
+
+  # 1. The system's lines: states vertex#line, line changes at its stations
+  lined <- seg[lengths(sys_lines[seg$way]) > 0, ]
+  if (nrow(lined)) {
+    k <- lengths(sys_lines[lined$way])
+    e_line <- unlist(sys_lines[lined$way])
+    e_a <- rep(lined$a, k)
+    e_b <- rep(lined$b, k)
+    edges <- data.frame(a = paste(e_a, e_line, sep = "#"), b = paste(e_b, e_line, sep = "#"), w = rep(lined$len, k))
+    vl <- unique(data.frame(v = c(e_a, e_b), line = c(e_line, e_line)))
+    states <- paste(vl$v, vl$line, sep = "#")
+    src <- join("S", st_m[1, ], o$snap_m, vl$v, states)
+    dst <- join("T", st_m[2, ], o$snap_m, vl$v, states)
+    st <- rail_stations(ref)
+    st <- st[st$system == sys & !st$key %in% c(dep$key, arr$key), ]
+    hubs <- NULL
+    if (nrow(st) && !is.null(src) && !is.null(dst)) {
+      st_xy <- to_metric(st$lon, st$lat, crs)
+      inside <- st_xy[, 1] >= min(V[, 1]) - o$transfer_m & st_xy[, 1] <= max(V[, 1]) + o$transfer_m &
+        st_xy[, 2] >= min(V[, 2]) - o$transfer_m & st_xy[, 2] <= max(V[, 2]) + o$transfer_m
+      hubs <- do.call(rbind, lapply(which(inside), function(j) {
+        h <- join(paste0("H", j), st_xy[j, ], o$transfer_m, vl$v, states, extra = o$transfer_cost_m / 2)
+        if (!is.null(h) && length(unique(sub("^[^#]*#", "", h$b))) >= 2) h
+      }))
+    }
+    path <- if (!is.null(src) && !is.null(dst)) solve(rbind(edges, src, dst, hubs))
+    if (!is.null(path)) {
+      on_line <- grepl("#", path, fixed = TRUE)
+      line_of <- sub("^[^#]*#", "", path)
+      # a hub between two different lines is a transfer (same line: another track)
+      hub_at <- which(!on_line)
+      changed <- vapply(hub_at, function(h) line_of[h - 1] != line_of[h + 1], logical(1))
+      transfers <- st$name[as.integer(sub("^H", "", path[hub_at[changed]]))]
+      return(finish(as.integer(sub("#.*$", "", path[on_line])), rle(line_of[on_line])$values, transfers, "lines"))
+    }
+  }
+
+  # 2. Any usable track (no line states)
+  w <- seg$len * ifelse(lengths(sys_lines[seg$way]) > 0, 1, o$untagged_factor)
+  verts <- unique(c(seg$a, seg$b))
+  src <- join("S", st_m[1, ], o$snap_m, verts)
+  dst <- join("T", st_m[2, ], o$snap_m, verts)
+  if (is.null(src)) return(list(ok = FALSE, reason = "no_rails", station = dep$name))
+  if (is.null(dst)) return(list(ok = FALSE, reason = "no_rails", station = arr$name))
+  path <- solve(rbind(data.frame(a = as.character(seg$a), b = as.character(seg$b), w = w), src, dst))
+  if (is.null(path)) return(list(ok = FALSE, reason = "not_connected"))
+  verts <- as.integer(path)
+  pair <- paste(pmin(utils::head(verts, -1), utils::tail(verts, -1)), pmax(utils::head(verts, -1), utils::tail(verts, -1)))
+  used <- seg$way[match(pair, paste(pmin(seg$a, seg$b), pmax(seg$a, seg$b)))]
+  finish(verts, unique(unlist(sys_lines[used[!is.na(used)]])), character(0), "tracks")
+}
+
+# Timed rail fix along a rail_osm_route() path: it departs at start_at (the
+# Jaé tap rule), else at the trip's start (trip_t: the original item's
+# start, end; epoch s), and arrives at the last sample within
+# rail_osm$arrival_m of the end station, else at the trip's end; times are
+# linear in distance (at most rail_osm$max_speed_kmh on average), plus the
+# user's fine adjustments.
+rail_osm_fix <- function(plan, route, s, trip_t, th = REVIEW_THRESHOLDS, start_offset_s = 0, end_offset_s = 0,
+                         start_at = NULL) {
+  coords <- route$coords
+  cum <- path_cumulative_m(coords)
+  total <- cum[length(cum)]
+  t_start <- (start_at %||% trip_t[1]) + start_offset_s
+  t_end <- trip_t[2]
+  if (!is.null(plan$arr) && nrow(s)) {
+    d <- geosphere::distHaversine(cbind(s$lon, s$lat), c(plan$arr$lon, plan$arr$lat))
+    near <- which(d <= th$rail_osm$arrival_m)
+    if (length(near)) t_end <- s$t[max(near)]
+  }
+  t_end <- t_end + end_offset_s
+  min_s <- max(1, total / (th$rail_osm$max_speed_kmh / 3.6))
+  if (t_end < t_start + min_s) t_end <- t_start + min_s
+  path <- timed_path_from_anchors(coords, c(0, total), c(t_start, t_end))
+  list(
+    path = resample_timed_path(path, th$point_every_m, th$point_every_s),
+    t_start = t_start, t_end = t_end, total_m = total, timing = "osm",
+    method = "osm_rails", on_network = TRUE, route_reasons = list(), route = route
+  )
+}
+
+# The rail proposal for a trip: stations (rail_plan(); a Jaé tap's station is
+# the start), then Google transit between them (google_fn, with on_fail(code,
+# detail)) or, when it has no transit leg, the route along the OSM rails.
+# s: its samples; trip_t: the original item's start and end (epoch s); o: the
+# overrides (origin_idx, dest_idx, dep, arr, start_offset, end_offset, split);
+# tap: its Jaé gate tap (rail_trip_tap()); prev: the previous proposal (its
+# route is reused for the same stations unless refresh_route). Timing: from a
+# tap at the start station the train leaves at tap + rail_gate_to_train_s;
+# from another tap, the rule of multimodal_rail_gate() (Google: applied while
+# split). Returns the fix with plan, source ("google" | "osm_rails"),
+# google_fail, gate, route_key; or, without a route, list(plan, path = NULL,
+# no_path = reason, no_path_station, google_fail).
+rail_proposal <- function(s, activity, trip_t, o = list(), tap = NULL, prev = NULL, refresh_route = FALSE,
+                          google_fn = calculate_google_transit_route, ref = rail_reference(), th = REVIEW_THRESHOLDS) {
+  trip_t <- as.numeric(trip_t)
+  if (nrow(s) == 1) {
+    s <- s[c(1L, 1L), ]
+    s$t <- trip_t
+    rownames(s) <- NULL
+  }
+  tap_st <- rail_tap_station(tap, activity, th, ref)
+  plan <- rail_plan(s, activity, o$origin_idx, o$dest_idx, o$dep, o$arr, th, ref, tap_station = tap_st)
+  none <- function(reason, station = NULL, fail = NULL) {
+    list(plan = plan, path = NULL, no_path = reason, no_path_station = station, google_fail = fail, tap = tap,
+         tap_station = tap_st)
+  }
+  if (!is.null(plan$dep) && !is.null(plan$arr) && identical(plan$dep$key, plan$arr$key)) return(none("same_station"))
+
+  key <- paste(round(unlist(plan$points), 6), collapse = ",")
+  route <- if (!refresh_route && !is.null(prev$route) && identical(prev$route_key, key)) prev$route
+  if (is.null(route)) {
+    fail <- NULL
+    r <- google_fn(plan$points, REVIEW_ACTIVITIES[[activity]]$google, ref_time_utc = plan$ref_time_utc,
+                   on_fail = function(code, detail = "") fail <<- list(code = code, detail = detail))
+    if (!is.null(r)) {
+      route <- list(coords = r$coords, steps = r$steps, source = "google")
+    } else {
+      fail <- fail %||% list(code = "request", detail = "")
+      if (is.null(plan$dep) || is.null(plan$arr)) return(none("need_stations", fail = fail))
+      osm <- rail_osm_route(plan$dep, plan$arr, activity, ref, th)
+      if (!isTRUE(osm$ok)) return(none(osm$reason, osm$station, fail))
+      route <- list(coords = osm$coords, osm = osm, source = "osm_rails", google_fail = fail)
+    }
+  }
+
+  tap_t <- if (!is.null(tap) && nrow(tap)) as.numeric(tap$datetime_utc[1])
+  at_tap <- !is.null(tap_st) && !is.null(plan$dep) && identical(plan$dep$key, tap_st$key)
+  so <- o$start_offset %||% 0
+  eo <- o$end_offset %||% 0
+  station_gate <- function(base_start) {
+    list(action = "station", late_s = tap_t - base_start, start_at = tap_t + th$rail_gate_to_train_s)
+  }
+  if (identical(route$source, "osm_rails")) {
+    gate <- if (at_tap) station_gate(trip_t[1]) else if (!is.null(tap_t)) multimodal_rail_gate(tap_t, trip_t[1], th)
+    start_at <- if (isTRUE(gate$action %in% c("station", "adjust"))) gate$start_at
+    fx <- rail_osm_fix(plan, route, s, trip_t, th, so, eo, start_at = start_at)
+  } else {
+    fx <- rail_fix(plan, route, s, activity, th, so, eo, ref = ref)
+    base_start <- fx$t_start - so
+    gate <- if (at_tap) station_gate(base_start) else if (!is.null(tap_t)) multimodal_rail_gate(tap_t, base_start, th)
+    if (identical(gate$action, "station") || (isTRUE(o$split$on) && identical(gate$action, "adjust"))) {
+      fx <- rail_fix(plan, route, s, activity, th, so, eo, ref = ref, start_at = gate$start_at)
+    }
+  }
+  fx$gate <- gate
+  fx$plan <- plan
+  fx$route_key <- key
+  fx$source <- route$source
+  fx$google_fail <- route$google_fail
+  fx$tap <- tap
+  fx$tap_station <- tap_st
+  fx
+}
+
+# Why a rail trip has no route (rail_proposal()'s no_path) or Google had no
+# transit leg (google_fail), for the detail panel
+rail_no_path_text <- function(reason, station = NULL, lang = APP_LANGUAGE) {
+  switch(reason %||% "",
+    same_station = tr_lang("Start and end are the same station.", lang),
+    need_stations = tr_lang("Choose the start and end stations to route along the OSM rails.", lang),
+    systems = tr_lang("The stations belong to different systems: no path along the rails.", lang),
+    no_rails = sprintf(tr_lang("No rails within 300 m of %s.", lang), station %||% "?"),
+    not_connected = tr_lang("The rails don't connect these stations.", lang),
+    ""
+  )
+}
+google_fail_text <- function(fail, mode_label, lang = APP_LANGUAGE) {
+  if (is.null(fail)) return("")
+  detail <- fail$detail %||% ""
+  switch(fail$code,
+    no_key = tr_lang("Google: no API key.", lang),
+    request = tr_lang("Google: request failed or timed out.", lang),
+    status = sprintf(tr_lang("Google: error %s.", lang), detail),
+    zero_results = tr_lang("Google: no route.", lang),
+    no_transit = if (nzchar(detail)) {
+      sprintf(tr_lang("Google: no %s leg (only %s).", lang), mode_label, detail)
+    } else {
+      sprintf(tr_lang("Google: no %s leg (it suggests walking).", lang), mode_label)
+    },
+    no_polyline = sprintf(tr_lang("Google: no %s leg (no geometry).", lang), mode_label),
+    fail$code
   )
 }
 

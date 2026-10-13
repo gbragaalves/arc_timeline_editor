@@ -52,6 +52,17 @@ review_server <- function(input, output, session, tr, current_lang) {
     if (nrow(row) == 0) return(jae_all[0, ])
     multimodal_taps(jae_all, row$activity, row$start_utc, row$end_utc)
   }
+  # The Jaé gate tap of a rail trip (up to rail_tap_lead_s before its start;
+  # not one before the end of a previous rail trip in the list), or NULL
+  trip_rail_tap <- function(id) {
+    row <- trip_row(id)
+    if (nrow(row) == 0 || family_of(row$activity) != "rail") return(NULL)
+    trips <- shiny::isolate(rv$trips)
+    rail <- vapply(trips$activity, family_of, character(1)) == "rail"
+    prev_end <- as.numeric(trips$end_utc[rail & trips$id != id & trips$end_utc <= row$start_utc])
+    tap <- rail_trip_tap(jae_all, row$activity, row$start_utc, row$end_utc, after = if (length(prev_end)) max(prev_end) else -Inf)
+    if (nrow(tap)) tap
+  }
   split_on <- function(id) isTRUE(get_ov(id)$split$on)
   local_time <- function(t, fmt) format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), fmt, tz = Sys.timezone())
 
@@ -104,7 +115,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     if (nrow(row) == 0) return(NULL)
     act <- row$activity
     s <- trip_samples(id)
-    if (nrow(s) < 2) {
+    # A rail trip with one sample still gets its station rows (times: the item's)
+    if (nrow(s) < 2 && !(family_of(act) == "rail" && nrow(s) == 1)) {
       notify(tr("Not enough samples to build a path for this trip."), type = "warning")
       return(NULL)
     }
@@ -113,37 +125,24 @@ review_server <- function(input, output, session, tr, current_lang) {
 
     if (family_of(act) == "rail") {
       if (!ensure_rail_reference()) return(NULL)
-      plan <- rail_plan(s, act, o$origin_idx, o$dest_idx, o$dep, o$arr)
-      key <- paste(round(unlist(plan$points), 6), collapse = ",")
-      route <- if (!refresh_route && !is.null(prev$route) && identical(prev$route_key, key)) prev$route else NULL
-      if (is.null(route)) {
+      # Stations (a Jaé tap's station starts it), Google transit between them,
+      # else the route along the OSM rails; without a route, the stations
+      # alone (fx$path NULL: the rows stay to choose them)
+      google_fn <- function(points, mode, ref_time_utc, on_fail) {
         if (!check_google_api()) {
-          notify(tr("Google Maps API key not configured or invalid. Set GOOGLE_MAPS_API_KEY in your .Renviron."),
-                 type = "error", duration = 8)
+          on_fail("no_key")
           return(NULL)
         }
-        r <- shiny::withProgress(message = tr("Calculating transit route..."), value = 0.5, {
-          calculate_google_transit_route(plan$points, REVIEW_ACTIVITIES[[act]]$google, ref_time_utc = plan$ref_time_utc)
-        })
-        if (is.null(r)) {
-          notify(sprintf(tr("No %s route found between these points. The API did not return routes with this transport mode."),
-                         tr(REVIEW_ACTIVITIES[[act]]$label)), type = "error", duration = 8)
-          return(NULL)
-        }
-        route <- list(coords = r$coords, steps = r$steps)  # steps: for the piecewise timing
+        calculate_google_transit_route(points, mode, ref_time_utc = ref_time_utc, on_fail = on_fail)
       }
-      fx <- rail_fix(plan, route, s, act, start_offset_s = o$start_offset, end_offset_s = o$end_offset)
-      # Jaé gate tap vs the computed start (without the manual offsets); while
-      # split, a tap shortly after it moves the start to the tap
-      taps <- trip_taps(id)
-      gate <- if (nrow(taps)) multimodal_rail_gate(taps$datetime_utc[1], fx$t_start - (o$start_offset %||% 0))
-      if (isTRUE(o$split$on) && identical(gate$action, "adjust")) {
-        fx <- rail_fix(plan, route, s, act, start_offset_s = o$start_offset, end_offset_s = o$end_offset,
-                       start_at = gate$start_at)
+      fx <- shiny::withProgress(message = tr("Calculating transit route..."), value = 0.5, {
+        rail_proposal(s, act, c(row$start_utc, row$end_utc), o, tap = trip_rail_tap(id), prev = prev,
+                      refresh_route = refresh_route, google_fn = google_fn)
+      })
+      if (identical(fx$google_fail$code, "no_key")) {
+        notify(tr("Google Maps API key not configured or invalid. Set GOOGLE_MAPS_API_KEY in your .Renviron."),
+               type = "warning", duration = 8)
       }
-      fx$gate <- gate
-      fx$plan <- plan
-      fx$route_key <- key
     } else {
       profile <- o$profile %||% REVIEW_ACTIVITIES[[act]]$osrm
       excl <- shiny::isolate(rv$exclusions[[id]])
@@ -246,7 +245,7 @@ review_server <- function(input, output, session, tr, current_lang) {
   # leg -> after. Bus: needs the alighting sample (map click). Rail: the wait
   # runs until the rail fix's departure; a tap after it is ignored.
   split_proposal <- function(id, act, s, fx, sp) {
-    if (!isTRUE(sp$on)) return(NULL)
+    if (!isTRUE(sp$on) || is.null(fx$path)) return(NULL)
     taps <- trip_taps(id)
     if (nrow(taps) == 0) return(NULL)
     tap <- taps[1, ]
@@ -594,7 +593,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     on <- split_on(id)
     # Split with the start moved to the gate tap: said on the Jaé line (the station is in the title)
-    if (on && rail && identical(fx$gate$action, "adjust")) {
+    if (on && rail && isTRUE(fx$gate$action %in% c("adjust", "station"))) {
       jae_span <- shiny::span(class = "rv-clamp", title = paste0(jae_local_time(tap$datetime_utc, "%H:%M:%S"), " · ", tap$label),
                               paste0("Jaé: ", jae_local_time(tap$datetime_utc), " · ", tr("start adjusted to Jaé tap")))
     }
@@ -751,11 +750,15 @@ review_server <- function(input, output, session, tr, current_lang) {
     if (is.null(fx) || !identical(fx$id, id)) {
       return(shiny::div(class = "review-detail", parts, shiny::div(class = "rv-warn", tr("No proposal for this trip."))))
     }
-    parts <- c(parts, split_parts(id, act, fx, lang))
+    # A rail trip without a route keeps its station rows (fx$path NULL)
+    no_path <- is.null(fx$path)
+    if (!no_path) parts <- c(parts, split_parts(id, act, fx, lang))
     if (family_of(act) == "road" && !is.null(fx$split)) return(shiny::div(class = "review-detail", parts))
-    length_line <- sprintf(tr("Proposed %.1f km · recorded %.1f km"),
-                           fx$proposed_km %||% (path_cumulative_m(cbind(fx$path$lon, fx$path$lat))[nrow(fx$path)] / 1000),
-                           fx$recorded_km)
+    length_line <- if (!no_path) {
+      sprintf(tr("Proposed %.1f km · recorded %.1f km"),
+              fx$proposed_km %||% (path_cumulative_m(cbind(fx$path$lon, fx$path$lat))[nrow(fx$path)] / 1000),
+              fx$recorded_km)
+    }
 
     if (family_of(act) == "rail") {
       plan <- fx$plan
@@ -763,9 +766,13 @@ review_server <- function(input, output, session, tr, current_lang) {
       # system (with their distance), then every other station by name (all
       # searchable); the pin picks one on the map
       all_st <- rail_stations()
+      mode_label <- tolower(tr(REVIEW_ACTIVITIES[[act]]$label))
       end_row <- function(which, label, input_id, picked, options, time) {
         dist <- ifelse(options$dist_m < 1000, sprintf("%.0f m", options$dist_m), sprintf("%.1f km", options$dist_m / 1000))
-        near <- stats::setNames(options$key, sprintf("%s (%s)", rail_station_label(options, lang), dist))
+        # The start from a Jaé tap says so, as a bus stop says its name's source
+        jae <- identical(picked$source, "jae")
+        src <- ifelse(jae & options$key %in% picked$key, " \u00b7 Ja\u00e9", "")
+        near <- stats::setNames(options$key, sprintf("%s (%s)%s", rail_station_label(options, lang), dist, src))
         rest <- all_st[!all_st$key %in% options$key, ]
         rest_lab <- rail_station_label(rest, lang)
         rest <- stats::setNames(rest$key[order(rest_lab)], sort(rest_lab))
@@ -773,26 +780,50 @@ review_server <- function(input, output, session, tr, current_lang) {
         if (!length(rest)) choices <- choices[1:2]
         pin_title <- if (which == "start") tr("Pick the start station on the map (Esc cancels)") else
           tr("Pick the end station on the map (Esc cancels)")
+        # Without a route: no time, the fine adjustments off
         adj <- function(delta, text) {
           shiny::tags$button(type = "button", class = "btn btn-outline-secondary",
-                             `data-review-adj` = paste0(which, ":", delta), text)
+                             `data-review-adj` = paste0(which, ":", delta), disabled = if (is.null(time)) NA, text)
+        }
+        tip <- if (jae) {
+          sprintf(tr("Start from the Jaé tap at %s: departure at tap + %d s."), jae_local_time(as.POSIXct(picked$tap_t, origin = "1970-01-01", tz = "UTC"), "%H:%M:%S"),
+                  REVIEW_THRESHOLDS$rail_gate_to_train_s)
         }
         shiny::div(
-          class = "review-end",
+          class = paste("review-end", if (jae) "rv-end-jae"), title = tip,
           shiny::span(class = "dt-label", label),
           shiny::selectInput(input_id, NULL, choices = choices,
                              selected = if (is.null(picked)) SAMPLE_POINT else picked$key, width = "100%"),
-          shiny::span(class = "rv-num", local_time(time, "%H:%M:%S")),
+          shiny::span(class = "rv-num", if (is.null(time)) "\u2013" else local_time(time, "%H:%M:%S")),
           shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary rv-station-pick",
                              `data-station-pick` = which, title = pin_title, "\U0001F4CD"),
-          shiny::div(class = "btn-group btn-group-sm", adj(-60, "−1m"), adj(-30, "−30s"), adj(30, "+30s"), adj(60, "+1m"))
+          shiny::div(class = paste("btn-group btn-group-sm", if (jae) "rv-adj-short"),
+                     adj(-60, "−1m"), adj(-30, "−30s"), adj(30, "+30s"), adj(60, "+1m")),
+          if (jae) shiny::span(class = "rv-end-src", title = tr("Name source"), "Ja\u00e9")
         )
       }
       parts <- c(parts, list(
         end_row("start", tr("Start"), "review_dep", plan$dep, plan$dep_options, fx$t_start),
         end_row("end", tr("End"), "review_arr", plan$arr, plan$arr_options, fx$t_end),
         # Legs (or the fallback note); the lengths go in its tooltip to save a line
-        if (identical(fx$timing, "steps")) {
+        if (no_path) {
+          msg <- paste(c(tr("No proposal for this trip."), rail_no_path_text(fx$no_path, fx$no_path_station, lang),
+                         google_fail_text(fx$google_fail, mode_label, lang)), collapse = " ")
+          shiny::div(class = "rv-warn rv-clamp rv-no-route", title = msg, msg)
+        } else if (identical(fx$source, "osm_rails")) {
+          osm <- fx$route$osm
+          lines <- rail_line_label(osm$lines %||% character(0))
+          legs <- if (length(osm$transfers) == length(lines) - 1 && length(lines) > 1) {
+            paste(c(rbind(lines, c(osm$transfers, ""))[seq_len(2 * length(lines) - 1)]), collapse = " \u2192 ")
+          } else {
+            paste(lines, collapse = ", ")
+          }
+          tip <- paste(c(length_line, google_fail_text(fx$google_fail, mode_label, lang),
+                         if (identical(osm$mode, "tracks")) tr("Along tracks without line information."),
+                         tr("Times by distance, from the departure to the arrival.")), collapse = "\n")
+          shiny::div(class = "rv-clamp rv-osm-source", title = tip,
+                     paste0(tr("Source: OSM rails"), if (nzchar(legs)) paste0(" \u00b7 ", legs)))
+        } else if (identical(fx$timing, "steps")) {
           tip <- sprintf(tr("Google: %s. Scaled ×%.2f to fit the recorded times."),
                          format_rail_legs(fx$legs, lang, google = TRUE), fx$scale)
           shiny::div(class = "rv-clamp", title = paste0(length_line, "\n", tip), format_rail_legs(fx$legs, lang))
@@ -800,7 +831,7 @@ review_server <- function(input, output, session, tr, current_lang) {
           note <- tr("Timing by distance: Google returned no step durations.")
           shiny::div(class = "text-secondary rv-clamp", title = paste0(length_line, "\n", note), note)
         },
-        if (!isTRUE(fx$on_network)) {
+        if (!no_path && !isTRUE(fx$on_network)) {
           warn <- paste(tr("Route off the rails:"), format_reasons(fx$route_reasons, lang))
           shiny::div(class = "rv-warn rv-clamp", title = warn, warn)
         }
@@ -894,7 +925,7 @@ review_server <- function(input, output, session, tr, current_lang) {
   shiny::observeEvent(input$review_time_adj, {
     id <- rv$selected
     ev <- input$review_time_adj
-    if (is.null(id) || is.null(rv$proposal)) return()
+    if (is.null(id) || is.null(rv$proposal) || is.null(rv$proposal$path)) return()
     key <- if (identical(ev$which, "start")) "start_offset" else "end_offset"
     o <- get_ov(id)
     set_ov(id, stats::setNames(list((o[[key]] %||% 0) + as.numeric(ev$delta)), key))
@@ -949,7 +980,7 @@ review_server <- function(input, output, session, tr, current_lang) {
   shiny::observeEvent(input$review_accept, {
     id <- rv$selected
     fx <- rv$proposal
-    if (is.null(id) || is.null(fx) || !identical(fx$id, id)) {
+    if (is.null(id) || is.null(fx) || !identical(fx$id, id) || is.null(fx$path)) {
       notify(tr("No proposal to accept for this trip."), type = "warning")
       return()
     }
@@ -1480,8 +1511,10 @@ review_server <- function(input, output, session, tr, current_lang) {
         proxy <- leaflet::addPolylines(proxy, lng = other$lon, lat = other$lat, color = color, weight = 3, opacity = 0.6,
                                        dashArray = "6 6", group = "review_proposed")
       }
-      proxy <- leaflet::addPolylines(proxy, lng = p$lon, lat = p$lat, color = color, weight = 5, opacity = 0.85,
-                                     group = "review_proposed")
+      if (!is.null(p)) {
+        proxy <- leaflet::addPolylines(proxy, lng = p$lon, lat = p$lat, color = color, weight = 5, opacity = 0.85,
+                                       group = "review_proposed")
+      }
       # Free legs (recorded path, straight line): dashed over a white gap
       for (sg in fx$splices) for (l in sg$legs) {
         if (l$mode == "route") next
@@ -1494,11 +1527,13 @@ review_server <- function(input, output, session, tr, current_lang) {
       }
       plan <- fx$plan
       label_end <- function(st, t) paste0(if (!is.null(st)) paste0(st$name, " · ") else "", local_time(t, "%H:%M:%S"))
-      proxy <- leaflet::addCircleMarkers(
-        proxy, lng = c(p$lon[1], p$lon[nrow(p)]), lat = c(p$lat[1], p$lat[nrow(p)]), radius = 7,
-        color = "white", weight = 2, fillColor = c("#2E7D32", "#C62828"), fillOpacity = 1,
-        label = c(label_end(plan$dep, p$t[1]), label_end(plan$arr, p$t[nrow(p)])), group = "review_markers"
-      )
+      if (!is.null(p)) {
+        proxy <- leaflet::addCircleMarkers(
+          proxy, lng = c(p$lon[1], p$lon[nrow(p)]), lat = c(p$lat[1], p$lat[nrow(p)]), radius = 7,
+          color = "white", weight = 2, fillColor = c("#2E7D32", "#C62828"), fillOpacity = 1,
+          label = c(label_end(plan$dep, p$t[1]), label_end(plan$arr, p$t[nrow(p)])), group = "review_markers"
+        )
+      }
       # Rail: the chosen stations, ringed and named
       for (end in list(list(st = plan$dep, col = "#2E7D32", lab = tr("Start")), list(st = plan$arr, col = "#C62828", lab = tr("End")))) {
         if (is.null(end$st) || is.null(end$st$key)) next

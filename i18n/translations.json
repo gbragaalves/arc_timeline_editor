@@ -2026,5 +2026,69 @@
   "No station within 300 m: click on or next to one (Esc cancels).": {
     "pt": "Nenhuma estação a menos de 300 m: clique numa estação ou perto dela (Esc cancela).",
     "en": "No station within 300 m: click on or next to one (Esc cancels)."
+  },
+  "Source: OSM rails": {
+    "pt": "Fonte: trilhos OSM",
+    "en": "Source: OSM rails"
+  },
+  "Start and end are the same station.": {
+    "pt": "Início e fim são a mesma estação.",
+    "en": "Start and end are the same station."
+  },
+  "Choose the start and end stations to route along the OSM rails.": {
+    "pt": "Escolha as estações de início e fim para traçar o trajeto pelos trilhos OSM.",
+    "en": "Choose the start and end stations to route along the OSM rails."
+  },
+  "The stations belong to different systems: no path along the rails.": {
+    "pt": "As estações são de sistemas diferentes: não há trajeto pelos trilhos.",
+    "en": "The stations belong to different systems: no path along the rails."
+  },
+  "No rails within 300 m of %s.": {
+    "pt": "Nenhum trilho a menos de 300 m de %s.",
+    "en": "No rails within 300 m of %s."
+  },
+  "The rails don't connect these stations.": {
+    "pt": "Os trilhos não ligam estas estações.",
+    "en": "The rails don't connect these stations."
+  },
+  "Google: no API key.": {
+    "pt": "Google: sem chave de API.",
+    "en": "Google: no API key."
+  },
+  "Google: request failed or timed out.": {
+    "pt": "Google: a requisição falhou ou expirou.",
+    "en": "Google: request failed or timed out."
+  },
+  "Google: error %s.": {
+    "pt": "Google: erro %s.",
+    "en": "Google: error %s."
+  },
+  "Google: no route.": {
+    "pt": "Google: nenhuma rota.",
+    "en": "Google: no route."
+  },
+  "Google: no %s leg (only %s).": {
+    "pt": "Google: nenhum trecho de %s (só %s).",
+    "en": "Google: no %s leg (only %s)."
+  },
+  "Google: no %s leg (it suggests walking).": {
+    "pt": "Google: nenhum trecho de %s (sugere caminhar).",
+    "en": "Google: no %s leg (it suggests walking)."
+  },
+  "Google: no %s leg (no geometry).": {
+    "pt": "Google: nenhum trecho de %s (sem geometria).",
+    "en": "Google: no %s leg (no geometry)."
+  },
+  "Along tracks without line information.": {
+    "pt": "Por trilhos sem informação de linha.",
+    "en": "Along tracks without line information."
+  },
+  "Times by distance, from the departure to the arrival.": {
+    "pt": "Horários pela distância, da partida à chegada.",
+    "en": "Times by distance, from the departure to the arrival."
+  },
+  "Start from the Jaé tap at %s: departure at tap + %d s.": {
+    "pt": "Início pelo toque no Jaé às %s: partida = toque + %d s.",
+    "en": "Start from the Jaé tap at %s: departure at tap + %d s."
   }
 }

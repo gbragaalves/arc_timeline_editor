@@ -1607,5 +1607,149 @@ check(sprintf("rail plan: automatic start %s; picked by key (SuperVia station on
       identical(pl_auto$dep$key, "n1") && identical(pl_key$dep$key, "n2") && is.null(pl_key$arr) && "n2" %in% pl_key$dep_options$key &&
         abs(pl_key$points$lng[1] - sp[2, 1]) < 1e-9)
 
+# ---- Rail trips always fixable: route along the OSM rails, Jaé start, same-station guard ----
+# Metrô L1 on two parallel tracks (y = 0 and y = 8, never joined, as OSM maps
+# the two directions); L2 from near Central up x = 2000, ending on a SuperVia
+# track (a shared node) that runs along y = 3000. Stations: A and B on L1 (one
+# stop), Central (L1 + L2), D on L2, E on SuperVia, F a Metrô station with
+# only the SuperVia track near it.
+osm_line <- function(x, y) sf::st_linestring(ll(x, y))
+osm_rails <- sf::st_sf(
+  railway = c("subway", "subway", "subway", "rail"), name = NA_character_, osm = paste0("w", 1:4),
+  lines = c("subway|Metrô Rio|1", "subway|Metrô Rio|1", "subway|Metrô Rio|2", "train|SuperVia|Deodoro"),
+  geometry = sf::st_sfc(osm_line(c(0, 1000, 2000, 4000), c(0, 0, 0, 0)), osm_line(c(0, 4000), c(8, 8)),
+                        osm_line(c(2000, 2000), c(60, 3000)), osm_line(c(0, 2000, 4000), c(3000, 3000, 3000)), crs = 4326))
+osm_st_xy <- ll(c(500, 1500, 2000, 2000, 3500, 3500), c(-3, 11, 25, 2500, 3000, 3020))
+osm_st <- data.frame(name = c("A", "B", "Central", "D", "E", "F"), modes = c("subway", "subway", "subway", "subway", "train", "subway"),
+                     lon = osm_st_xy[, 1], lat = osm_st_xy[, 2], osm = paste0("n", 1:6), operator = NA_character_,
+                     network = c(NA, NA, NA, NA, NA, "Metrô Rio"),
+                     lines = c("subway|Metrô Rio|1", "subway|Metrô Rio|1", "subway|Metrô Rio|1;subway|Metrô Rio|2", "subway|Metrô Rio|2",
+                               "train|SuperVia|Deodoro", ""))
+make_ref <- function(rails, stations, tag) {
+  bb <- t(vapply(sf::st_geometry(rails), function(g) as.numeric(sf::st_bbox(g)), numeric(4)))
+  colnames(bb) <- c("xmin", "ymin", "xmax", "ymax")
+  list(rails = rails, bbox = bb, stations = stations, mtime = tag)
+}
+oref <- make_ref(osm_rails, osm_st, "unit-osm-1")
+ost <- rail_stations(oref)
+stn <- function(n) ost[ost$name == n, ]
+r_ab <- rail_osm_route(stn("A"), stn("B"), "metro", oref)
+check(sprintf("OSM rails, one stop A -> B (parallel tracks never joined, the stations nearer different ones): ok %s, %.0f m, lines %s, mode %s, transfers %d",
+              r_ab$ok, r_ab$length_m %||% NA, paste(rail_line_label(r_ab$lines %||% character(0)), collapse = ","), r_ab$mode %||% "-",
+              length(r_ab$transfers)),
+      isTRUE(r_ab$ok) && abs(r_ab$length_m - 1000) < 40 && identical(r_ab$lines, "subway|Metrô Rio|1") && r_ab$mode == "lines" &&
+        length(r_ab$transfers) == 0)
+r_ad <- rail_osm_route(stn("A"), stn("D"), "metro", oref)
+check(sprintf("OSM rails, a transfer within one system A -> D: ok %s, %.0f m, lines %s, transfer at %s",
+              r_ad$ok, r_ad$length_m %||% NA, paste(rail_line_label(r_ad$lines %||% character(0)), collapse = " -> "),
+              paste(r_ad$transfers, collapse = ",")),
+      isTRUE(r_ad$ok) && identical(r_ad$lines, c("subway|Metrô Rio|1", "subway|Metrô Rio|2")) && identical(r_ad$transfers, "Central") &&
+        r_ad$length_m > 3900 && r_ad$length_m < 4200)
+r_de <- rail_osm_route(stn("D"), stn("E"), "metro", oref)
+r_af <- rail_osm_route(stn("A"), stn("F"), "metro", oref)
+r_aa <- rail_osm_route(stn("A"), stn("A"), "metro", oref)
+check(sprintf("OSM rails, no transfer across systems: Metrô D -> SuperVia E %s; Metrô A -> F (only the SuperVia track near it, joined to L2) %s at %s; same station %s",
+              r_de$reason %||% "path", r_af$reason %||% "path", r_af$station %||% "-", r_aa$reason %||% "path"),
+      identical(r_de$reason, "systems") && identical(r_af$reason, "no_rails") && identical(r_af$station, "F") &&
+        identical(r_aa$reason, "same_station"))
+oref_old <- make_ref(osm_rails[, c("railway", "name")], osm_st[, c("name", "modes", "lon", "lat")], "unit-osm-2")
+ost_old <- rail_stations(oref_old)
+r_old <- rail_osm_route(ost_old[ost_old$name == "A", ], ost_old[ost_old$name == "B", ], "metro", oref_old)
+check(sprintf("OSM rails without line information (older reference): A -> B ok %s, mode %s, %.0f m", r_old$ok, r_old$mode %||% "-",
+              r_old$length_m %||% NA),
+      isTRUE(r_old$ok) && r_old$mode == "tracks" && abs(r_old$length_m - 1000) < 40)
+
+# Jaé tap -> station; the trip's tap
+tap_at <- function(x, y, t) {
+  p <- if (is.na(x)) cbind(NA_real_, NA_real_) else ll(x, y)
+  data.frame(profile = "metro", datetime_utc = as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), longitude = p[, 1], latitude = p[, 2],
+             label = "Metrô", linha_ou_estacao = "", stringsAsFactors = FALSE)
+}
+ts_near <- rail_tap_station(tap_at(530, 30, 900), "metro", ref = oref)
+ts_far <- rail_tap_station(tap_at(900, 700, 900), "metro", ref = oref)
+ts_none <- rail_tap_station(tap_at(NA, NA, 900), "metro", ref = oref)
+taps <- rbind(tap_at(500, 0, 1000 - 1200), tap_at(500, 0, 1000 - 500), tap_at(500, 0, 1000 + 100), tap_at(500, 0, 1000 + 400))
+pick_t <- function(x) if (nrow(x)) as.numeric(x$datetime_utc) - 1000 else NA
+tp1 <- rail_trip_tap(taps, "metro", 1000, 2000)
+tp2 <- rail_trip_tap(taps[1:2, ], "metro", 1000, 2000)
+tp3 <- rail_trip_tap(taps[1:2, ], "metro", 1000, 2000, after = 1000 - 450)
+check(sprintf("Jaé tap -> station: 41 m from A -> %s (%s, %.0f m); far -> %s; no coordinates -> %s; the trip's tap: %+.0f s (last by start + 3 min), %+.0f s (15 min lead), after the previous trip -> %s",
+              ts_near$name %||% "-", ts_near$source %||% "-", ts_near$tap_dist_m %||% NA, if (is.null(ts_far)) "none" else ts_far$name,
+              if (is.null(ts_none)) "none" else ts_none$name, pick_t(tp1), pick_t(tp2), if (nrow(tp3)) "a tap" else "none"),
+      identical(ts_near$name, "A") && identical(ts_near$source, "jae") && ts_near$tap_t == 900 && is.null(ts_far) && is.null(ts_none) &&
+        pick_t(tp1) == 100 && pick_t(tp2) == -500 && nrow(tp3) == 0)
+
+# Same station at both ends: the farther automatic end looks again (behind / ahead only)
+s_same <- samples_at(c(1300, 1350, 1400, 1450, 1500), c(0, 0, 0, 0, 5), c(0, 10, 20, 30, 40))
+pl_same <- rail_plan(s_same, "metro", ref = oref)
+pl_jae <- rail_plan(s_same, "metro", ref = oref, tap_station = ts_near)
+check(sprintf("same-station guard: start %s (%s), end %s; with a Jaé tap at A: start %s (%s)",
+              pl_same$dep$name %||% "-", pl_same$dep$source %||% "-", pl_same$arr$name %||% "-", pl_jae$dep$name %||% "-", pl_jae$dep$source %||% "-"),
+      identical(pl_same$dep$name, "A") && identical(pl_same$arr$name, "B") && identical(pl_same$dep$source, "auto") &&
+        identical(pl_jae$dep$name, "A") && identical(pl_jae$dep$source, "jae"))
+
+# The proposal: Google has no transit leg -> OSM rails; the Jaé start departs at tap + 60 s even before the trip
+no_google <- function(points, mode, ref_time_utc, on_fail) { on_fail("no_transit", ""); NULL }
+straight_google <- function(points, mode, ref_time_utc, on_fail) {
+  f <- seq(0, 1, length.out = 30)
+  list(coords = cbind(lon = points$lng[1] + f * diff(points$lng), lat = points$lat[1] + f * diff(points$lat)), steps = NULL)
+}
+s_trip <- samples_at(c(700, 900, 1100, 1300, 1480), c(0, 0, 0, 0, 5), c(1010, 1040, 1070, 1100, 1130))
+trip_t <- c(1000, 1150)
+fx_osm <- rail_proposal(s_trip, "metro", trip_t, tap = tap_at(530, 30, 900), google_fn = no_google, ref = oref)
+mono <- function(fx) !is.null(fx$path) && all(diff(fx$path$t) > 0)
+check(sprintf("fallback: Google %s -> source %s; start %s (%s) at %+.0f s (tap + 60), end %s at %+.0f s (last sample near it); %d points, times increasing %s",
+              fx_osm$google_fail$code %||% "-", fx_osm$source %||% "none", fx_osm$plan$dep$name %||% "-", fx_osm$gate$action %||% "-",
+              fx_osm$t_start - 1000, fx_osm$plan$arr$name %||% "-", fx_osm$t_end - 1000, nrow(fx_osm$path %||% data.frame()), mono(fx_osm)),
+      identical(fx_osm$source, "osm_rails") && identical(fx_osm$google_fail$code, "no_transit") && fx_osm$t_start == 960 &&
+        fx_osm$t_end == 1130 && identical(fx_osm$gate$action, "station") && mono(fx_osm) && fx_osm$path$t[1] == 960 &&
+        abs(fx_osm$total_m - 1000) < 40)
+fx_g <- rail_proposal(s_trip, "metro", trip_t, tap = tap_at(530, 30, 900), google_fn = straight_google, ref = oref)
+gate_case <- function(tap) {
+  fx <- rail_proposal(s_trip, "metro", trip_t, tap = tap, google_fn = no_google, ref = oref)
+  sprintf("%s %+.0f", fx$gate$action %||% "none", fx$t_start - 1000)
+}
+g_adj <- gate_case(tap_at(900, 900, 1100))
+g_late <- gate_case(tap_at(900, 900, 1300))
+g_before <- gate_case(tap_at(900, 900, 800))
+check(sprintf("Jaé timing: Google route start %+.0f s (%s); taps away from a station (3-min window): +100 s -> %s, +300 s -> %s, -200 s -> %s",
+              fx_g$t_start - 1000, fx_g$gate$action %||% "-", g_adj, g_late, g_before),
+      identical(fx_g$source, "google") && fx_g$t_start == 960 && identical(fx_g$gate$action, "station") &&
+        g_adj == "adjust +160" && g_late == "ignore +0" && g_before == "before +0")
+fx_rev <- rail_osm_fix(fx_osm$plan, fx_osm$route, s_trip, trip_t, end_offset_s = -600)
+fx_one <- rail_proposal(s_trip[3, ], "metro", trip_t, o = list(dep = stn("A")$key, arr = stn("B")$key), google_fn = no_google, ref = oref)
+check(sprintf("fallback timing monotonic: end moved before the start -> %.0f s for %.0f m, increasing %s; one-sample trip with both stations chosen -> %s %+.0f..%+.0f s",
+              fx_rev$t_end - fx_rev$t_start, fx_rev$total_m, mono(fx_rev), fx_one$source %||% "none", fx_one$t_start - 1000, fx_one$t_end - 1000),
+      mono(fx_rev) && fx_rev$t_end > fx_rev$t_start && mono(fx_one) && identical(fx_one$source, "osm_rails") &&
+        fx_one$t_start == 1000 && fx_one$t_end == 1150)
+fx_none <- rail_proposal(s_trip, "metro", trip_t, o = list(arr = ""), google_fn = no_google, ref = oref)
+fx_same <- rail_proposal(s_trip, "metro", trip_t, o = list(dep = stn("B")$key, arr = stn("B")$key), google_fn = no_google, ref = oref)
+check(sprintf("no route: end at the recorded point -> %s (rows: start %s); same station -> %s; text '%s'",
+              fx_none$no_path %||% "-", fx_none$plan$dep$name %||% "-", fx_same$no_path %||% "-",
+              paste(rail_no_path_text(fx_none$no_path, lang = "pt"), google_fail_text(fx_none$google_fail, "metrô", "pt"))),
+      is.null(fx_none$path) && identical(fx_none$no_path, "need_stations") && !is.null(fx_none$plan$dep) &&
+        identical(fx_same$no_path, "same_station"))
+
+# Google's failure reasons
+key_before <- Sys.getenv("GOOGLE_MAPS_API_KEY")
+Sys.setenv(GOOGLE_MAPS_API_KEY = "unit-test")
+walk_route <- list(legs = list(list(steps = list(list(travel_mode = "WALKING", polyline = list(points = ""), duration = list(value = 600),
+                                                      distance = list(value = 800))))))
+bus_route <- list(legs = list(list(steps = list(list(travel_mode = "TRANSIT", polyline = list(points = ""), duration = list(value = 600),
+                                                     transit_details = list(line = list(vehicle = list(type = "BUS"))))))))
+reason_for <- function(js) {
+  google_directions_get <<- function(params) js
+  why <- "none"
+  suppressMessages(calculate_google_transit_route(pts, "subway", on_fail = function(code, detail = "") why <<- paste(code, detail)))
+  trimws(why)
+}
+reasons <- c(walk = reason_for(list(status = "OK", routes = list(walk_route))), bus = reason_for(list(status = "OK", routes = list(bus_route))),
+             zero = reason_for(list(status = "ZERO_RESULTS", routes = list())), err = reason_for(list(status = "OVER_QUERY_LIMIT", routes = list())),
+             req = reason_for(NULL))
+google_directions_get <- mock_get
+Sys.setenv(GOOGLE_MAPS_API_KEY = key_before)
+check(sprintf("Google failure reasons: %s", paste(names(reasons), reasons, sep = " = ", collapse = "; ")),
+      identical(unname(reasons), c("no_transit", "no_transit BUS", "zero_results", "status OVER_QUERY_LIMIT", "request")))
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)
