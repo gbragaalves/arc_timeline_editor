@@ -6,6 +6,8 @@ review_server <- function(input, output, session, tr, current_lang) {
   REVIEW_GROUPS <- c("review_ref", "review_recorded", "review_proposed", "review_markers", "review_samples", "review_split",
                      "review_pins")
   SAMPLE_POINT <- "__sample__"  # station select: keep the recorded point
+  XFER_NONE <- "__none__"       # transfer select: no station chosen yet
+  XFER_MAX <- 6                 # transfer rows
 
   rv <- shiny::reactiveValues(
     trips = NULL,           # review_trips() result, without samples
@@ -826,8 +828,38 @@ review_server <- function(input, output, session, tr, current_lang) {
           if (jae) shiny::span(class = "rv-end-src", title = tr("Name source"), "Ja\u00e9")
         )
       }
-      parts <- c(parts, list(
-        end_row("start", tr("Start"), "review_dep", plan$dep, plan$dep_options, fx$t_start),
+      # Transfer rows (set by hand, else Google's): select, pin, remove; then "+"
+      xkeys <- xfer_rows(id, fx)
+      s_mid <- trip_samples(id)
+      s_mid <- c(s_mid$lon[ceiling(nrow(s_mid) / 2)], s_mid$lat[ceiling(nrow(s_mid) / 2)])
+      xfer_row <- function(i, key) {
+        st <- all_st[all_st$key == key, , drop = FALSE]
+        d <- geosphere::distHaversine(cbind(all_st$lon, all_st$lat), if (nrow(st)) c(st$lon[1], st$lat[1]) else s_mid)
+        k5 <- order(d)[seq_len(min(5, nrow(all_st)))]
+        dist <- ifelse(d[k5] < 1000, sprintf("%.0f m", d[k5]), sprintf("%.1f km", d[k5] / 1000))
+        near <- stats::setNames(all_st$key[k5], sprintf("%s (%s)", rail_station_label(all_st[k5, ], lang), dist))
+        rest <- all_st[-k5, ]
+        rest_lab <- rail_station_label(rest, lang)
+        choices <- stats::setNames(list(XFER_NONE, near, stats::setNames(rest$key[order(rest_lab)], sort(rest_lab))),
+                                   c(tr("— choose the station —"), tr("Nearest stations"), tr("All stations")))
+        shiny::div(
+          class = "review-xfer",
+          shiny::span(class = "dt-label", tr("Transfer")),
+          shiny::selectInput(paste0("review_xfer_", i), NULL, choices = choices, selected = if (nrow(st)) key else XFER_NONE, width = "100%"),
+          shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary rv-station-pick",
+                             `data-station-pick` = paste0("xfer:", i), title = tr("Pick the transfer station on the map (Esc cancels)"),
+                             "\U0001F4CD"),
+          shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary rv-xfer-del",
+                             `data-review-xfer` = paste0("del:", i), title = tr("Remove this transfer"), "\u00d7")
+        )
+      }
+      xfer_ui <- c(lapply(seq_along(xkeys), function(i) xfer_row(i, xkeys[i])),
+                   if (length(xkeys) < XFER_MAX) list(shiny::div(
+                     class = "review-xfer-add",
+                     shiny::tags$button(type = "button", class = "btn btn-sm btn-link", `data-review-xfer` = "add",
+                                        title = tr("Add a transfer station"), tr("+ Transfer"))
+                   )))
+      parts <- c(parts, list(end_row("start", tr("Start"), "review_dep", plan$dep, plan$dep_options, fx$t_start)), xfer_ui, list(
         end_row("end", tr("End"), "review_arr", plan$arr, plan$arr_options, fx$t_end),
         # Legs (or the fallback note); the lengths go in its tooltip to save a line
         if (no_path) {
@@ -835,22 +867,21 @@ review_server <- function(input, output, session, tr, current_lang) {
                          google_fail_text(fx$google_fail, mode_label, lang)), collapse = " ")
           shiny::div(class = "rv-warn rv-clamp rv-no-route", title = msg, msg)
         } else if (identical(fx$source, "osm_rails")) {
-          osm <- fx$route$osm
-          lines <- rail_line_label(osm$lines %||% character(0))
-          legs <- if (length(osm$transfers) == length(lines) - 1 && length(lines) > 1) {
-            paste(c(rbind(lines, c(osm$transfers, ""))[seq_len(2 * length(lines) - 1)]), collapse = " \u2192 ")
-          } else {
-            paste(lines, collapse = ", ")
-          }
+          # The legs: each ride's line (its OSM route relation), each walk's length
+          rl <- fx$rail_legs %||% list()
+          legs <- paste(vapply(rl, function(l) if (identical(l$kind, "walk")) sprintf(tr("walk %.0f m"), l$dist_m) else l$label %||% "",
+                               character(1)), collapse = " \u2192 ")
+          graph <- any(vapply(rl, function(l) identical(l$source, "graph"), logical(1)))
           tip <- paste(c(length_line, google_fail_text(fx$google_fail, mode_label, lang),
-                         if (identical(osm$mode, "tracks")) tr("Along tracks without line information."),
+                         if (graph) tr("Part of it along the rails graph (no route relation)."),
                          tr("Times by distance, from the departure to the arrival.")), collapse = "\n")
           shiny::div(class = "rv-clamp rv-osm-source", title = tip,
                      paste0(tr("Source: OSM rails"), if (nzchar(legs)) paste0(" \u00b7 ", legs)))
         } else if (identical(fx$timing, "steps")) {
           tip <- sprintf(tr("Google: %s. Scaled ×%.2f to fit the recorded times."),
                          format_rail_legs(fx$legs, lang, google = TRUE), fx$scale)
-          shiny::div(class = "rv-clamp", title = paste0(length_line, "\n", tip), format_rail_legs(fx$legs, lang))
+          shiny::div(class = "rv-clamp rv-osm-source", title = paste0(length_line, "\n", tip),
+                     paste0(tr("Source: Google"), " \u00b7 ", format_rail_legs(fx$legs, lang)))
         } else {
           note <- tr("Timing by distance: Google returned no step durations.")
           shiny::div(class = "text-secondary rv-clamp", title = paste0(length_line, "\n", note), note)
@@ -991,8 +1022,52 @@ review_server <- function(input, output, session, tr, current_lang) {
   })
   shiny::observeEvent(input$review_station_pick, {
     ev <- input$review_station_pick
-    if (!is.character(ev$key) || !ev$which %in% c("start", "end")) return()
+    if (!is.character(ev$key)) return()
+    if (startsWith(ev$which %||% "", "xfer:")) return(xfer_changed(as.integer(sub("^xfer:", "", ev$which)), ev$key))
+    if (!ev$which %in% c("start", "end")) return()
     station_changed(if (ev$which == "start") "dep" else "arr", ev$key)
+  })
+
+  # Transfer stations of a rail trip: set by hand (overrides xfers; "" for a
+  # row not filled yet), else the plan's (Google's transfers); editing a row
+  # makes them all set by hand
+  xfer_rows <- function(id, fx) {
+    keys <- get_ov(id)$xfers
+    if (is.null(keys)) keys <- vapply(fx$plan$xfers %||% list(), function(x) as.character(x$key), character(1))
+    keys
+  }
+  xfer_set <- function(id, keys) {
+    set_ov(id, list(xfers = keys))
+    recompute_selected()
+  }
+  xfer_changed <- function(i, value) {
+    id <- rv$selected
+    fx <- rv$proposal
+    if (is.null(id) || is.null(fx) || is.na(i) || family_of(trip_row(id)$activity) != "rail") return()
+    keys <- xfer_rows(id, fx)
+    value <- if (identical(value, XFER_NONE)) "" else value
+    if (i < 1 || i > length(keys) || identical(keys[i], value)) return()
+    keys[i] <- value
+    xfer_set(id, keys)
+  }
+  for (i in seq_len(XFER_MAX)) local({
+    k <- i
+    shiny::observeEvent(input[[paste0("review_xfer_", k)]], xfer_changed(k, input[[paste0("review_xfer_", k)]]), ignoreInit = TRUE)
+  })
+  shiny::observeEvent(input$review_xfer_edit, {
+    ev <- input$review_xfer_edit
+    id <- rv$selected
+    fx <- rv$proposal
+    if (is.null(id) || is.null(fx) || family_of(trip_row(id)$activity) != "rail") return()
+    keys <- xfer_rows(id, fx)
+    if (identical(ev$op, "add") && length(keys) < XFER_MAX) {
+      keys <- c(keys, "")
+    } else if (identical(ev$op, "del") && isTRUE(as.integer(ev$i) %in% seq_along(keys))) {
+      keys <- keys[-as.integer(ev$i)]
+    } else {
+      return()
+    }
+    xfer_set(id, keys)
   })
 
   shiny::observeEvent(input$review_time_adj, {
@@ -1067,6 +1142,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     acc[[id]] <- cover_accept(id, fx, if (!is.null(sp$segments)) {
       segs <- multimodal_label_segments(sp$segments, split_stop(id, sp), jae_leg_text(sp$tap))
       multimodal_accepted(segs, fx$activity, tap = sp$tap)
+    } else if (family_of(fx$activity) == "rail") {
+      rail_accept_entry(fx, fx$activity)   # a walking transfer is its own track
     } else {
       list(activity = fx$activity, path = fx$path[, c("lon", "lat", "t")], method = fx$method)
     })
@@ -1608,7 +1685,15 @@ review_server <- function(input, output, session, tr, current_lang) {
           label = c(label_end(plan$dep, p$t[1]), label_end(plan$arr, p$t[nrow(p)])), group = "review_markers"
         )
       }
-      # Rail: the chosen stations, ringed and named
+      # Rail: the chosen stations, ringed and named (transfers in orange)
+      for (x in plan$xfers %||% list()) {
+        proxy <- leaflet::addCircleMarkers(
+          proxy, lng = x$lon, lat = x$lat, radius = 10, color = "#EF6C00", weight = 3, opacity = 1, fill = FALSE,
+          label = paste0(tr("Transfer"), ": ", rail_station_label(x, current_lang())), group = "review_markers",
+          labelOptions = leaflet::labelOptions(noHide = TRUE, direction = "right", offset = c(10, 0), className = "station-chosen"),
+          options = leaflet::pathOptions(interactive = FALSE, className = "station-chosen-xfer")
+        )
+      }
       for (end in list(list(st = plan$dep, col = "#2E7D32", lab = tr("Start")), list(st = plan$arr, col = "#C62828", lab = tr("End")))) {
         if (is.null(end$st) || is.null(end$st$key)) next
         proxy <- leaflet::addCircleMarkers(

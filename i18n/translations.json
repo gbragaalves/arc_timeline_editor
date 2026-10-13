@@ -2079,10 +2079,6 @@
     "pt": "Google: nenhum trecho de %s (sem geometria).",
     "en": "Google: no %s leg (no geometry)."
   },
-  "Along tracks without line information.": {
-    "pt": "Por trilhos sem informação de linha.",
-    "en": "Along tracks without line information."
-  },
   "Times by distance, from the departure to the arrival.": {
     "pt": "Horários pela distância, da partida à chegada.",
     "en": "Times by distance, from the departure to the arrival."
@@ -2130,5 +2126,41 @@
   "%d min after:": {
     "pt": "%d min depois:",
     "en": "%d min after:"
+  },
+  "Transfer": {
+    "pt": "Baldeação",
+    "en": "Transfer"
+  },
+  "+ Transfer": {
+    "pt": "+ Baldeação",
+    "en": "+ Transfer"
+  },
+  "Add a transfer station": {
+    "pt": "Adicionar uma estação de baldeação",
+    "en": "Add a transfer station"
+  },
+  "Remove this transfer": {
+    "pt": "Remover esta baldeação",
+    "en": "Remove this transfer"
+  },
+  "— choose the station —": {
+    "pt": "— escolha a estação —",
+    "en": "— choose the station —"
+  },
+  "Pick the transfer station on the map (Esc cancels)": {
+    "pt": "Escolher a estação de baldeação no mapa (Esc cancela)",
+    "en": "Pick the transfer station on the map (Esc cancels)"
+  },
+  "Source: Google": {
+    "pt": "Fonte: Google",
+    "en": "Source: Google"
+  },
+  "walk %.0f m": {
+    "pt": "a pé %.0f m",
+    "en": "walk %.0f m"
+  },
+  "Part of it along the rails graph (no route relation).": {
+    "pt": "Parte pelo grafo de trilhos (sem relação de linha).",
+    "en": "Part of it along the rails graph (no route relation)."
   }
 }

@@ -1748,9 +1748,13 @@ check(sprintf("same-station guard: start %s (%s), end %s; with a Jaé tap at A: 
 
 # The proposal: Google has no transit leg -> OSM rails; the Jaé start departs at tap + 60 s even before the trip
 no_google <- function(points, mode, ref_time_utc, on_fail) { on_fail("no_transit", ""); NULL }
+# Google with one transit leg A -> B (its stops at the stations; Google's polyline itself isn't used)
 straight_google <- function(points, mode, ref_time_utc, on_fail) {
   f <- seq(0, 1, length.out = 30)
-  list(coords = cbind(lon = points$lng[1] + f * diff(points$lng), lat = points$lat[1] + f * diff(points$lat)), steps = NULL)
+  co <- cbind(lon = points$lng[1] + f * diff(points$lng), lat = points$lat[1] + f * diff(points$lat))
+  list(coords = co, steps = list(list(kind = "transit", coords = co, duration_s = 100, line = "Linha 1", short = "1",
+                                      from_stop = "A", to_stop = "B", from_xy = unname(ll(500, -3)[1, ]), to_xy = unname(ll(1500, 11)[1, ]),
+                                      departure_t = 2000, arrival_t = 2100)))
 }
 s_trip <- samples_at(c(700, 900, 1100, 1300, 1480), c(0, 0, 0, 0, 5), c(1010, 1040, 1070, 1100, 1130))
 trip_t <- c(1000, 1150)
@@ -1915,6 +1919,100 @@ check(sprintf("coverage, Edit Samples GPX: %s over %+.0f..%+.0f s, contiguous %s
               types(r5), r5$start[1] - C0, r5$end[nrow(r5)] - C0, covers(r5, C0 + c(0, 600)), types(r5_old),
               r5_old$start[1] - C0, r5_old$end[1] - C0),
       covers(r5, C0 + c(0, 600)) && identical(r5$type, c("stationary", "bus", "walking")) && nrow(r5_old) == 1)
+
+# ---- Rail legs along OSM route relations by direction, transfers, Google as a hint ----
+# A small reference: a VLT one-way pair (A -> B on the north street y = 60, B -> A on the south one y = -60);
+# a metro line with stations X, Y, Z (one relation each way); metro lines 1 (P0, P1, Q along y = 2000) and 2 (Q2,
+# 180 m from Q, to R2 north); a SuperVia station 100 m from Q
+rel_route <- function(rel, line, name, x, y, stops) {
+  xy <- ll(x, y); colnames(xy) <- c("lon", "lat")
+  cum <- path_cumulative_m(xy)
+  sp <- lapply(seq_len(nrow(stops)), function(k) {
+    p <- ll(stops$x[k], stops$y[k])
+    pr <- polyline_segment_projection(xy, cum, p[1, ])
+    j <- which.min(pr$off)
+    data.frame(rel = rel, seq = k, ref = paste0("n", k), name = stops$name[k], along_m = pr$d[j], off_m = pr$off[j], lon = p[1, 1], lat = p[1, 2])
+  })
+  list(meta = data.frame(rel = rel, route = sub("\\|.*$", "", line), network = strsplit(line, "|", fixed = TRUE)[[1]][2], operator = "",
+                         ref = sub("^.*\\|", "", line), name = name, from = "", to = "", line = line, ptv2 = TRUE, gaps = 0L,
+                         directed = TRUE, n_stops = nrow(stops)),
+       xy = xy, stops = do.call(rbind, sp))
+}
+stp <- function(name, x, y) data.frame(name = name, x = x, y = y)
+vlt <- "tram|VLT Carioca|1"; m1 <- "subway|Metrô Rio|1"; m2 <- "subway|Metrô Rio|2"; mx <- "subway|Metrô Rio|9"
+R <- list(
+  rel_route("r1", vlt, "VLT Carioca 1: A → B", c(0, 200, 200, 800, 800, 1000), c(0, 0, 60, 60, 0, 0), rbind(stp("A", 0, 0), stp("B", 1000, 0))),
+  rel_route("r2", vlt, "VLT Carioca 1: B → A", c(1000, 800, 800, 200, 200, 0), c(0, 0, -60, -60, 0, 0), rbind(stp("B", 1000, 0), stp("A", 0, 0))),
+  rel_route("r3", mx, "Linha 9: X → Z", c(0, 2000), c(1000, 1000), rbind(stp("X", 0, 1000), stp("Y", 1000, 1000), stp("Z", 2000, 1000))),
+  rel_route("r4", mx, "Linha 9: Z → X", c(2000, 0), c(1005, 1005), rbind(stp("Z", 2000, 1005), stp("Y", 1000, 1005), stp("X", 0, 1005))),
+  rel_route("r5", m1, "Linha 1: P0 → Q", c(-500, 0, 1000), c(2000, 2000, 2000), rbind(stp("P0", -500, 2000), stp("P1", 0, 2000), stp("Q", 1000, 2000))),
+  rel_route("r6", m2, "Linha 2: Q2 → R2", c(1150, 1150), c(2100, 3000), rbind(stp("Q2", 1150, 2100), stp("R2", 1150, 3000)))
+)
+st_xy <- ll(c(0, 1000, 0, 1000, 2000, -500, 0, 1000, 1150, 1150, 1000), c(0, 0, 1000, 1000, 1000, 2000, 2000, 2000, 2100, 3000, 1900))
+r_st <- data.frame(name = c("A", "B", "X", "Y", "Z", "P0", "P1", "Q", "Q2", "R2", "Qsv"),
+                   modes = c("tram", "tram", rep("subway", 8), "train"), lon = st_xy[, 1], lat = st_xy[, 2], osm = paste0("n", 101:111),
+                   operator = NA_character_, network = NA_character_,
+                   lines = c(vlt, vlt, mx, mx, mx, m1, m1, m1, m2, m2, "train|SuperVia|Deodoro"))
+r_rails <- sf::st_sf(
+  railway = c("tram", "tram", "tram", "tram", rep("subway", 3), "rail"), name = NA_character_, osm = paste0("w", 1:8),
+  lines = c(vlt, vlt, vlt, vlt, mx, m1, m2, "train|SuperVia|Deodoro"),
+  oneway = c(NA, "yes", "yes", NA, NA, NA, NA, NA), pref_dir = NA_character_,
+  geometry = sf::st_sfc(osm_line(c(0, 200), c(0, 0)), osm_line(c(200, 200, 800, 800), c(0, 60, 60, 0)),
+                        osm_line(c(800, 800, 200, 200), c(0, -60, -60, 0)), osm_line(c(800, 1000), c(0, 0)),
+                        osm_line(c(0, 2000), c(1000, 1000)), osm_line(c(-500, 1000), c(2000, 2000)), osm_line(c(1150, 1150), c(2100, 3000)),
+                        osm_line(c(900, 1100), c(1900, 1900)), crs = 4326))
+rref <- make_ref(r_rails, r_st, "unit-rel-1")
+rref$routes <- do.call(rbind, lapply(R, `[[`, "meta"))
+rref$route_xy <- stats::setNames(lapply(R, `[[`, "xy"), rref$routes$rel)
+rref$route_stops <- do.call(rbind, lapply(R, `[[`, "stops"))
+rst <- rail_stations(rref)
+S <- function(n) rst[rst$name == n, ]
+ymax <- function(co) max(local_xy(co)[, "y"]); ymin <- function(co) min(local_xy(co)[, "y"])
+l_ab <- rail_relation_leg(S("A"), S("B"), rref); l_ba <- rail_relation_leg(S("B"), S("A"), rref)
+rref_nr <- rref; rref_nr$routes <- rref_nr$routes[0, ]
+g_ab <- rail_osm_route(S("A"), S("B"), "tram", rref_nr); g_ba <- rail_osm_route(S("B"), S("A"), "tram", rref_nr)
+check(sprintf("one-way pair: A -> B along %s (north street %s), B -> A along %s (south street %s); without relations, the rails graph by oneway: A -> B north %s, B -> A south %s",
+              l_ab$rel, ymax(l_ab$coords) > 55, l_ba$rel, ymin(l_ba$coords) < -55, ymax(g_ab$coords) > 55, ymin(g_ba$coords) < -55),
+      identical(l_ab$rel, "r1") && identical(l_ba$rel, "r2") && ymax(l_ab$coords) > 55 && ymin(l_ab$coords) > -1 &&
+        ymin(l_ba$coords) < -55 && ymax(l_ba$coords) < 1 && isTRUE(g_ab$ok) && ymax(g_ab$coords) > 55 && ymin(g_ab$coords) > -1 &&
+        isTRUE(g_ba$ok) && ymin(g_ba$coords) < -55 && ymax(g_ba$coords) < 1)
+l_xy <- rail_relation_leg(S("X"), S("Y"), rref); l_yx <- rail_relation_leg(S("Y"), S("X"), rref); l_zy <- rail_relation_leg(S("Z"), S("Y"), rref)
+check(sprintf("stop order picks the relation: X -> Y %s (%.0f m), Y -> X %s, Z -> Y %s; the cut ends at the stops",
+              l_xy$rel, l_xy$length_m, l_yx$rel, l_zy$rel),
+      identical(l_xy$rel, "r3") && identical(l_yx$rel, "r4") && identical(l_zy$rel, "r4") && abs(l_xy$length_m - 1000) < 5 &&
+        abs(local_xy(l_xy$coords)[1, "x"]) < 2 && abs(local_xy(l_xy$coords)[nrow(l_xy$coords), "x"] - 1000) < 2)
+# A trip P1 -> R2: metro 1 to Q, walk to Q2, metro 2 to R2 (samples along it, 10 m/s; 600 s)
+tr_s <- samples_at(c(0, 500, 1000, 1150, 1150, 1150), c(2000, 2000, 2000, 2100, 2500, 3000), C0 + c(0, 50, 100, 300, 400, 600))
+tr_t <- C0 + c(0, 600)
+key <- function(n) S(n)$key
+no_google <- function(points, mode, ref_time_utc, on_fail) { on_fail("no_transit", ""); NULL }
+fw <- rail_proposal(tr_s, "metro", tr_t, o = list(dep = key("P1"), xfers = c(key("Q"), key("Q2")), arr = key("R2")), google_fn = no_google, ref = rref)
+kinds <- vapply(fw$rail_legs %||% list(), function(l) paste(l$kind, l$source), "")
+check(sprintf("walking transfer: P1 > Q > Q2 > R2 set -> %s; legs %s; walk %.0f m between stations %.0f m apart, %.0f s (3 min per 250 m), timed %+.0f..%+.0f s",
+              fw$source %||% fw$no_path, paste(kinds, collapse = " / "), fw$rail_legs[[2]]$length_m %||% NA, fw$rail_legs[[2]]$dist_m %||% NA,
+              fw$rail_legs[[2]]$walk_s %||% NA, (fw$walk_times$t0 %||% NA) - C0, (fw$walk_times$t1 %||% NA) - C0),
+      identical(fw$source, "osm_rails") && identical(kinds, c("ride relation", "walk walk", "ride relation")) &&
+        abs(fw$rail_legs[[2]]$walk_s - 180 * fw$rail_legs[[2]]$dist_m / 250) < 1 && nrow(fw$walk_times) == 1 &&
+        abs(fw$walk_times$t1 - fw$walk_times$t0 - fw$rail_legs[[2]]$walk_s) < 1 && all(diff(fw$path$t) > 0))
+fsys <- rail_proposal(tr_s, "metro", tr_t, o = list(dep = key("P1"), xfers = c(key("Q"), key("Qsv")), arr = key("R2")), google_fn = no_google, ref = rref)
+check(sprintf("no transfer across systems: Q (Metrô) > Qsv (SuperVia, 100 m) -> %s", fsys$no_path %||% "a route"),
+      is.null(fsys$path) && identical(fsys$no_path, "systems"))
+# Google as a hint: its route P1 -> Q (walk) Q2 -> R2 fills the transfers and times the plan; a start set elsewhere wins
+g_steps <- list(
+  list(kind = "transit", coords = ll(c(0, 1000), c(2050, 2050)), duration_s = 120, line = "Linha 1", short = "1", from_stop = "P1", to_stop = "Q",
+       from_xy = unname(ll(0, 2000)[1, ]), to_xy = unname(ll(1000, 2000)[1, ]), departure_t = 1000, arrival_t = 1120),
+  list(kind = "walk", coords = NULL, duration_s = 150),
+  list(kind = "transit", coords = ll(c(1150, 1150), c(2100, 3000)), duration_s = 90, line = "Linha 2", short = "2", from_stop = "Q2", to_stop = "R2",
+       from_xy = unname(ll(1150, 2100)[1, ]), to_xy = unname(ll(1150, 3000)[1, ]), departure_t = 1300, arrival_t = 1390))
+fake_google <- function(points, mode, ref_time_utc, on_fail) list(coords = ll(c(0, 1150), c(2000, 3000)), steps = g_steps)
+fg <- rail_proposal(tr_s, "metro", tr_t, o = list(arr = key("R2")), google_fn = fake_google, ref = rref)
+fd <- rail_proposal(tr_s, "metro", tr_t, o = list(dep = key("P0"), arr = key("R2")), google_fn = fake_google, ref = rref)
+check(sprintf("Google as a hint: nothing against it -> %s, transfers %s (%s), legs %s; Início set to P0 -> %s",
+              fg$source %||% fg$no_path, paste(vapply(fg$plan$xfers, `[[`, "", "name"), collapse = ">"), paste(unique(vapply(fg$plan$xfers, `[[`, "", "source")), collapse = ","),
+              paste(vapply(fg$rail_legs, function(l) paste(l$kind, l$source), ""), collapse = " / "), fd$source %||% fd$no_path),
+      identical(fg$source, "google") && identical(vapply(fg$plan$xfers, `[[`, "", "name"), c("Q", "Q2")) &&
+        all(vapply(fg$plan$xfers, `[[`, "", "source") == "google") && identical(fg$timing, "steps") && nrow(fg$walk_times) == 1 &&
+        identical(fd$source, "osm_rails") && identical(fd$plan$dep$name, "P0"))
 
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

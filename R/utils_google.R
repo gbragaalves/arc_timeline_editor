@@ -110,8 +110,9 @@ extract_vehicle_types <- function(route) {
 # kind: "transit" (a TRANSIT step of an accepted vehicle type), "other" (a
 # TRANSIT step of another type) or "walk" (anything else). Each step:
 # list(kind, coords (n x 2 lon/lat or NULL), duration_s, distance_m, line,
-# vehicle, from_stop, to_stop, departure_t, arrival_t); times are epoch
-# seconds from transit_details, NA when Google gives none.
+# short (the line's short name), vehicle, from_stop, to_stop, from_xy, to_xy
+# (the stops' lon, lat), departure_t, arrival_t); times are epoch seconds from
+# transit_details, NA when Google gives none.
 transit_route_steps <- function(route, accepted_types) {
   num <- function(x) if (is.null(x)) NA_real_ else as.numeric(x)
   out <- list()
@@ -128,9 +129,12 @@ transit_route_steps <- function(route, accepted_types) {
         duration_s  = num(step$duration$value),
         distance_m  = num(step$distance$value),
         line        = td$line$name %||% td$line$short_name,
+        short       = td$line$short_name,
         vehicle     = vt,
         from_stop   = td$departure_stop$name,
         to_stop     = td$arrival_stop$name,
+        from_xy     = if (!is.null(td$departure_stop$location)) num(c(td$departure_stop$location$lng, td$departure_stop$location$lat)),
+        to_xy       = if (!is.null(td$arrival_stop$location)) num(c(td$arrival_stop$location$lng, td$arrival_stop$location$lat)),
         departure_t = num(td$departure_time$value),
         arrival_t   = num(td$arrival_time$value)
       )

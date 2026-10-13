@@ -340,15 +340,16 @@ APP_CSS <- "
     align-items: center;
     margin-top: 2px;
   }
-  .review-end .shiny-input-container, .review-profile .shiny-input-container { margin-bottom: 0 !important; }
-  .review-end .selectize-input, .review-toolbar .selectize-input, .review-profile .selectize-input {
+  .review-end .shiny-input-container, .review-xfer .shiny-input-container, .review-profile .shiny-input-container { margin-bottom: 0 !important; }
+  .review-end .selectize-input, .review-xfer .selectize-input, .review-toolbar .selectize-input, .review-profile .selectize-input {
     font-size: 0.72rem;
     min-height: 0;
     padding: 1px 18px 1px 4px;
     white-space: nowrap;
     overflow: hidden;
   }
-  .review-end .selectize-input > .item, .review-toolbar .selectize-input > .item, .review-profile .selectize-input > .item {
+  .review-end .selectize-input > .item, .review-xfer .selectize-input > .item, .review-toolbar .selectize-input > .item,
+  .review-profile .selectize-input > .item {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -357,6 +358,12 @@ APP_CSS <- "
   .review-end .btn-group { grid-column: 2 / 4; }
   .review-end .rv-station-pick { grid-column: 1; padding: 0 2px; font-size: 0.66rem; line-height: 1.25; }
   .review-end .btn-group.rv-adj-short { grid-column: 2; }
+  .review-xfer { display: grid; grid-template-columns: 58px minmax(0, 1fr) 24px 24px; gap: 3px; align-items: center; margin-bottom: 2px; }
+  .review-xfer .form-group { margin: 0; min-width: 0; }
+  .review-xfer .dt-label { font-size: 0.7rem; }
+  .review-xfer .btn { padding: 0 2px; font-size: 0.66rem; line-height: 1.25; }
+  .review-xfer-add { margin: -2px 0 2px 0; }
+  .review-xfer-add .btn { padding: 0 2px; font-size: 0.72rem; line-height: 1.2; }
   .rv-cover { font-size: 0.76rem; line-height: 1.25; color: var(--bs-secondary-color); }
   .rv-cover-row { display: flex; align-items: center; column-gap: 4px; min-width: 0; margin-top: 1px; }
   .rv-cover-row .rv-cover-lead { flex: 0 0 auto; white-space: nowrap; }
@@ -1002,6 +1009,12 @@ ui <- bslib::page_fillable(
         var parts = $(this).attr('data-review-adj').split(':');
         Shiny.setInputValue('review_time_adj', {which: parts[0], delta: parseInt(parts[1], 10), ts: Date.now()},
                             {priority: 'event'});
+      });
+
+      // Rail transfer rows: data-review-xfer='add' / 'del:<i>'
+      $(document).on('click', '[data-review-xfer]', function() {
+        var parts = $(this).attr('data-review-xfer').split(':');
+        Shiny.setInputValue('review_xfer_edit', {op: parts[0], i: parseInt(parts[1] || '0', 10), ts: Date.now()}, {priority: 'event'});
       });
 
       // Road detours: pick the matched path or the one through the recording
