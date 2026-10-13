@@ -203,7 +203,7 @@ ROUTE_EDIT_JS <- "
             pointAt(Math.max.apply(null, [total - RE.windowM].concat(pd)));
         }
         var m = L.marker(ll, {draggable: true, icon: endIcon(kind, ll.warn), zIndexOffset: 1000, keyboard: false,
-                              title: ll.warn_text || ''});
+                              title: ll.warn_text || ll.title || ''});
         m.options.routeEnd = kind;
         var preview = null;
         m.on('dragstart', function() { preview = L.polyline([nb, ll], previewStyle()).addTo(RE.layer); });

@@ -65,6 +65,19 @@ review_server <- function(input, output, session, tr, current_lang) {
     tap <- rail_trip_tap(jae_all, row$activity, row$start_utc, row$end_utc, after = if (length(prev_end)) max(prev_end) else -Inf)
     if (nrow(tap)) tap
   }
+  # The fixed points (ROUTE_ANCHORS) at a car / taxi trip's ends, once per
+  # trip and anchors' version
+  anchor_cache <- new.env(parent = emptyenv())
+  trip_anchor_ends_for <- function(id) {
+    row <- trip_row(id)
+    an <- route_anchors()
+    if (nrow(row) == 0 || !row$activity %in% ANCHOR_ACTIVITIES || is.null(an)) return(list())
+    key <- paste(id, .route_anchors$key)
+    if (is.null(anchor_cache[[key]])) {
+      assign(key, trip_anchor_ends(trip_samples(id), as.Date(row$start_utc, tz = Sys.timezone()), an), envir = anchor_cache)
+    }
+    anchor_cache[[key]]
+  }
   split_on <- function(id) isTRUE(get_ov(id)$split$on)
   local_time <- function(t, fmt) format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), fmt, tz = Sys.timezone())
 
@@ -184,7 +197,10 @@ review_server <- function(input, output, session, tr, current_lang) {
       to <- min(max(o$dest_idx %||% nrow(s), from + 1L), nrow(s))
       fx <- base
       pins <- shiny::isolate(rv$pins[[id]])
-      ends <- shiny::isolate(rv$route_ends[[id]])
+      # The ends: a dragged one, else a fixed point's (ROUTE_ANCHORS) for car / taxi trips
+      user_ends <- shiny::isolate(rv$route_ends[[id]])
+      te <- review_trip_ends(user_ends, trip_anchor_ends_for(id))
+      ends <- te$ends
       if ((!is.null(pins) && nrow(pins) > 0) || length(ends)) {
         # Control pins / moved ends: local splices of the base path (the match
         # proposal), each leg routed once (leg_cache); timed by the recording
@@ -202,6 +218,8 @@ review_server <- function(input, output, session, tr, current_lang) {
           osrm_fail(tr("Could not route through the pins (OSRM)."))
         } else {
           fx <- road_proposal_check(pf, s, act, 1L, nrow(s), profile = profile)
+          # only the fixed points changed it: as safe as the match it came from
+          if ((is.null(pins) || nrow(pins) == 0) && !length(user_ends)) fx$bulk_ok <- isTRUE(base$bulk_ok)
         }
       } else if (isTRUE(o$reroute) && isTRUE(base$detour)) {
         via <- if (!refresh_route && identical(prev$via_key, c(from, to, profile))) prev$candidates$via else NULL
@@ -235,6 +253,8 @@ review_server <- function(input, output, session, tr, current_lang) {
       fx$plan <- list(origin_idx = if (matched) 1L else from, dest_idx = if (matched) nrow(s) else to)
       fx$confidence <- m$confidence %||% NA_real_
       fx$profile <- profile
+      fx$ends_info <- te$info
+      fx$ends_eff <- te$ends
       fx$ref_match <- m
     }
     fx$id <- id
@@ -252,11 +272,10 @@ review_server <- function(input, output, session, tr, current_lang) {
     row <- trip_row(id)
     rail <- family_of(row$activity) == "rail"
     name_of <- function(st) if (rail && !is.null(st$name)) st$name else ""
-    moved <- if (rail) list() else shiny::isolate(rv$route_ends[[id]]) %||% list()
     list(span = c(as.numeric(row$start_utc), as.numeric(row$end_utc)), s = trip_samples(id),
          fill = get_ov(id)$fill %||% list(), places = list(before = name_of(fx$plan$dep), after = name_of(fx$plan$arr)),
-         keep_start = (rail && isTRUE(fx$start_at_tap)) || (!is.null(moved$start) && !is.null(fx$t_start_new)),
-         keep_end = !is.null(moved$end) && !is.null(fx$t_end_new))
+         keep_start = (rail && isTRUE(fx$start_at_tap)) || (!rail && !is.null(fx$t_start_new)),
+         keep_end = !rail && !is.null(fx$t_end_new))
   }
   cover_accept <- function(id, fx, entry) {
     a <- cover_args(id, fx)
@@ -355,6 +374,11 @@ review_server <- function(input, output, session, tr, current_lang) {
       if (!isTRUE(res$ok)) return()
     }
     if (any(vapply(acts, family_of, "") == "rail") && !ensure_rail_reference()) return()
+    # The fixed trip-end points: resolved again when ROUTE_ANCHORS or the local OSM extract changed
+    if (any(acts %in% ANCHOR_ACTIVITIES) && route_anchors_stale()) {
+      res <- shiny::withProgress(message = tr("Resolving the fixed trip-end points..."), value = 0.5, resolve_route_anchors())
+      if (!isTRUE(res$ok)) notify(paste(tr("Fixed trip-end points not resolved:"), res$message), type = "warning", duration = 10)
+    }
     # Road trips need OSRM: not while its data is rebuilt (the failed matches would be cached)
     m <- osrm_maintenance()
     if (any(vapply(acts, family_of, "") == "road") && !is.null(m)) {
@@ -1018,8 +1042,10 @@ review_server <- function(input, output, session, tr, current_lang) {
       sprintf(tr("Clamped to the next item's end (%s)."), local_time(row$next_end_utc, "%H:%M:%S"))
   }
   retime_rows <- function(id, fx, row, lang) {
-    moved <- rv$route_ends[[id]] %||% list()
-    lapply(intersect(c("start", "end"), names(moved)), function(which) {
+    info <- fx$ends_info %||% list()
+    lapply(intersect(c("start", "end"), names(info)), function(which) {
+      inf <- info[[which]]
+      anchored <- identical(inf$source, "anchor")
       why <- fx$fail[[which]]
       t_new <- fx[[paste0("t_", which, "_new")]]
       clamped <- isTRUE(fx[[paste0(which, "_clamped")]])
@@ -1029,15 +1055,37 @@ review_server <- function(input, output, session, tr, current_lang) {
         shiny::tags$button(type = "button", class = "btn btn-outline-secondary", `data-review-adj` = paste0(which, ":", delta),
                            disabled = if (is.null(t_new)) NA, text)
       }
+      label <- if (anchored) {
+        sprintf(if (which == "start") tr("Start: %s (default)") else tr("End: %s (default)"), inf$anchor)
+      } else if (which == "start") {
+        tr("Recalculated start")
+      } else {
+        tr("Recalculated end")
+      }
       shiny::div(
         class = "review-retime", `data-retime` = which, title = paste(c(sprintf(tr("Was %s."), was), warn), collapse = " "),
-        shiny::span(class = "rv-retime-label", if (which == "start") tr("Recalculated start") else tr("Recalculated end")),
+        shiny::span(class = "rv-retime-label", label),
         shiny::span(class = "rv-num", if (is.null(t_new)) "\u2013" else local_time(t_new, "%H:%M:%S")),
         if (!is.null(warn)) shiny::span(class = "rv-warn rv-retime-warn", title = warn, "\u26A0"),
+        # Dragged off a fixed point: back to it
+        if (!anchored && !is.null(inf$anchor)) {
+          shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary rv-anchor-restore", `data-review-anchor` = which,
+                             title = sprintf(tr("Back to the default point: %s"), inf$anchor), paste0("\u21BA ", inf$anchor))
+        },
         shiny::div(class = "btn-group btn-group-sm", adj(-60, "\u22121m"), adj(-30, "\u221230s"), adj(30, "+30s"), adj(60, "+1m"))
       )
     })
   }
+
+  # Back to a fixed point: the dragged end goes (the anchor applies again)
+  shiny::observeEvent(input$review_anchor_restore, {
+    id <- rv$selected
+    which <- input$review_anchor_restore$which
+    if (is.null(id) || !isTRUE(which %in% c("start", "end"))) return()
+    ends <- rv$route_ends[[id]] %||% list()
+    ends[[which]] <- NULL
+    set_route_edits(id, ends = ends)
+  })
 
   # Station selects, time adjustments, start/end from the map
   station_changed <- function(which, value) {
@@ -1424,13 +1472,14 @@ review_server <- function(input, output, session, tr, current_lang) {
       }
       # A dragged end sits where it was dropped; ⚠ with the reason when it got no
       # route, or its time was clamped to the neighbouring item
-      moved <- rv$route_ends[[id]] %||% list()
       end_ctrl <- function(which, k) {
-        at <- moved[[which]] %||% c(p$lon[k], p$lat[k])
+        at <- fx$ends_eff[[which]] %||% c(p$lon[k], p$lat[k])
         why <- fx$fail[[which]]
         clamped <- isTRUE(fx[[paste0(which, "_clamped")]])
+        inf <- fx$ends_info[[which]]
         list(id = which, lat = at[2], lng = at[1], warn = !is.null(why) || clamped,
-             warn_text = if (!is.null(why)) splice_fail_text(why, current_lang()) else if (clamped) end_clamp_text(id, which))
+             warn_text = if (!is.null(why)) splice_fail_text(why, current_lang()) else if (clamped) end_clamp_text(id, which),
+             title = if (identical(inf$source, "anchor")) sprintf(tr("%s (default)"), inf$anchor))
       }
       pin_fail <- function(k) if (nzchar(pins$warn_text[k] %||% "")) splice_fail_text(pins$warn_text[k], current_lang())
       msg$ctrl <- c(list(end_ctrl("start", 1L)),

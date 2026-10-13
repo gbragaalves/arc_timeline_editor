@@ -316,7 +316,8 @@ APP_CSS <- "
   .route-end-warn { box-shadow: 0 0 0 3px #ff9800; }
   .route-end-badge { position: absolute; top: -17px; left: 9px; font-size: 13px; line-height: 1; color: #E65100;
     text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
-  .review-detail .review-retime { display: flex; align-items: center; gap: 3px; }
+  .review-detail .review-retime { display: flex; flex-wrap: wrap; align-items: center; gap: 1px 3px; }
+  .review-detail .review-retime .rv-anchor-restore { padding: 0 4px; font-size: 0.66rem; line-height: 1.25; }
   .review-detail .review-retime .rv-retime-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     font-size: 0.72rem; }
   .review-detail .review-retime .btn-group .btn { padding: 0 3px; font-size: 0.64rem; line-height: 1.25; }
@@ -1016,6 +1017,11 @@ ui <- bslib::page_fillable(
         var parts = $(this).attr('data-review-adj').split(':');
         Shiny.setInputValue('review_time_adj', {which: parts[0], delta: parseInt(parts[1], 10), ts: Date.now()},
                             {priority: 'event'});
+      });
+
+      // Back to a trip end's fixed point: data-review-anchor='start' / 'end'
+      $(document).on('click', '[data-review-anchor]', function() {
+        Shiny.setInputValue('review_anchor_restore', {which: $(this).attr('data-review-anchor'), ts: Date.now()}, {priority: 'event'});
       });
 
       // Rail transfer rows: data-review-xfer='add' / 'del:<i>'

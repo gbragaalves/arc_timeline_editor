@@ -2190,5 +2190,29 @@
   "No road within 150 m: the previous path is kept.": {
     "pt": "Nenhuma rua a menos de 150 m: o trajeto anterior foi mantido.",
     "en": "No road within 150 m: the previous path is kept."
+  },
+  "Start: %s (default)": {
+    "pt": "Início: %s (padrão)",
+    "en": "Start: %s (default)"
+  },
+  "End: %s (default)": {
+    "pt": "Fim: %s (padrão)",
+    "en": "End: %s (default)"
+  },
+  "%s (default)": {
+    "pt": "%s (padrão)",
+    "en": "%s (default)"
+  },
+  "Back to the default point: %s": {
+    "pt": "Voltar ao ponto padrão: %s",
+    "en": "Back to the default point: %s"
+  },
+  "Resolving the fixed trip-end points...": {
+    "pt": "Resolvendo os pontos fixos de início e fim...",
+    "en": "Resolving the fixed trip-end points..."
+  },
+  "Fixed trip-end points not resolved:": {
+    "pt": "Pontos fixos de início e fim não resolvidos:",
+    "en": "Fixed trip-end points not resolved:"
   }
 }

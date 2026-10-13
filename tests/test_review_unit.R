@@ -2065,5 +2065,67 @@ check(sprintf("one transfer row: Q set -> transfers %s, legs %s; Q2 set -> %s, l
         identical(lk(f_mir), "ride/walk/ride") && identical(xf(f_mir), "Q (auto) > Q2 (chosen)") &&
         abs(f_one$rail_legs[[2]]$walk_s - fw$rail_legs[[2]]$walk_s) < 1e-6)
 
+# ---- Fixed anchor points for car / taxi trip ends (synthetic anchors only) ----
+pt_anchor <- function(name, x, y, radius = 300, from = "2000-01-01", to = NA) {
+  p <- ll(x, y)
+  list(name = name, kind = "point", lon = p[1, 1], lat = p[1, 2], radius_m = radius, valid_from = from, valid_to = to)
+}
+road_anchor <- list(name = "R", kind = "road", coords = ll(c(-500, 500), c(500, 500)), radius_m = 300, valid_from = "2000-01-01", valid_to = NA)
+s_a <- samples_at(c(50, 400, 1000), c(0, 300, 1000), c(0, 60, 120))
+an2 <- list(pt_anchor("A1", 0, 0), pt_anchor("A2", 200, 0))
+e1 <- trip_anchor_ends(s_a, "2026-06-01", an2)
+e2 <- trip_anchor_ends(s_a, "2026-06-01", list(pt_anchor("A1", 0, 0, to = "2026-01-01"), pt_anchor("A2", 200, 0)))
+e3 <- trip_anchor_ends(s_a, "2026-06-01", list(pt_anchor("A1", 0, 0, radius = 30)))
+e4 <- trip_anchor_ends(samples_at(c(100, 2000), c(450, 2000), c(0, 60)), "2026-06-01", list(road_anchor))
+check(sprintf("anchors: start 50 m from A1, 150 m from A2 -> %s; A1 expired -> %s; radius 30 m -> %s; end far away -> %s; a road anchor -> %s %.0f m (on the road at the start's nearest point %s)",
+              e1$start$name %||% "-", e2$start$name %||% "-", if (is.null(e3$start)) "none" else e3$start$name, if (is.null(e1$end)) "none" else e1$end$name,
+              e4$start$name %||% "-", e4$start$dist_m %||% NA, isTRUE(geosphere::distHaversine(c(e4$start$lon, e4$start$lat), ll(100, 500)[1, ]) < 0.5)),
+      identical(e1$start$name, "A1") && abs(e1$start$dist_m - 50) < 1 && identical(e2$start$name, "A2") && is.null(e3$start) &&
+        is.null(e1$end) && identical(e4$start$name, "R") && abs(e4$start$dist_m - 50) < 1 &&
+        geosphere::distHaversine(c(e4$start$lon, e4$start$lat), ll(100, 500)[1, ]) < 0.5)
+# Resolving: project_onto, a building (entrance, or the nearest routable road), a road
+rd <- function(name, highway, x, y) list(name = name, highway = highway, coords = ll(x, y))
+roads <- list(rd("Rua X", "residential", c(-200, 200), c(0, 0)), rd("", "service", c(-200, 200), c(20, 20)),
+              rd("", "footway", c(0, 300), c(150, 150)), rd("Rua Y", "residential", c(0, 300), c(60, 60)))
+node <- list(type = "node", lon = ll(0, 30)[1, 1], lat = ll(0, 30)[1, 2])
+r_po <- anchor_point_from_osm(list(name = "H", project_onto = "Rua X"), node, roads)
+r_node <- anchor_point_from_osm(list(name = "N"), node, roads)
+sq <- ll(c(100, 140, 140, 100, 100), c(100, 100, 140, 140, 100))
+bld <- function(ent) list(type = "way", tags = list(building = "yes"), coords = sq,
+                          nodes = data.frame(lon = sq[, 1], lat = sq[, 2], entrance = ent))
+r_ent <- anchor_point_from_osm(list(name = "B"), bld(c("yes", NA, "main", NA, "yes")), roads)
+r_bld <- anchor_point_from_osm(list(name = "B"), bld(rep(NA, 5)), roads)
+r_way <- anchor_point_from_osm(list(name = "W"), list(type = "way", tags = list(highway = "service"), coords = ll(c(0, 100), c(0, 0)), nodes = data.frame()), roads)
+loc <- function(r) round(local_xy(cbind(r$lon, r$lat)))
+check(sprintf("resolving: project_onto Rua X -> %s at (%s) (not the nearer internal road); a node -> %s; a building with entrances -> %s at (%s) (the main one); without -> %s at (%s) (Rua Y, not the nearer footway); a road way -> %s",
+              r_po$how, paste(loc(r_po), collapse = ","), r_node$how, r_ent$how, paste(loc(r_ent), collapse = ","), r_bld$how,
+              paste(loc(r_bld), collapse = ","), r_way$kind),
+      identical(r_po$how, "project_onto") && all(abs(loc(r_po) - c(0, 0)) <= 1) && identical(r_node$how, "node") &&
+        identical(r_ent$how, "entrance") && all(abs(loc(r_ent) - c(140, 140)) <= 1) && identical(r_bld$how, "nearest_road") &&
+        all(abs(loc(r_bld) - c(120, 60)) <= 1) && identical(r_way$kind, "road"))
+# Override and restore; the anchored end through the splice; the feature off
+anch <- list(start = list(name = "A1", lon = ll(0, -200)[1, 1], lat = ll(0, -200)[1, 2]), end = NULL)
+te_a <- review_trip_ends(NULL, anch)
+te_d <- review_trip_ends(list(start = unname(ll(30, -150)[1, ])), anch)
+fa1 <- splice_route_fix(n_s, n_path, NULL, "car", ends = te_a$ends, route_fn = net)
+check(sprintf("override / restore: anchored -> %s %s; dragged -> %s (restore button for %s); restored (drag removed) -> %s; the anchored start routes from it (%.0f m), %+.0f s",
+              te_a$info$start$source, te_a$info$start$anchor, te_d$info$start$source, te_d$info$start$anchor,
+              review_trip_ends(list(), anch)$info$start$source, geosphere::distHaversine(fa1$coords[1, ], c(anch$start$lon, anch$start$lat)), fa1$path$t[1]),
+      identical(te_a$info$start$source, "anchor") && identical(te_d$info$start$source, "drag") && identical(te_d$info$start$anchor, "A1") &&
+        identical(review_trip_ends(list(), anch)$info$start$source, "anchor") && is.null(te_a$ends$end) &&
+        geosphere::distHaversine(fa1$coords[1, ], c(anch$start$lon, anch$start$lat)) < 0.01 && fa1$path$t[1] == -25)
+saved <- get0("ROUTE_ANCHORS", envir = globalenv(), inherits = FALSE)
+if (!is.null(saved)) rm("ROUTE_ANCHORS", envir = globalenv())
+off_cfg <- route_anchors_config(); off_an <- route_anchors(); off_e <- trip_anchor_ends(s_a, "2026-06-01", off_an)
+if (!is.null(saved)) assign("ROUTE_ANCHORS", saved, envir = globalenv())
+tmp_rds <- tempfile(fileext = ".rds")
+saveRDS(list(key = route_anchors_key(list(list(name = "Z", osm = "node/1"))), anchors = an2), tmp_rds)
+other <- route_anchors(tmp_rds, cfg = list(list(name = "Y", osm = "node/2")))
+same <- route_anchors(tmp_rds, cfg = list(list(name = "Z", osm = "node/1")))
+check(sprintf("feature off without ROUTE_ANCHORS: config %s, anchors %s, ends %s; a file made for other anchors -> %s, for these -> %d",
+              if (is.null(off_cfg)) "none" else "set", if (is.null(off_an)) "none" else "some", if (is.null(off_e$start) && is.null(off_e$end)) "none" else "some",
+              if (is.null(other)) "unused" else "used", length(same)),
+      is.null(off_cfg) && is.null(off_an) && is.null(off_e$start) && is.null(off_e$end) && is.null(other) && length(same) == 2)
+
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)
