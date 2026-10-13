@@ -5,8 +5,9 @@
 #     proposed line can be dragged (the drop point becomes a via pin), the
 #     start / end markers moved (Batch review), the pins dragged; a light
 #     straight-line preview follows the drag and the server re-routes on drop
-#     only. Batch review pins are local splices: the preview runs between the
-#     splice's anchors (window_m along the path, or the neighbouring pin), and
+#     only. Batch review pins are local splices (the server ends each where
+#     the route rejoins the base): the preview runs window_m along the path
+#     each way (or to the neighbouring pin), and
 #     the drop sends where the drag started (glat/glng). A click on a pin
 #     opens its popup (official trips: wrong-way and restricted-turn rules,
 #     review_pin_rule; a splice warning) and never re-routes; right-click on a

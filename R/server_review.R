@@ -1313,7 +1313,7 @@ review_server <- function(input, output, session, tr, current_lang) {
                     }),
                     list(list(id = "end", lat = p$lat[n], lng = p$lon[n])))
       msg$path <- lapply(seq_len(n), function(k) c(p$lat[k], p$lon[k]))
-      msg$window_m <- REVIEW_THRESHOLDS$pins$splice$window_m
+      msg$window_m <- REVIEW_THRESHOLDS$pins$splice$window_m   # the drag preview's reach (the splice itself ends where the route rejoins)
       msg$rules <- identical(fx$profile, "official")
       msg$legs <- lapply(legs, function(l) {
         list(key = l$key, mode = l$mode, path = lapply(seq_len(nrow(l$coords)), function(k) unname(l$coords[k, 2:1])))

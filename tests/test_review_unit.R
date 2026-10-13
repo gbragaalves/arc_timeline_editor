@@ -1397,104 +1397,141 @@ pyc <- system2("python3", c("-I", "-c", shQuote(paste(
 check(sprintf("bus layer builder (Python): kinds, oneway, simplification: %s", paste(pyc, collapse = " ")), identical(pyc, "ok"))
 
 # ---- Pins as local splices, per-pin rules, free legs, maintenance flag ----
-# Base path: 4 km east along y = 0 (a vertex every 50 m), driven at 10 m/s.
-# Fake router: a straight line between the leg's ends (calls recorded).
-sx <- seq(0, 4000, by = 50)
-sp_base <- samples_at(sx, rep(0, length(sx)), sx / 10)
-sp_path <- sp_base[, c("lon", "lat", "t")]
-sp_s <- sp_base[seq(1, nrow(sp_base), by = 2), ]
+# Fake routers: a straight line between the leg's ends (calls recorded), and a
+# small road network (edges in metres, one-way unless both = TRUE): both ends
+# snap to its nearest node (every 5 m), the shortest path (igraph)
 legs_seen <- list()
 straight_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
   legs_seen[[length(legs_seen) + 1L]] <<- opts
   xy
 }
+road <- function(x1, y1, x2, y2, both = FALSE) data.frame(x1 = x1, y1 = y1, x2 = x2, y2 = y2, both = both)
+net_router <- function(edges, step = 5) {
+  key <- function(x, y) paste(round(x, 2), round(y, 2))
+  E <- do.call(rbind, lapply(seq_len(nrow(edges)), function(i) {
+    e <- edges[i, ]
+    L <- sqrt((e$x2 - e$x1)^2 + (e$y2 - e$y1)^2)
+    f <- seq(0, 1, length.out = max(1, ceiling(L / step)) + 1)
+    x <- e$x1 + f * (e$x2 - e$x1); y <- e$y1 + f * (e$y2 - e$y1); n <- length(f)
+    d <- data.frame(a = key(x[-n], y[-n]), b = key(x[-1], y[-1]), w = L / (n - 1), ax = x[-n], ay = y[-n], bx = x[-1], by = y[-1])
+    if (e$both) d <- rbind(d, data.frame(a = d$b, b = d$a, w = d$w, ax = d$bx, ay = d$by, bx = d$ax, by = d$ay))
+    d
+  }))
+  V <- rbind(data.frame(k = E$a, x = E$ax, y = E$ay), data.frame(k = E$b, x = E$bx, y = E$by))
+  V <- V[!duplicated(V$k), ]
+  g <- igraph::graph_from_data_frame(E[, c("a", "b")], directed = TRUE, vertices = V$k)
+  function(xy, opts, bearings = NULL, radiuses = NULL) {
+    legs_seen[[length(legs_seen) + 1L]] <<- opts
+    m <- to_metric(xy[, 1], xy[, 2], CRS)
+    near <- function(i) V$k[which.min((V$x - (m[i, 1] - X0))^2 + (V$y - (m[i, 2] - Y0))^2)]
+    p <- suppressWarnings(igraph::shortest_paths(g, near(1), near(2), weights = E$w, output = "vpath")$vpath[[1]])
+    if (length(p) < 2) return(NULL)
+    v <- V[match(igraph::V(g)$name[p], V$k), ]
+    ll(v$x, v$y)
+  }
+}
 pin_at <- function(id, x, y, gx = x, gy = 0, ...) {
   p <- ll(x, y); g <- ll(gx, gy)
   data.frame(id = id, lon = p[1, 1], lat = p[1, 2], after = NA_character_, grab_lon = g[1, 1], grab_lat = g[1, 2], ...)
 }
-base_xy <- as.matrix(sp_path[, c("lon", "lat")])
-base_cum <- path_cumulative_m(base_xy)
+keys_of <- function(sg) vapply(sg$legs, `[[`, "", "key")
+same_legs <- function(x, y) isTRUE(all.equal(lapply(x$legs, `[[`, "coords"), lapply(y$legs, `[[`, "coords")))
+# The base: 6 km east along y = 0 (a vertex every 50 m), driven at 10 m/s, on a two-way road. A parallel
+# one-way carriageway at y = 30 from x = 1000 to 3000 (ramps from 900 and down to 3100), a two-way dead-end spur
+# north at 3500, a one-way bulge north of 4000-5000 (600 m up), side streets at both ends
+nx <- seq(0, 6000, by = 50)
+n_base <- samples_at(nx, rep(0, length(nx)), nx / 10)
+n_path <- n_base[, c("lon", "lat", "t")]
+n_s <- n_base[seq(1, nrow(n_base), by = 2), ]
+net <- net_router(rbind(
+  road(0, 0, 6000, 0, TRUE),
+  road(900, 0, 1000, 30), road(1000, 30, 3000, 30), road(3000, 30, 3100, 0),
+  road(3500, 0, 3500, 400, TRUE),
+  road(4000, 0, 4000, 600), road(4000, 600, 5000, 600), road(5000, 600, 5000, 0),
+  road(0, -200, 0, 0, TRUE), road(6000, 0, 6000, 200, TRUE)
+))
+nb_xy <- as.matrix(n_path[, c("lon", "lat")])
+nb_cum <- path_cumulative_m(nb_xy)
 # rows of the result equal to base vertices before lo / after hi, exactly
-outside_same <- function(fx, lo, hi) {
+outside_same <- function(fx, lo, hi, bxy = nb_xy, bcum = nb_cum) {
   co <- fx$coords
-  before <- base_xy[base_cum < lo - 0.5, , drop = FALSE]
-  after <- base_xy[base_cum > hi + 0.5, , drop = FALSE]
+  before <- bxy[bcum < lo - 0.5, , drop = FALSE]
+  after <- bxy[bcum > hi + 0.5, , drop = FALSE]
   isTRUE(all.equal(unname(co[seq_len(nrow(before)), ]), unname(before), tolerance = 0)) &&
     isTRUE(all.equal(unname(co[nrow(co) - rev(seq_len(nrow(after))) + 1L, ]), unname(after), tolerance = 0))
 }
-f1 <- splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120), "car", route_fn = straight_route)
+local_xy <- function(co) { m <- to_metric(co[, 1], co[, 2], CRS); cbind(x = m[, 1] - X0, y = m[, 2] - Y0) }
+splice_xy <- function(sg) local_xy(do.call(rbind, lapply(sg$legs, `[[`, "coords")))
+splice_len <- function(sg) sum(vapply(sg$legs, `[[`, numeric(1), "length_m"))
+
+f1 <- splice_route_fix(n_s, n_path, pin_at("1", 2000, 30), "car", route_fn = net)
 g1 <- f1$splices[[1]]
-check(sprintf("splice: one pin replaces only [%.0f, %.0f] m of the 4 km base (window 300 m), outside identical: %.0f%% of the base unchanged",
-              g1$lo, g1$hi, 100 * (1 - (g1$hi - g1$lo) / 4000)),
-      length(f1$splices) == 1 && abs(g1$lo - (f1$pins$base_d - 300)) < 1e-6 && abs(g1$hi - (f1$pins$base_d + 300)) < 1e-6 &&
-        abs(f1$pins$base_d - 2000) < 5 && outside_same(f1, g1$lo, g1$hi) &&
-        identical(vapply(g1$legs, `[[`, "", "key"), c("a:1>1", "1>b:1")))
-check("splice: the path goes through the pin", min(geosphere::distHaversine(f1$coords, ll(2000, 120))) < 1)
-wig_base <- samples_at(sx, ifelse(sx %% 100 == 50, 0.3, 0), sx / 10)   # a base with sub-2-degree bends
+x1 <- splice_xy(g1)
+mid1 <- x1[x1[, "x"] > 1100 & x1[, "x"] < 2900, , drop = FALSE]
+check(sprintf("splice, pin on the parallel carriageway: replaces [%.0f, %.0f] m (it leaves the base at the ramp ~915, rejoins ~3085), on the parallel road between them %s, %.0f m for %.0f m of base, warning %s, outside identical %s",
+              g1$lo, g1$hi, all(abs(mid1[, "y"] - 30) < 1), splice_len(g1), g1$hi - g1$lo, length(f1$warn) > 0, outside_same(f1, g1$lo, g1$hi)),
+      length(f1$splices) == 1 && abs(g1$lo - 916) < 10 && abs(g1$hi - 3084) < 10 && nrow(mid1) > 10 && all(abs(mid1[, "y"] - 30) < 1) &&
+        length(f1$warn) == 0 && isTRUE(g1$ok) && outside_same(f1, g1$lo, g1$hi) && identical(keys_of(g1), c("a:1>1", "1>b:1")) &&
+        min(geosphere::distHaversine(f1$coords, ll(2000, 30))) < 3)
+f2 <- splice_route_fix(n_s, n_path, rbind(pin_at("1", 1500, 30), pin_at("2", 2500, 30)), "car", route_fn = net)
+check(sprintf("no join before the next pin: one splice through both [%.0f, %.0f] m, legs %s",
+              f2$splices[[1]]$lo, f2$splices[[1]]$hi, paste(keys_of(f2$splices[[1]]), collapse = " ")),
+      length(f2$splices) == 1 && identical(keys_of(f2$splices[[1]]), c("a:1>1", "1>2", "2>b:2")) &&
+        abs(f2$splices[[1]]$lo - 916) < 10 && abs(f2$splices[[1]]$hi - 3084) < 10)
+f3 <- splice_route_fix(n_s, n_path, pin_at("3", 4600, 0), "car", route_fn = net)
+g3 <- f3$splices[[1]]
+check(sprintf("a pin on the base's own road: a short local splice [%.0f, %.0f] m, outside identical %s",
+              g3$lo, g3$hi, outside_same(f3, g3$lo, g3$hi)),
+      length(f3$splices) == 1 && g3$hi - g3$lo < 100 && g3$lo < 4600 && g3$hi > 4600 && outside_same(f3, g3$lo, g3$hi) &&
+        identical(keys_of(g3), c("a:3>3", "3>b:3")) && length(f3$warn) == 0)
+f4 <- splice_route_fix(n_s, n_path, pin_at("4", 3500, 300), "car", route_fn = net)
+f5 <- splice_route_fix(n_s, n_path, pin_at("5", 4500, 600), "car", route_fn = net)
+g5 <- f5$splices[[1]]
+check(sprintf("warning: a dead-end spur (in and back out, %.0f m for %.0f m of base) -> %s; the 600 m bulge (%.0f m for %.0f m, x%.1f, no turning back) -> %s",
+              splice_len(f4$splices[[1]]), f4$splices[[1]]$hi - f4$splices[[1]]$lo, paste(f4$warn, collapse = ",") %||% "-",
+              splice_len(g5), g5$hi - g5$lo, splice_len(g5) / (g5$hi - g5$lo), if (length(f5$warn)) paste(f5$warn, collapse = ",") else "none"),
+      identical(f4$warn, "4") && isTRUE(f4$pins$warn[1]) && length(f5$warn) == 0 && isTRUE(g5$ok) &&
+        splice_len(g5) / (g5$hi - g5$lo) > 1.5 && abs(g5$lo - 4000) < 10 && abs(g5$hi - 5000) < 10)
+fa <- splice_route_fix(n_s, n_path, pin_at("1", 2000, 30), "car", route_fn = net)
+fb <- splice_route_fix(n_s, n_path, pin_at("2", 4500, 600), "car", route_fn = net)
+f6 <- splice_route_fix(n_s, n_path, rbind(pin_at("1", 2000, 30), pin_at("2", 4500, 600)), "car", route_fn = net)
+check(sprintf("two pins that each rejoin the base: two splices [%s], each equal to that pin alone, the base between them identical",
+              paste(vapply(f6$splices, function(g) sprintf("%.0f-%.0f", g$lo, g$hi), ""), collapse = ", ")),
+      length(f6$splices) == 2 && same_legs(f6$splices[[1]], fa$splices[[1]]) && same_legs(f6$splices[[2]], fb$splices[[1]]))
+wig_base <- samples_at(nx, ifelse(nx %% 100 == 50, 0.3, 0), nx / 10)   # a base with sub-2-degree bends
 wb_path <- wig_base[, c("lon", "lat", "t")]
-fw <- splice_route_fix(wig_base[seq(1, nrow(wig_base), 2), ], wb_path, pin_at("1", 2000, 120), "car", route_fn = straight_route)
+fw <- splice_route_fix(wig_base[seq(1, nrow(wig_base), 2), ], wb_path, pin_at("1", 2000, 30), "car", route_fn = net)
 wb_xy <- as.matrix(wb_path[, c("lon", "lat")]); wb_cum <- path_cumulative_m(wb_xy)
 out_v <- wb_xy[wb_cum < fw$splices[[1]]$lo - 1 | wb_cum > fw$splices[[1]]$hi + 1, , drop = FALSE]
 fp <- as.matrix(fw$path[, c("lon", "lat")]); fp_cum <- path_cumulative_m(fp)
 off_v <- vapply(seq_len(nrow(out_v)), function(k) min(polyline_segment_projection(fp, fp_cum, out_v[k, ])$off), numeric(1))
-check(sprintf("splice: the timed path keeps every base vertex outside the window, small bends included (max off %.1e m over %d vertices)",
-              max(off_v), length(off_v)), max(off_v) < 0.01)
-f2 <- splice_route_fix(sp_s, sp_path, rbind(pin_at("1", 1000, 120), pin_at("2", 3000, -120)), "car", route_fn = straight_route)
-fa <- splice_route_fix(sp_s, sp_path, pin_at("1", 1000, 120), "car", route_fn = straight_route)
-fb <- splice_route_fix(sp_s, sp_path, pin_at("2", 3000, -120), "car", route_fn = straight_route)
-same_legs <- function(x, y) isTRUE(all.equal(lapply(x$legs, `[[`, "coords"), lapply(y$legs, `[[`, "coords")))
-check(sprintf("two pins 2 km apart: two splices [%s], each equal to that pin alone",
-              paste(vapply(f2$splices, function(g) sprintf("%.0f-%.0f", g$lo, g$hi), ""), collapse = ", ")),
-      length(f2$splices) == 2 && same_legs(f2$splices[[1]], fa$splices[[1]]) && same_legs(f2$splices[[2]], fb$splices[[1]]) &&
-        outside_same(f2, 700, 3300))
-f3 <- splice_route_fix(sp_s, sp_path, rbind(pin_at("1", 1800, 120), pin_at("2", 2200, 120)), "car", route_fn = straight_route)
-check(sprintf("two pins 400 m apart chain: one splice, legs %s", paste(vapply(f3$splices[[1]]$legs, `[[`, "", "key"), collapse = " ")),
-      length(f3$splices) == 1 && identical(vapply(f3$splices[[1]]$legs, `[[`, "", "key"), c("a:1>1", "1>2", "2>b:2")))
-# Widening: legs shorter than 450 m take a 1 km loop north; longer ones are straight
-loop_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
-  if (geosphere::distHaversine(xy[1, ], xy[2, ]) >= 450) return(xy)
-  m <- to_metric(xy[, 1], xy[, 2], CRS)
-  rbind(xy[1, ], from_metric(m[1, 1], m[1, 2] + 1000, CRS), from_metric(m[2, 1], m[2, 2] + 1000, CRS), xy[2, ])
-}
-f4 <- splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120), "car", route_fn = loop_route)
-check(sprintf("widening: a splice over 3x its stretch at 300 m is redone at %.0f m (lo %.0f, no warning)",
-              f4$splices[[1]]$window_m, f4$splices[[1]]$lo),
-      f4$splices[[1]]$window_m == 600 && abs(f4$splices[[1]]$lo - (f4$pins$base_d - 600)) < 1e-6 && length(f4$warn) == 0 &&
-        outside_same(f4, f4$splices[[1]]$lo, f4$splices[[1]]$hi))
-always_loop <- function(xy, opts, bearings = NULL, radiuses = NULL) {
-  m <- to_metric(xy[, 1], xy[, 2], CRS)
-  rbind(xy[1, ], from_metric(m[1, 1], m[1, 2] + 5000, CRS), from_metric(m[2, 1], m[2, 2] + 5000, CRS), xy[2, ])
-}
-f5 <- splice_route_fix(sp_s, sp_path, pin_at("7", 2000, 120), "car", route_fn = always_loop)
-check(sprintf("widening: still over 3x at 1200 m -> kept (window %.0f m) with a warning on pin %s",
-              f5$splices[[1]]$window_m, paste(f5$warn, collapse = ",")),
-      f5$splices[[1]]$window_m == 1200 && identical(f5$warn, "7") && isTRUE(f5$pins$warn[1]))
-# Moved start: spliced up to an anchor 300 m along the path
+check(sprintf("splice: the timed path keeps every base vertex outside the splice, small bends included (max off %.1e m over %d vertices)",
+              max(off_v), length(off_v)), max(off_v) < 0.01 && length(off_v) > 50)
+# Moved start / end: from the new start to where its route joins the base; a pin near the moved end runs on to it
 st <- ll(0, -200)
-f6 <- splice_route_fix(sp_s, sp_path, NULL, "car", ends = list(start = st[1, ]), route_fn = straight_route)
-check(sprintf("start drag: moved start -> anchor at %.0f m, the rest of the base identical, starts at the new start",
-              f6$splices[[1]]$hi),
-      abs(f6$splices[[1]]$hi - 300) < 1 && outside_same(f6, 0, 300) && all(abs(f6$coords[1, ] - st[1, ]) < 1e-9) &&
-        identical(f6$splices[[1]]$legs[[1]]$key, "start>b:start"))
-en <- ll(4000, 200)
-f6b <- splice_route_fix(sp_s, sp_path, pin_at("1", 3900, 50), "car", ends = list(end = en[1, ]), route_fn = straight_route)
-check(sprintf("end drag with a pin 100 m before the end: one splice, legs %s",
-              paste(vapply(f6b$splices[[1]]$legs, `[[`, "", "key"), collapse = " ")),
-      length(f6b$splices) == 1 && identical(vapply(f6b$splices[[1]]$legs, `[[`, "", "key"), c("a:1>1", "1>end")) &&
-        all(abs(f6b$coords[nrow(f6b$coords), ] - en[1, ]) < 1e-9))
+f7 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st[1, ]), route_fn = net)
+check(sprintf("start drag: moved start -> joins the base at %.0f m, the rest of the base identical, starts at the new start",
+              f7$splices[[1]]$hi),
+      f7$splices[[1]]$hi < 10 && outside_same(f7, 0, f7$splices[[1]]$hi) && all(abs(f7$coords[1, ] - st[1, ]) < 1e-9) &&
+        identical(keys_of(f7$splices[[1]]), "start>b:start"))
+en <- ll(6000, 200)
+f8 <- splice_route_fix(n_s, n_path, pin_at("1", 5900, 0), "car", ends = list(end = en[1, ]), route_fn = net)
+check(sprintf("end drag with a pin 100 m before the end: one splice, legs %s", paste(keys_of(f8$splices[[1]]), collapse = " ")),
+      length(f8$splices) == 1 && identical(keys_of(f8$splices[[1]]), c("a:1>1", "1>end")) &&
+        geosphere::distHaversine(f8$coords[nrow(f8$coords), ], en[1, ]) < 3)
 # Free legs: the recorded samples / a straight line, timing monotonic on whole seconds
-wig <- samples_at(sx, ifelse(sx > 1700 & sx < 2000, 60, 0), sx / 10)
-f7 <- splice_route_fix(wig, sp_path, pin_at("1", 2000, 120), "car", legs = c("a:1>1" = "recorded", "1>b:1" = "straight"),
-                       route_fn = straight_route)
-lg7 <- f7$splices[[1]]$legs
-p7 <- f7$path
+wig <- samples_at(nx, ifelse(nx > 1700 & nx < 2000, 60, 0), nx / 10)
+f9 <- splice_route_fix(wig, n_path, pin_at("1", 2000, 30), "car", legs = c("a:1>1" = "recorded", "1>b:1" = "straight"), route_fn = net)
+lg9 <- f9$splices[[1]]$legs
+p9 <- f9$path
 check(sprintf("free legs: %s; recorded leg has %d points through the samples; times whole seconds, strictly increasing, %s-%s",
-              paste(vapply(lg7, `[[`, "", "mode"), collapse = "/"), nrow(lg7[[1]]$coords), p7$t[1], p7$t[nrow(p7)]),
-      identical(vapply(lg7, `[[`, "", "mode"), c("recorded", "straight")) && nrow(lg7[[1]]$coords) > 2 &&
-        nrow(lg7[[2]]$coords) == 2 && all(diff(p7$t) > 0) && all(p7$t == round(p7$t)) &&
-        p7$t[1] == round(wig$t[1]) && p7$t[nrow(p7)] == round(wig$t[nrow(wig)]) && isTRUE(f7$on_network))
-f7b <- splice_route_fix(wig, sp_path, pin_at("1", 2000, 120), "car", route_fn = function(...) NULL)
-check("a failed routed leg: straight line, on_network FALSE", isFALSE(f7b$on_network) && nrow(f7b$splices[[1]]$legs[[1]]$coords) == 2)
+              paste(vapply(lg9, `[[`, "", "mode"), collapse = "/"), nrow(lg9[[1]]$coords), p9$t[1], p9$t[nrow(p9)]),
+      identical(vapply(lg9, `[[`, "", "mode"), c("recorded", "straight")) && nrow(lg9[[1]]$coords) > 2 &&
+        nrow(lg9[[2]]$coords) == 2 && all(diff(p9$t) > 0) && all(p9$t == round(p9$t)) &&
+        p9$t[1] == round(wig$t[1]) && p9$t[nrow(p9)] == round(wig$t[nrow(wig)]) && isTRUE(f9$on_network))
+f9b <- splice_route_fix(wig, n_path, pin_at("1", 2000, 30), "car", route_fn = function(...) NULL)
+check(sprintf("a failed routed leg: straight line from %.0f m (300 m back), on_network FALSE", f9b$splices[[1]]$lo),
+      isFALSE(f9b$on_network) && nrow(f9b$splices[[1]]$legs[[1]]$coords) == 2 && abs(f9b$splices[[1]]$lo - (f9b$pins$base_d - 300)) < 1e-6)
 # Pin snapping: with the recorded bearing the router ends off_m from the pin (another road); without it, at the pin
 snap_router <- function(off_with, off_without) {
   calls <- list()
@@ -1508,20 +1545,41 @@ snap_router <- function(off_with, off_without) {
 }
 pin_near <- pin_at("1", 2000, 40)                       # near the recording: it gets the recording's bearing
 r1 <- snap_router(9, 0.5)
-fs1 <- splice_route_fix(sp_s, sp_path, pin_near, "car", route_fn = r1$f)
+fs1 <- splice_route_fix(n_s, n_path, pin_near, "car", route_fn = r1$f)
 r2 <- snap_router(6, 4)
-fs2 <- splice_route_fix(sp_s, sp_path, pin_near, "car", route_fn = r2$f)
+fs2 <- splice_route_fix(n_s, n_path, pin_near, "car", route_fn = r2$f)
 leg2_start <- r1$calls()[[length(r1$calls())]][1]
 leg1_end <- function(fx) { co <- fx$splices[[1]]$legs[[1]]$coords; geosphere::distHaversine(co[nrow(co), ], ll(2000, 40)[1, ]) }
 check(sprintf("pin snap: 9 m off with the recorded bearing, 0.5 m without -> without (leg ends %.1f m from the pin); 6 m vs 4 m -> keeps the bearing (%.1f m); the next leg leaves the pin as the first arrived (bearing %.0f)",
               leg1_end(fs1), leg1_end(fs2), leg2_start),
       abs(leg1_end(fs1) - 0.5) < 0.1 && abs(leg1_end(fs2) - 6) < 0.1 && !is.na(fs1$pins$bearing[1]) && !is.na(leg2_start) && abs(leg2_start - 90) < 10)
-# A splice doesn't re-time the base outside its window
-tb <- splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120), "car", route_fn = straight_route)
-far <- sp_path[base_cum < tb$splices[[1]]$lo - 50 | base_cum > tb$splices[[1]]$hi + 50, ]
+# A splice doesn't re-time the base outside it
+tb <- f1
+far <- n_path[nb_cum < tb$splices[[1]]$lo - 50 | nb_cum > tb$splices[[1]]$hi + 50, ]
 t_far <- vapply(seq_len(nrow(far)), function(k) tb$path$t[which.min(geosphere::distHaversine(as.matrix(tb$path[, c("lon", "lat")]), c(far$lon[k], far$lat[k])))], numeric(1))
-check(sprintf("splice timing: outside the window the base keeps its times (max difference %.1f s over %d vertices)", max(abs(t_far - round(far$t))), nrow(far)),
+check(sprintf("splice timing: outside the splice the base keeps its times (max difference %.1f s over %d vertices)", max(abs(t_far - round(far$t))), nrow(far)),
       max(abs(t_far - round(far$t))) <= 1)
+# The searches' helpers on their own
+bj_m <- to_metric(nb_xy[, 1], nb_xy[, 2], CRS)
+r_on <- ll(c(1000, 1100, 1300, 1500, 2000), c(30, 2, 0, 0, 0))    # comes down onto the base at ~1100 and stays
+j_on <- base_join(r_on, bj_m, nb_cum, CRS, c(0, 6000))
+r_short <- ll(c(1000, 1100, 1200, 1210), c(30, 0, 0, 30))          # touches the base for 100 m only
+j_short <- base_join(r_short, bj_m, nb_cum, CRS, c(0, 6000))
+r_back <- ll(c(1000, 1100, 1300, 1500), c(0, 0, 0, 0))[4:1, ]       # on the base but heading the other way
+j_back <- base_join(r_back, bj_m, nb_cum, CRS, c(0, 6000))
+check(sprintf("base_join: joins at %.0f m (route), %.0f m (base); a 100 m touch -> %s; on the base heading the other way -> %s; backtracks: spur %s, bulge %s, straight %s",
+              j_on$s %||% NA, j_on$d %||% NA, if (is.null(j_short)) "none" else "a join", if (is.null(j_back)) "none" else "a join",
+              path_backtracks(do.call(rbind, lapply(f4$splices[[1]]$legs, `[[`, "coords"))),
+              path_backtracks(do.call(rbind, lapply(g5$legs, `[[`, "coords"))), path_backtracks(ll(c(0, 1000, 2000), c(0, 0, 0)))),
+      abs(j_on$d - 1100) < 15 && is.null(j_short) && is.null(j_back) &&
+        path_backtracks(do.call(rbind, lapply(f4$splices[[1]]$legs, `[[`, "coords"))) &&
+        !path_backtracks(do.call(rbind, lapply(g5$legs, `[[`, "coords"))) && !path_backtracks(ll(c(0, 1000, 2000), c(0, 0, 0))))
+
+# The rules tests below: a 4 km base along y = 0, the straight router
+sx <- seq(0, 4000, by = 50)
+sp_base <- samples_at(sx, rep(0, length(sx)), sx / 10)
+sp_path <- sp_base[, c("lon", "lat", "t")]
+sp_s <- sp_base[seq(1, nrow(sp_base), by = 2), ]
 
 # Per-pin rules -> server and exclude
 r_no <- pin_osrm_options("official", "no", "respect"); r_mi <- pin_osrm_options("official", "minor", "respect")
