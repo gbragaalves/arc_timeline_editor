@@ -253,10 +253,13 @@ trip_anchor_ends <- function(s, day, anchors = route_anchors()) {
 # A trip's ends for the splice: a dragged one (user_ends: start / end, c(lon,
 # lat)) wins over its anchor (trip_anchor_ends()). list(ends (start / end:
 # c(lon, lat)), info (per end: source "drag" | "anchor", anchor: the anchor's
-# name there, if any; wait: an anchored end's wait point))
-review_trip_ends <- function(user_ends, anchored) {
+# name there, if any; wait: an anchored end's wait point), reach (per
+# anchored end: how far along the base its splice may look,
+# splice_route_fix()'s reach))
+review_trip_ends <- function(user_ends, anchored, th = REVIEW_THRESHOLDS) {
   ends <- list()
   info <- list()
+  reach <- list()
   for (w in c("start", "end")) {
     if (!is.null(user_ends[[w]])) {
       ends[[w]] <- user_ends[[w]]
@@ -264,7 +267,16 @@ review_trip_ends <- function(user_ends, anchored) {
     } else if (!is.null(anchored[[w]])) {
       ends[[w]] <- c(anchored[[w]]$lon, anchored[[w]]$lat)
       info[[w]] <- list(source = "anchor", anchor = anchored[[w]]$name, wait = anchored[[w]]$wait)
+      reach[[w]] <- th$pins$splice$anchor_reach_m
     }
   }
-  list(ends = ends, info = info)
+  list(ends = ends, info = info, reach = reach)
+}
+
+# Whether the splices at a trip's ends (splice_route_fix()'s with only fixed
+# points moved) are short enough to keep the proposal eligible for "Accept
+# all": each at most anchor_bulk_m long
+anchor_splices_short <- function(pf, sp = REVIEW_THRESHOLDS$pins$splice) {
+  at_ends <- Filter(function(g) any(c("start", "end") %in% g$keys), pf$splices %||% list())
+  all(vapply(at_ends, function(g) sum(vapply(g$legs, `[[`, numeric(1), "length_m")) <= sp$anchor_bulk_m, logical(1)))
 }

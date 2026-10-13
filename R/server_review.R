@@ -206,7 +206,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         # proposal), each leg routed once (leg_cache); timed by the recording
         pf <- shiny::withProgress(message = tr("Routing through the pins..."), value = 0.5, {
           if (!is.null(base$path) && nrow(base$path) >= 2) {
-            splice_route_fix(s, base$path, pins, profile, ends = ends, legs = shiny::isolate(rv$legs[[id]]),
+            splice_route_fix(s, base$path, pins, profile, ends = ends, legs = shiny::isolate(rv$legs[[id]]), reach = te$reach,
                              start_offset_s = o$start_offset %||% 0, end_offset_s = o$end_offset %||% 0,
                              bounds = c(as.numeric(row$prev_start_utc %||% NA), as.numeric(row$next_end_utc %||% NA)),
                              route_fn = cached_leg_route)
@@ -218,8 +218,8 @@ review_server <- function(input, output, session, tr, current_lang) {
           osrm_fail(tr("Could not route through the pins (OSRM)."))
         } else {
           fx <- road_proposal_check(pf, s, act, 1L, nrow(s), profile = profile)
-          # only the fixed points changed it: as safe as the match it came from
-          if ((is.null(pins) || nrow(pins) == 0) && !length(user_ends)) fx$bulk_ok <- isTRUE(base$bulk_ok)
+          # only the fixed points changed it: as safe as the match it came from, while their splices stay short
+          if ((is.null(pins) || nrow(pins) == 0) && !length(user_ends)) fx$bulk_ok <- isTRUE(base$bulk_ok) && anchor_splices_short(pf)
         }
       } else if (isTRUE(o$reroute) && isTRUE(base$detour)) {
         via <- if (!refresh_route && identical(prev$via_key, c(from, to, profile))) prev$candidates$via else NULL

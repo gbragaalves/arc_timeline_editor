@@ -84,11 +84,16 @@ REVIEW_THRESHOLDS <- list(
   # there, kept when it ends under a third as far. A dragged start / end routes
   # from the nearest road within end_snap_m of where it was dropped (a dashed
   # connector from the drop); a stretch's drive time is OSRM's, else its
-  # length at fallback_mps
+  # length at fallback_mps. A fixed point's end (ROUTE_ANCHORS) looks for the
+  # base only within anchor_reach_m of the trip's start / end, so it replaces
+  # at most that much of the recording; a proposal changed only by fixed
+  # points stays eligible for "Accept all" while their splices are at most
+  # anchor_bulk_m long
   pins = list(near_m = 100, pass_gap_m = 300, radius_m = 50, max_off_m = 100, max_speed_mps = 50, min_reach_m = 300,
               splice = list(far_m = 5000, merge_tol_m = 5, merge_len_m = 150, merge_from_m = 30, warn_ratio = 1.5,
                             back_gap_m = 20, back_near_m = 25, back_deg = 150, window_m = 300, anchor_radius_m = 30,
-                            recorded_tol_m = 10, pin_snap_m = 5, end_snap_m = 150, fallback_mps = 8)),
+                            recorded_tol_m = 10, pin_snap_m = 5, end_snap_m = 150, fallback_mps = 8,
+                            anchor_reach_m = 500, anchor_bulk_m = 800)),
   # Road matching (review_match): collapse_stops sends a run of at least
   # stop_min_samples slow samples (< stop_speed_mps) staying within
   # stop_radius_m of their centroid as one point there (GPS jitter while
@@ -2860,7 +2865,7 @@ path_backtracks <- function(coords, sp = REVIEW_THRESHOLDS$pins$splice, step_m =
 # "no_road"), t_start_new / t_end_new (a dragged end's time), start_clamped /
 # end_clamped, coords (the untimed geometry); NULL without any pin or moved end.
 splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NULL, th = REVIEW_THRESHOLDS,
-                             route_fn = splice_leg_route, start_offset_s = 0, end_offset_s = 0, bounds = NULL) {
+                             route_fn = splice_leg_route, start_offset_s = 0, end_offset_s = 0, bounds = NULL, reach = NULL) {
   sp <- th$pins$splice
   base <- as.matrix(base_path[, c("lon", "lat")])
   colnames(base) <- c("lon", "lat")
@@ -2964,15 +2969,22 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
     lc <- path_cumulative_m(l$coords)
     if (l$mode == "route" && !l$failed && lc[length(lc)] > 0) path_bearing_at(l$coords, lc, lc[length(lc)]) else NA_real_
   }
-  # The far points of the searches: the neighbouring control point, else the
-  # base far_m away (or its start / end)
+  # The far points of the searches: the neighbouring pin, else the base far_m
+  # away (or its start / end). Next to a moved end (dragged, or a fixed
+  # point's) the search heads for the base at the neighbour's place instead:
+  # the route between an end and a pin can skip the base altogether, and the
+  # pin's splice would then run all the way back to the end
+  # reach: how far along the base a start / end may look (a fixed point's: near its end of the trip)
+  span <- function(k) if (cp$kind[k] %in% names(reach)) reach[[cp$kind[k]]] else sp$far_m
   far_ahead <- function(k) {
-    lim <- min(total, cp$d[k] + sp$far_m)
-    if (k < nrow(cp) && cp$d[k + 1L] <= lim) cp[k + 1L, ] else anchor(sprintf("f:%.0f", lim), lim)
+    lim <- min(total, cp$d[k] + span(k))
+    if (k == nrow(cp) || cp$d[k + 1L] > lim) return(anchor(sprintf("f:%.0f", lim), lim))
+    if (cp$kind[k] == "pin" && cp$kind[k + 1L] == "pin") cp[k + 1L, ] else anchor(sprintf("f:%.0f", cp$d[k + 1L]), cp$d[k + 1L])
   }
   far_behind <- function(k) {
-    lim <- max(0, cp$d[k] - sp$far_m)
-    if (k > 1 && cp$d[k - 1L] >= lim) cp[k - 1L, ] else anchor(sprintf("f:%.0f", lim), lim)
+    lim <- max(0, cp$d[k] - span(k))
+    if (k == 1 || cp$d[k - 1L] < lim) return(anchor(sprintf("f:%.0f", lim), lim))
+    if (cp$kind[k] == "pin" && cp$kind[k - 1L] == "pin") cp[k - 1L, ] else anchor(sprintf("f:%.0f", cp$d[k - 1L]), cp$d[k - 1L])
   }
 
   splices <- list()

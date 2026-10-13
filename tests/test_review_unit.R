@@ -1514,7 +1514,38 @@ check(sprintf("start drag: moved start -> joins the base at %.0f m, the rest of 
               f7$splices[[1]]$hi),
       f7$splices[[1]]$hi < 10 && outside_same(f7, 0, f7$splices[[1]]$hi) && all(abs(f7$coords[1, ] - st[1, ]) < 1e-9) &&
         identical(keys_of(f7$splices[[1]]), "start>b:start"))
+# A moved start and a pin farther on, where the route from the start straight to the pin skips the base (a
+# diagonal street from the start's side street to the parallel carriageway): two splices, the pin's the same as
+# with the pin alone
+net_diag <- net_router(rbind(
+  road(0, 0, 6000, 0, TRUE),
+  road(900, 0, 1000, 30), road(1000, 30, 3000, 30), road(3000, 30, 3100, 0),
+  road(0, -200, 0, 0, TRUE), road(0, -200, 1000, 30), road(6000, 0, 6000, 200, TRUE)
+))
+f7p <- splice_route_fix(n_s, n_path, pin_at("1", 2000, 30), "car", ends = list(start = st[1, ]), route_fn = net_diag)
+f7q <- splice_route_fix(n_s, n_path, pin_at("1", 2000, 30), "car", route_fn = net_diag)
+check(sprintf("start drag + a pin 2 km on (start -> pin would skip the base): splices %s; the pin's [%.0f, %.0f] m, the same as the pin alone %s",
+              paste(vapply(f7p$splices, function(g) paste(keys_of(g), collapse = " "), ""), collapse = " | "),
+              f7p$splices[[length(f7p$splices)]]$lo, f7p$splices[[length(f7p$splices)]]$hi,
+              length(f7p$splices) == 2 && same_legs(f7p$splices[[2]], f7q$splices[[1]])),
+      length(f7p$splices) == 2 && identical(keys_of(f7p$splices[[1]]), "start>b:start") && f7p$splices[[1]]$hi < 10 &&
+        identical(keys_of(f7p$splices[[2]]), c("a:1>1", "1>b:1")) && same_legs(f7p$splices[[2]], f7q$splices[[1]]))
+# A fixed point's start looks for the base only near the trip's start (reach): the route toward the base far ahead
+# would take the diagonal and replace ~3 km of the recording; a dragged start keeps the far search
+fr0 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st[1, ]), route_fn = net_diag)
+fr1 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st[1, ]), route_fn = net_diag, reach = list(start = 500))
+te_r <- review_trip_ends(list(end = unname(st[1, ])), list(start = list(name = "A", lon = st[1, 1], lat = st[1, 2]), end = list(name = "B", lon = 0, lat = 0)))
+check(sprintf("fixed point's reach: dragged start joins the base at %.0f m (splice %.0f m, short %s); within %s m of the start it joins at %.0f m (%s, %.0f m, short %s); reach only for the anchored end (%s)",
+              fr0$splices[[1]]$hi, splice_len(fr0$splices[[1]]), anchor_splices_short(fr0), REVIEW_THRESHOLDS$pins$splice$anchor_reach_m,
+              fr1$splices[[1]]$hi, paste(keys_of(fr1$splices[[1]]), collapse = " "), splice_len(fr1$splices[[1]]), anchor_splices_short(fr1),
+              paste(names(te_r$reach), collapse = ",")),
+      fr0$splices[[1]]$hi > 2500 && !anchor_splices_short(fr0) && fr1$splices[[1]]$hi < 10 &&
+        identical(keys_of(fr1$splices[[1]]), "start>b:start") && anchor_splices_short(fr1) &&
+        identical(names(te_r$reach), "start") && te_r$reach$start == REVIEW_THRESHOLDS$pins$splice$anchor_reach_m)
 en <- ll(6000, 200)
+fr2 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(end = en[1, ]), route_fn = net, reach = list(end = 500))
+check(sprintf("fixed point's reach at the end: splice %s from %.0f m of %.0f", paste(keys_of(fr2$splices[[1]]), collapse = " "), fr2$splices[[1]]$lo, nb_cum[length(nb_cum)]),
+      identical(keys_of(fr2$splices[[1]]), "a:end>end") && fr2$splices[[1]]$lo >= nb_cum[length(nb_cum)] - 500)
 f8 <- splice_route_fix(n_s, n_path, pin_at("1", 5900, 0), "car", ends = list(end = en[1, ]), route_fn = net)
 check(sprintf("end drag with a pin 100 m before the end: one splice, legs %s", paste(keys_of(f8$splices[[1]]), collapse = " ")),
       length(f8$splices) == 1 && identical(keys_of(f8$splices[[1]]), c("a:1>1", "1>end")) &&
