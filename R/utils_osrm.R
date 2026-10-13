@@ -636,12 +636,14 @@ osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot",
     route <- js$routes[[1]]
     geom <- do.call(rbind, lapply(route$geometry$coordinates, function(p) as.numeric(unlist(p))[1:2]))
     if (is.null(geom) || nrow(geom) < 2) return(NULL)
-    list(coords = geom, legs_m = vapply(route$legs, function(l) as.numeric(l$distance), numeric(1)))
+    list(coords = geom, legs_m = vapply(route$legs, function(l) as.numeric(l$distance), numeric(1)),
+         duration_s = as.numeric(route$duration %||% NA))
   }
 
   starts <- seq(1L, max(n - 1L, 1L), by = chunk_size - 1L)
   geom <- NULL
   legs <- numeric(0)
+  duration <- 0
   for (s in starts) {
     idx <- s:min(s + chunk_size - 1L, n)
     r <- request(idx, TRUE)
@@ -649,7 +651,8 @@ osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot",
     if (is.null(r)) return(NULL)
     geom <- if (is.null(geom)) r$coords else rbind(geom, r$coords[-1, , drop = FALSE])
     legs <- c(legs, r$legs_m)
+    duration <- duration + r$duration_s
   }
   colnames(geom) <- c("lon", "lat")
-  list(coords = geom, distance_m = sum(legs), legs_m = legs)
+  list(coords = geom, distance_m = sum(legs), legs_m = legs, duration_s = duration)
 }

@@ -191,6 +191,8 @@ review_server <- function(input, output, session, tr, current_lang) {
         pf <- shiny::withProgress(message = tr("Routing through the pins..."), value = 0.5, {
           if (!is.null(base$path) && nrow(base$path) >= 2) {
             splice_route_fix(s, base$path, pins, profile, ends = ends, legs = shiny::isolate(rv$legs[[id]]),
+                             start_offset_s = o$start_offset %||% 0, end_offset_s = o$end_offset %||% 0,
+                             bounds = c(as.numeric(row$prev_start_utc %||% NA), as.numeric(row$next_end_utc %||% NA)),
                              route_fn = cached_leg_route)
           } else {
             pinned_route_fix(s, pins, profile, start = ends$start, end = ends$end)
@@ -250,13 +252,15 @@ review_server <- function(input, output, session, tr, current_lang) {
     row <- trip_row(id)
     rail <- family_of(row$activity) == "rail"
     name_of <- function(st) if (rail && !is.null(st$name)) st$name else ""
+    moved <- if (rail) list() else shiny::isolate(rv$route_ends[[id]]) %||% list()
     list(span = c(as.numeric(row$start_utc), as.numeric(row$end_utc)), s = trip_samples(id),
          fill = get_ov(id)$fill %||% list(), places = list(before = name_of(fx$plan$dep), after = name_of(fx$plan$arr)),
-         keep_start = rail && isTRUE(fx$start_at_tap))
+         keep_start = (rail && isTRUE(fx$start_at_tap)) || (!is.null(moved$start) && !is.null(fx$t_start_new)),
+         keep_end = !is.null(moved$end) && !is.null(fx$t_end_new))
   }
   cover_accept <- function(id, fx, entry) {
     a <- cover_args(id, fx)
-    review_cover_entry(entry, a$span, a$s, a$fill, a$places, a$keep_start)
+    review_cover_entry(entry, a$span, a$s, a$fill, a$places, a$keep_start, keep_end = a$keep_end)
   }
   # The coverage of the current proposal (the split's segments while split)
   cover_preview <- function(id, fx) {
@@ -264,7 +268,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     main <- if (length(fx$split$segments) && !isTRUE(fx$split$ignored)) fx$split$segments else
       review_main_segments(list(activity = fx$activity, path = fx$path))
     a <- cover_args(id, fx)
-    review_cover(main, a$span, a$s, a$fill, a$places, a$keep_start)
+    review_cover(main, a$span, a$s, a$fill, a$places, a$keep_start, keep_end = a$keep_end)
   }
 
   # Split at the first Jaé tap (when switched on): walk -> wait -> bus / rail
@@ -365,6 +369,12 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     codes <- vapply(acts, function(a) REVIEW_ACTIVITIES[[a]]$code, integer(1))
     trips <- trip_inventory(items, codes, with_samples = FALSE)
+    # The neighbouring items' times: a dragged start / end stops there
+    nb <- items[!items$deleted & !items$disabled, ]
+    nb <- nb[order(nb$start_utc), ]
+    k <- match(trips$id, nb$id)
+    trips$prev_start_utc <- nb$start_utc[ifelse(is.na(k) | k <= 1, NA, k - 1L)]
+    trips$next_end_utc <- nb$end_utc[ifelse(is.na(k) | k >= nrow(nb), NA, k + 1L)]
     res <- shiny::withProgress(message = tr("Measuring trips..."), value = 0, {
       review_trips(trips, progress = function(f, detail) shiny::setProgress(f, detail = detail))
     })
@@ -892,6 +902,7 @@ review_server <- function(input, output, session, tr, current_lang) {
         }
       ))
     } else {
+      parts <- c(parts, retime_rows(id, fx, row, lang))
       method <- switch(fx$method,
         match = sprintf(tr("Matched to the roads (confidence %.2f)"), fx$confidence),
         "match+gaps" = sprintf(tr("Matched to the roads (confidence %.2f), gaps routed"), fx$confidence),
@@ -997,6 +1008,36 @@ review_server <- function(input, output, session, tr, current_lang) {
       set_ov(id, list(fill = f))
     }, ignoreInit = TRUE)
   })
+
+  # A dragged start / end of a road trip: its recalculated time (the original
+  # minus / plus the drive time of the stretch added, within the neighbouring
+  # items) with the fine adjustments; ⚠ when clamped or not routed
+  end_clamp_text <- function(id, which) {
+    row <- trip_row(id)
+    if (which == "start") sprintf(tr("Clamped to the previous item's start (%s)."), local_time(row$prev_start_utc, "%H:%M:%S")) else
+      sprintf(tr("Clamped to the next item's end (%s)."), local_time(row$next_end_utc, "%H:%M:%S"))
+  }
+  retime_rows <- function(id, fx, row, lang) {
+    moved <- rv$route_ends[[id]] %||% list()
+    lapply(intersect(c("start", "end"), names(moved)), function(which) {
+      why <- fx$fail[[which]]
+      t_new <- fx[[paste0("t_", which, "_new")]]
+      clamped <- isTRUE(fx[[paste0(which, "_clamped")]])
+      was <- local_time(if (which == "start") row$start_utc else row$end_utc, "%H:%M:%S")
+      warn <- if (!is.null(why)) splice_fail_text(why, lang) else if (clamped) end_clamp_text(id, which)
+      adj <- function(delta, text) {
+        shiny::tags$button(type = "button", class = "btn btn-outline-secondary", `data-review-adj` = paste0(which, ":", delta),
+                           disabled = if (is.null(t_new)) NA, text)
+      }
+      shiny::div(
+        class = "review-retime", `data-retime` = which, title = paste(c(sprintf(tr("Was %s."), was), warn), collapse = " "),
+        shiny::span(class = "rv-retime-label", if (which == "start") tr("Recalculated start") else tr("Recalculated end")),
+        shiny::span(class = "rv-num", if (is.null(t_new)) "\u2013" else local_time(t_new, "%H:%M:%S")),
+        if (!is.null(warn)) shiny::span(class = "rv-warn rv-retime-warn", title = warn, "\u26A0"),
+        shiny::div(class = "btn-group btn-group-sm", adj(-60, "\u22121m"), adj(-30, "\u221230s"), adj(30, "+30s"), adj(60, "+1m"))
+      )
+    })
+  }
 
   # Station selects, time adjustments, start/end from the map
   station_changed <- function(which, value) {
@@ -1381,14 +1422,25 @@ review_server <- function(input, output, session, tr, current_lang) {
         xy <- l[[1]]$coords[if (last) nrow(l[[1]]$coords) else 1L, ]
         list(lat = xy[["lat"]], lng = xy[["lon"]])
       }
-      msg$ctrl <- c(list(list(id = "start", lat = p$lat[1], lng = p$lon[1])),
+      # A dragged end sits where it was dropped; ⚠ with the reason when it got no
+      # route, or its time was clamped to the neighbouring item
+      moved <- rv$route_ends[[id]] %||% list()
+      end_ctrl <- function(which, k) {
+        at <- moved[[which]] %||% c(p$lon[k], p$lat[k])
+        why <- fx$fail[[which]]
+        clamped <- isTRUE(fx[[paste0(which, "_clamped")]])
+        list(id = which, lat = at[2], lng = at[1], warn = !is.null(why) || clamped,
+             warn_text = if (!is.null(why)) splice_fail_text(why, current_lang()) else if (clamped) end_clamp_text(id, which))
+      }
+      pin_fail <- function(k) if (nzchar(pins$warn_text[k] %||% "")) splice_fail_text(pins$warn_text[k], current_lang())
+      msg$ctrl <- c(list(end_ctrl("start", 1L)),
                     lapply(seq_len(nrow(pins)), function(k) {
                       pid <- as.character(pins$id[k])
                       list(id = pid, lat = pins$lat[k], lng = pins$lon[k], ww = pins$ww[k], turns = pins$turns[k],
-                           warn = isTRUE(pins$warn[k]),
+                           warn = isTRUE(pins$warn[k]), warn_text = pin_fail(k),
                            prev = leg_end(paste0(">", pid, "$"), FALSE), `next` = leg_end(paste0("^", pid, ">"), TRUE))
                     }),
-                    list(list(id = "end", lat = p$lat[n], lng = p$lon[n])))
+                    list(end_ctrl("end", n)))
       msg$path <- lapply(seq_len(n), function(k) c(p$lat[k], p$lon[k]))
       msg$window_m <- REVIEW_THRESHOLDS$pins$splice$window_m   # the drag preview's reach (the splice itself ends where the route rejoins)
       msg$rules <- identical(fx$profile, "official")
@@ -1665,6 +1717,14 @@ review_server <- function(input, output, session, tr, current_lang) {
       if (!is.null(p)) {
         proxy <- leaflet::addPolylines(proxy, lng = p$lon, lat = p$lat, color = color, weight = 5, opacity = 0.85,
                                        group = "review_proposed")
+      }
+      # A dragged end dropped off the road: its connector, dashed
+      for (sg in fx$splices) if (!is.null(sg$connector)) {
+        proxy <- leaflet::addPolylines(proxy, lng = sg$connector[, 1], lat = sg$connector[, 2], color = "white", weight = 6, opacity = 1,
+                                       group = "review_proposed", options = leaflet::pathOptions(interactive = FALSE))
+        proxy <- leaflet::addPolylines(proxy, lng = sg$connector[, 1], lat = sg$connector[, 2], color = color, weight = 4, opacity = 0.95,
+                                       dashArray = "3 6", group = "review_proposed",
+                                       options = leaflet::pathOptions(interactive = FALSE, className = "end-connector"))
       }
       # Free legs (recorded path, straight line): dashed over a white gap
       for (sg in fx$splices) for (l in sg$legs) {

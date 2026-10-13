@@ -90,8 +90,9 @@ ROUTE_EDIT_JS <- "
     return [pointAt(lo), pointAt(hi)];
   }
   function pinCtrl() { return RE.ctrl.filter(function(c) { return c.id !== 'start' && c.id !== 'end'; }); }
-  function endIcon(kind) {
-    return L.divIcon({className: 'route-end route-end-' + kind, html: '', iconSize: [16, 16], iconAnchor: [8, 8]});
+  function endIcon(kind, warn) {
+    return L.divIcon({className: 'route-end route-end-' + kind + (warn ? ' route-end-warn' : ''),
+                      html: warn ? '<span class=\"route-end-badge\">&#9888;</span>' : '', iconSize: [16, 16], iconAnchor: [8, 8]});
   }
 
   // Edit Samples: while editing the route the sample markers (big pins over the
@@ -201,7 +202,8 @@ ROUTE_EDIT_JS <- "
           nb = kind === 'start' ? pointAt(Math.min.apply(null, [RE.windowM].concat(pd))) :
             pointAt(Math.max.apply(null, [total - RE.windowM].concat(pd)));
         }
-        var m = L.marker(ll, {draggable: true, icon: endIcon(kind), zIndexOffset: 1000, keyboard: false});
+        var m = L.marker(ll, {draggable: true, icon: endIcon(kind, ll.warn), zIndexOffset: 1000, keyboard: false,
+                              title: ll.warn_text || ''});
         m.options.routeEnd = kind;
         var preview = null;
         m.on('dragstart', function() { preview = L.polyline([nb, ll], previewStyle()).addTo(RE.layer); });
@@ -276,7 +278,7 @@ ROUTE_EDIT_JS <- "
         '<div class=\"pin-rule-title\">' + esc(t.turns) + '</div>' +
         group('turns', [['respect', t.turns_respect], ['ignore', t.turns_ignore]], c.turns || 'respect');
     }
-    if (c.warn) html += '<div class=\"pin-rule-warn\">&#9888; ' + esc(t.warn) + '</div>';
+    if (c.warn) html += '<div class=\"pin-rule-warn\">&#9888; ' + esc(c.warn_text || t.warn) + '</div>';
     return html + '</div>';
   }
   function nearestSplicedLeg(map, ll) {

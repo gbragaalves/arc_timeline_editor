@@ -2162,5 +2162,33 @@
   "Part of it along the rails graph (no route relation).": {
     "pt": "Parte pelo grafo de trilhos (sem relação de linha).",
     "en": "Part of it along the rails graph (no route relation)."
+  },
+  "Recalculated start": {
+    "pt": "Início recalculado",
+    "en": "Recalculated start"
+  },
+  "Recalculated end": {
+    "pt": "Fim recalculado",
+    "en": "Recalculated end"
+  },
+  "Was %s.": {
+    "pt": "Era %s.",
+    "en": "Was %s."
+  },
+  "Clamped to the previous item's start (%s).": {
+    "pt": "Limitado ao início do item anterior (%s).",
+    "en": "Clamped to the previous item's start (%s)."
+  },
+  "Clamped to the next item's end (%s).": {
+    "pt": "Limitado ao fim do item seguinte (%s).",
+    "en": "Clamped to the next item's end (%s)."
+  },
+  "No route from here (OSRM): the previous path is kept.": {
+    "pt": "Sem rota a partir daqui (OSRM): o trajeto anterior foi mantido.",
+    "en": "No route from here (OSRM): the previous path is kept."
+  },
+  "No road within 150 m: the previous path is kept.": {
+    "pt": "Nenhuma rua a menos de 150 m: o trajeto anterior foi mantido.",
+    "en": "No road within 150 m: the previous path is kept."
   }
 }

@@ -1530,8 +1530,47 @@ check(sprintf("free legs: %s; recorded leg has %d points through the samples; ti
         nrow(lg9[[2]]$coords) == 2 && all(diff(p9$t) > 0) && all(p9$t == round(p9$t)) &&
         p9$t[1] == round(wig$t[1]) && p9$t[nrow(p9)] == round(wig$t[nrow(wig)]) && isTRUE(f9$on_network))
 f9b <- splice_route_fix(wig, n_path, pin_at("1", 2000, 30), "car", route_fn = function(...) NULL)
-check(sprintf("a failed routed leg: straight line from %.0f m (300 m back), on_network FALSE", f9b$splices[[1]]$lo),
-      isFALSE(f9b$on_network) && nrow(f9b$splices[[1]]$legs[[1]]$coords) == 2 && abs(f9b$splices[[1]]$lo - (f9b$pins$base_d - 300)) < 1e-6)
+check(sprintf("no route for a pin: no straight line, the previous path kept (%d splices, identical %s), pin %s flagged (%s)",
+              length(f9b$splices), outside_same(f9b, -1, -1), paste(f9b$warn, collapse = ","), f9b$fail[["1"]] %||% "-"),
+      length(f9b$splices) == 0 && outside_same(f9b, -1, -1) && nrow(f9b$coords) == nrow(nb_xy) && identical(f9b$warn, "1") &&
+        identical(f9b$fail[["1"]], "route") && isTRUE(f9b$pins$warn[1]) && identical(f9b$pins$warn_text[1], "route"))
+# Dragged ends: the route from / to the drop (never a straight line), the trip's start / end moved by the drive
+# time of the stretch added; the regression: a start whose route joins the path right at the old start (0 s of
+# base to time it) used to collapse into a straight line
+st0 <- ll(0, -200)[1, ]
+fe1 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st0), route_fn = net)
+p1 <- local_xy(as.matrix(fe1$path[, c("lon", "lat")]))
+head1 <- fe1$path[p1[, "y"] < -1, ]
+gap1 <- max(sqrt(rowSums(diff(local_xy(as.matrix(head1[, c("lon", "lat")])))^2)))
+check(sprintf("start dragged 200 m up a side street (the route joins the path at the old start): %d points on the side street, largest gap %.0f m, starts %+.0f s (200 m at 8 m/s), times increasing %s",
+              nrow(head1), gap1, fe1$path$t[1], all(diff(fe1$path$t) > 0)),
+      nrow(head1) >= 5 && gap1 < 60 && fe1$path$t[1] == -25 && all(diff(fe1$path$t) > 0) && isTRUE(abs(fe1$t_start_new + 25) < 0.5) &&
+        !isTRUE(fe1$start_clamped))
+net_dur <- function(xy, opts, bearings = NULL, radiuses = NULL) {
+  r <- net(xy, opts, bearings, radiuses)
+  if (!is.null(r)) attr(r, "duration_s") <- path_cumulative_m(r)[nrow(r)] / 5
+  r
+}
+fe2 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st0), route_fn = net_dur, start_offset_s = -30)
+en0 <- ll(6000, 200)[1, ]
+fe3 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(end = en0), route_fn = net)
+fe4 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st0, end = en0), route_fn = net, bounds = c(-10, 610))
+check(sprintf("times: OSRM's drive time (5 m/s) and -30 s -> start %+.0f s; end dragged 200 m -> end %+.0f s (ends %+.0f); clamped to the neighbouring items: start %+.0f (%s), end %+.0f (%s)",
+              fe2$path$t[1], fe3$path$t[nrow(fe3$path)] - 600, fe3$t_end_new - 600, fe4$path$t[1], fe4$start_clamped,
+              fe4$path$t[nrow(fe4$path)] - 600, fe4$end_clamped),
+      fe2$path$t[1] == -70 && fe3$path$t[nrow(fe3$path)] == 625 && fe4$path$t[1] == -10 && isTRUE(fe4$start_clamped) &&
+        fe4$path$t[nrow(fe4$path)] == 610 && isTRUE(fe4$end_clamped) && all(diff(fe4$path$t) > 0))
+fe5 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st0), route_fn = function(...) NULL)
+off <- ll(40, -150)[1, ]
+fe6 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = off), route_fn = net)
+far_off <- ll(-400, -600)[1, ]
+fe7 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = far_off), route_fn = net)
+check(sprintf("no straight line for a dragged end: no route -> %s, path from the old start %s; dropped 40 m off the road -> connector %s, path from the drop %s; 500 m from any road -> %s",
+              fe5$fail$start %||% "-", isTRUE(all.equal(unname(fe5$coords[1, ]), unname(nb_xy[1, ]))), !is.null(fe6$splices[[1]]$connector),
+              isTRUE(geosphere::distHaversine(fe6$coords[1, ], off) < 0.01), fe7$fail$start %||% "-"),
+      identical(fe5$fail$start, "route") && length(fe5$splices) == 0 && isTRUE(all.equal(unname(fe5$coords[1, ]), unname(nb_xy[1, ]))) &&
+        is.null(fe5$t_start_new) && !is.null(fe6$splices[[1]]$connector) && geosphere::distHaversine(fe6$coords[1, ], off) < 0.01 &&
+        nrow(fe6$splices[[1]]$connector) == 2 && identical(fe7$fail$start, "no_road") && length(fe7$splices) == 0)
 # Pin snapping: with the recorded bearing the router ends off_m from the pin (another road); without it, at the pin
 snap_router <- function(off_with, off_without) {
   calls <- list()

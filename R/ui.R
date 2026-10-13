@@ -313,6 +313,13 @@ APP_CSS <- "
   .route-end { border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); cursor: grab; }
   .route-end-start { background: #2E7D32; }
   .route-end-end { background: #C62828; }
+  .route-end-warn { box-shadow: 0 0 0 3px #ff9800; }
+  .route-end-badge { position: absolute; top: -17px; left: 9px; font-size: 13px; line-height: 1; color: #E65100;
+    text-shadow: 0 0 2px #fff, 0 0 2px #fff; }
+  .review-detail .review-retime { display: flex; align-items: center; gap: 3px; }
+  .review-detail .review-retime .rv-retime-label { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    font-size: 0.72rem; }
+  .review-detail .review-retime .btn-group .btn { padding: 0 3px; font-size: 0.64rem; line-height: 1.25; }
   .leaflet-marker-icon.sample-excluded { filter: grayscale(1) opacity(0.55); outline: 2px solid #37474F; outline-offset: -2px; border-radius: 50%; }
   .bus-arrow span { display: inline-block; font-size: 11px; line-height: 12px; text-shadow: 0 0 2px #fff; }
   .bus-popup table { font-size: 0.75rem; margin-top: 4px; }

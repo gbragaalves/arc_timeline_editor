@@ -81,11 +81,14 @@ REVIEW_THRESHOLDS <- list(
   # fails. Anchors snap within anchor_radius_m; a recorded leg is simplified
   # to recorded_tol_m; a leg ending farther than pin_snap_m from its pin (the
   # recorded bearing chose another road) is asked again without the bearing
-  # there, kept when it ends under a third as far
+  # there, kept when it ends under a third as far. A dragged start / end routes
+  # from the nearest road within end_snap_m of where it was dropped (a dashed
+  # connector from the drop); a stretch's drive time is OSRM's, else its
+  # length at fallback_mps
   pins = list(near_m = 100, pass_gap_m = 300, radius_m = 50, max_off_m = 100, max_speed_mps = 50, min_reach_m = 300,
               splice = list(far_m = 5000, merge_tol_m = 5, merge_len_m = 150, merge_from_m = 30, warn_ratio = 1.5,
                             back_gap_m = 20, back_near_m = 25, back_deg = 150, window_m = 300, anchor_radius_m = 30,
-                            recorded_tol_m = 10, pin_snap_m = 5)),
+                            recorded_tol_m = 10, pin_snap_m = 5, end_snap_m = 150, fallback_mps = 8)),
   # Road matching (review_match): collapse_stops sends a run of at least
   # stop_min_samples slow samples (< stop_speed_mps) staying within
   # stop_radius_m of their centroid as one point there (GPS jitter while
@@ -2715,11 +2718,13 @@ path_bearing_at <- function(coords, cum, d) {
 }
 
 # A routed leg: OSRM /route from xy[1, ] to xy[2, ] on opts$profile with
-# opts$exclude; coords or NULL
+# opts$exclude; coords (attribute duration_s: OSRM's drive time) or NULL
 splice_leg_route <- function(xy, opts, bearings = NULL, radiuses = NULL) {
   r <- tryCatch(osrm_route_via(xy, opts$profile, bearings = bearings, radiuses = radiuses, exclude = opts$exclude),
                 error = function(e) NULL)
-  r$coords
+  co <- r$coords
+  if (!is.null(co)) attr(co, "duration_s") <- r$duration_s
+  co
 }
 
 # The recorded samples between times t1 and t2 (exclusive), simplified, between
@@ -2839,13 +2844,23 @@ path_backtracks <- function(coords, sp = REVIEW_THRESHOLDS$pins$splice, step_m =
 # opts, bearings, radiuses): a routed leg's coords (opts: pin_osrm_options).
 # Each splice ends where the routes rejoin the base by themselves (see
 # th$pins$splice and base_join()). Timed by the recording (pinned_timed_path).
+# A route that can't be had (OSRM, or no road within end_snap_m of a dragged
+# end) never becomes a straight line: that splice is left out (the path keeps
+# its previous geometry there) and its control points are in fail. A dragged
+# start makes the trip start earlier by the drive time of the stretch it adds
+# (to where the route joins the path; moving it along the path cuts time the
+# same way), a dragged end later; plus the fine adjustments start_offset_s /
+# end_offset_s; never before bounds[1] (the previous item's start) or after
+# bounds[2] (the next item's end): clamped.
 # Returns the fix (method "pins") with pins (op: d along the recording,
-# base_d, warn), splices (lo, hi, keys, legs: key, mode, coords, failed; ok),
-# warn (pin ids whose splice is over warn_ratio x its base stretch and turns
-# back on itself), coords (the untimed geometry); NULL without any pin or
-# moved end.
+# base_d, warn, warn_text), splices (lo, hi, keys, legs: key, mode, coords,
+# failed, duration_s; ok; connector: the dashed piece from a drop off the
+# road), warn (pin ids whose splice is over warn_ratio x its base stretch and
+# turns back on itself, or failed), fail (by control point key: "route" |
+# "no_road"), t_start_new / t_end_new (a dragged end's time), start_clamped /
+# end_clamped, coords (the untimed geometry); NULL without any pin or moved end.
 splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NULL, th = REVIEW_THRESHOLDS,
-                             route_fn = splice_leg_route) {
+                             route_fn = splice_leg_route, start_offset_s = 0, end_offset_s = 0, bounds = NULL) {
   sp <- th$pins$splice
   base <- as.matrix(base_path[, c("lon", "lat")])
   colnames(base) <- c("lon", "lat")
@@ -2862,11 +2877,11 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
     rbind(cp, data.frame(key = key, kind = kind, lon = lon, lat = lat, d = d, bearing = bearing, radius = radius,
                          ww = ww, turns = turns))
   }
-  if (!is.null(ends$start)) cp <- add_cp(cp, "start", "start", ends$start[1], ends$start[2], 0, NA, NA, NA, NA)
+  if (!is.null(ends$start)) cp <- add_cp(cp, "start", "start", ends$start[1], ends$start[2], 0, NA, sp$end_snap_m, NA, NA)
   if (nrow(op)) {
     cp <- add_cp(cp, as.character(op$id), "pin", op$lon, op$lat, op$base_d, op$bearing, th$pins$radius_m, op$ww, op$turns)
   }
-  if (!is.null(ends$end)) cp <- add_cp(cp, "end", "end", ends$end[1], ends$end[2], total, NA, NA, NA, NA)
+  if (!is.null(ends$end)) cp <- add_cp(cp, "end", "end", ends$end[1], ends$end[2], total, NA, sp$end_snap_m, NA, NA)
   if (nrow(cp) == 0 || total <= 0) return(NULL)
   cp$d <- cummax(cp$d)
   crs <- utm_epsg(base[, 1], base[, 2])
@@ -2901,14 +2916,28 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
     if (is.null(routes[[key]])) {
       rl <- leg_rules(a$ww, a$turns, b$ww, b$turns)
       r <- route_leg(a, b, a_bearing, pin_osrm_options(profile, rl$ww, rl$turns))
-      routes[[key]] <<- list(r = if (is.null(r) || nrow(r) < 2) NULL else
-        matrix(as.numeric(as.matrix(r[, 1:2])), ncol = 2, dimnames = list(NULL, c("lon", "lat"))))
+      m <- NULL
+      if (!is.null(r) && nrow(r) >= 2) {
+        m <- matrix(as.numeric(as.matrix(r[, 1:2])), ncol = 2, dimnames = list(NULL, c("lon", "lat")))
+        len <- path_cumulative_m(m)[nrow(m)]
+        dur <- attr(r, "duration_s")
+        # seconds per metre: OSRM's drive time, else fallback_mps
+        attr(m, "spm") <- if (length(dur) == 1 && is.finite(dur) && dur > 0 && len > 0) dur / len else 1 / sp$fallback_mps
+        # a dragged end routes from / to the nearest road within end_snap_m of its drop
+        far_end <- function(p, q) geosphere::distHaversine(p, q) > sp$end_snap_m
+        if ((a$kind == "start" && far_end(m[1, ], c(a$lon, a$lat))) || (b$kind == "end" && far_end(m[nrow(m), ], c(b$lon, b$lat)))) {
+          attr(m, "no_road") <- TRUE
+        }
+      }
+      routes[[key]] <<- list(r = m)
     }
     routes[[key]]$r
   }
-  # A leg a -> b by its mode: routed (coords: the route's piece; NULL: OSRM
-  # failed, a straight line), the recording or a straight line
-  make_leg <- function(a, b, coords) {
+  # Why a route can't serve: none, or a dragged end too far from a road
+  unusable <- function(r) if (is.null(r)) "route" else if (isTRUE(attr(r, "no_road"))) "no_road"
+  # A leg a -> b by its mode: routed (coords: the route's piece, spm its
+  # seconds per metre), the recording or a straight line (only when chosen)
+  make_leg <- function(a, b, coords, spm = attr(coords, "spm")) {
     key <- paste0(a$key, ">", b$key)
     mode <- unname(legs[key])
     if (length(mode) != 1 || is.na(mode) || !mode %in% LEG_MODES) mode <- "route"
@@ -2926,7 +2955,9 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
       coords
     }
     xy <- matrix(as.numeric(xy), ncol = 2, dimnames = list(NULL, c("lon", "lat")))
-    list(key = key, mode = mode, coords = xy, failed = failed, length_m = path_cumulative_m(xy)[nrow(xy)])
+    len <- path_cumulative_m(xy)[nrow(xy)]
+    list(key = key, mode = mode, coords = xy, failed = failed, length_m = len,
+         duration_s = len * (if (mode == "route" && length(spm) == 1 && is.finite(spm)) spm else 1 / sp$fallback_mps))
   }
   # How a routed leg arrives at its end: the next one leaves a pin that way (no U-turn there)
   arrival <- function(l) {
@@ -2945,12 +2976,14 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
   }
 
   splices <- list()
+  fail <- list()              # control points whose splice couldn't be routed: their reason
   cur <- NULL                 # the splice being built: lo, keys, legs, arrival
   finish <- function(hi) {
     cur$hi <- hi
     splices[[length(splices) + 1L]] <<- cur
     cur <<- NULL
   }
+  give_up <- function(keys, why) for (key in keys) fail[[key]] <<- why
   for (k in seq_len(nrow(cp))) {
     c0 <- cp[k, ]
     if (is.null(cur)) {
@@ -2961,20 +2994,32 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
         prev_hi <- if (length(splices)) splices[[length(splices)]]$hi else -Inf
         fb <- far_behind(k)
         r <- routed(fb, c0, fb$bearing)
+        why <- unusable(r)
+        if (!is.null(why)) {
+          give_up(c0$key, why)
+          next
+        }
         jn <- base_join(r, base_m, cum, crs, c(fb$d, c0$d), sp, from_end = TRUE)
-        lo <- if (!is.null(jn)) jn$d else if (is.null(r)) max(fb$d, c0$d - sp$window_m) else if (fb$kind == "anchor") fb$d else -Inf
-        if (lo <= prev_hi) {
+        lo <- if (!is.null(jn)) jn$d else if (fb$kind == "anchor") fb$d else -Inf
+        if (lo <= prev_hi && length(splices) && identical(utils::tail(splices[[length(splices)]]$keys, 1), cp$key[k - 1L])) {
           # no way back onto the base before the previous splice ends: one splice through both
+          rm <- routed(cp[k - 1L, ], c0, splices[[length(splices)]]$dep)
+          why <- unusable(rm)
+          if (!is.null(why)) {
+            give_up(c0$key, why)
+            next
+          }
           cur <- splices[[length(splices)]]
           splices[[length(splices)]] <- NULL
           cur$legs <- cur$legs[-length(cur$legs)]
-          lm <- make_leg(cp[k - 1L, ], c0, routed(cp[k - 1L, ], c0, cur$dep))
+          lm <- make_leg(cp[k - 1L, ], c0, rm)
           cur$legs <- c(cur$legs, list(lm))
           cur$keys <- c(cur$keys, c0$key)
           cur$arrival <- arrival(lm)
         } else {
+          lo <- max(lo, prev_hi, 0)
           a <- anchor(paste0("a:", c0$key), lo)
-          li <- make_leg(a, c0, if (!is.null(jn)) cut_route(r, crs, jn$s, "tail") else if (fb$kind == "anchor") r)
+          li <- if (!is.null(jn)) make_leg(a, c0, cut_route(r, crs, jn$s, "tail"), attr(r, "spm")) else make_leg(a, c0, r)
           cur <- list(lo = lo, keys = c0$key, legs = list(li), arrival = arrival(li))
         }
       }
@@ -2987,12 +3032,19 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
     dep <- if (c0$kind == "pin" && !is.na(cur$arrival)) cur$arrival else c0$bearing
     fa <- far_ahead(k)
     r <- routed(c0, fa, dep)
+    why <- unusable(r)
+    if (!is.null(why)) {
+      # the whole splice stays out: the path keeps its previous geometry there
+      give_up(cur$keys, why)
+      cur <- NULL
+      next
+    }
     jn <- base_join(r, base_m, cum, crs, c(c0$d, fa$d), sp)
     cur$dep <- dep
-    if (!is.null(jn) || fa$kind == "anchor" || is.null(r)) {
-      hi <- if (!is.null(jn)) jn$d else if (is.null(r)) min(fa$d, c0$d + sp$window_m) else fa$d
+    if (!is.null(jn) || fa$kind == "anchor") {
+      hi <- if (!is.null(jn)) jn$d else fa$d
       b <- anchor(paste0("b:", c0$key), hi)
-      cur$legs <- c(cur$legs, list(make_leg(c0, b, if (!is.null(jn)) cut_route(r, crs, jn$s, "head") else r)))
+      cur$legs <- c(cur$legs, list(if (!is.null(jn)) make_leg(c0, b, cut_route(r, crs, jn$s, "head"), attr(r, "spm")) else make_leg(c0, b, r)))
       finish(hi)
     } else {
       # no join before the next control point: the splice runs on through it
@@ -3002,6 +3054,53 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
       cur$arrival <- arrival(lm)
     }
   }
+  # A dragged end dropped off the road: a dashed connector from the drop to where its route starts / ends
+  for (g in seq_along(splices)) {
+    sg <- splices[[g]]
+    first <- sg$legs[[1]]
+    if (identical(sg$keys[1], "start") && first$mode == "route" &&
+        geosphere::distHaversine(first$coords[1, ], ends$start) > 1) {
+      sg$connector <- rbind(ends$start, first$coords[1, ])
+      first$coords <- rbind(ends$start, first$coords)
+      sg$legs[[1]] <- first
+    }
+    last <- sg$legs[[length(sg$legs)]]
+    if (identical(utils::tail(sg$keys, 1), "end") && last$mode == "route" &&
+        geosphere::distHaversine(last$coords[nrow(last$coords), ], ends$end) > 1) {
+      sg$connector <- rbind(sg$connector, last$coords[nrow(last$coords), ], ends$end)
+      last$coords <- rbind(last$coords, ends$end)
+      sg$legs[[length(sg$legs)]] <- last
+    }
+    if (!is.null(sg$connector)) colnames(sg$connector) <- c("lon", "lat")
+    splices[[g]] <- sg
+  }
+  # A dragged end's time: the original start minus the drive time of the
+  # stretch the splice adds before where it joins the path (its time there),
+  # the end mirrored; plus the fine adjustments; within the neighbouring items
+  bounds <- as.numeric(bounds %||% c(NA, NA))
+  t_start_new <- t_end_new <- NULL
+  start_clamped <- end_clamped <- FALSE
+  for (sg in splices) {
+    d <- sum(vapply(sg$legs, `[[`, numeric(1), "duration_s"))
+    both <- "start" %in% sg$keys && "end" %in% sg$keys
+    if ("start" %in% sg$keys) {
+      t_start_new <- (if (both) s$t[1] else t_at(sg$hi) - d) + start_offset_s
+      if (!is.na(bounds[1]) && t_start_new < bounds[1]) {
+        t_start_new <- bounds[1]
+        start_clamped <- TRUE
+      }
+      t_start_new <- min(t_start_new, t_at(sg$hi) - 1)
+    }
+    if ("end" %in% sg$keys) {
+      t_end_new <- (if (both) s$t[nrow(s)] else t_at(sg$lo) + d) + end_offset_s
+      if (!is.na(bounds[2]) && t_end_new > bounds[2]) {
+        t_end_new <- bounds[2]
+        end_clamped <- TRUE
+      }
+      t_end_new <- max(t_end_new, t_at(sg$lo) + 1, (t_start_new %||% -Inf) + 1)
+    }
+  }
+
   # A warning: much longer than the base it replaces and turning back on itself
   warn <- character(0)
   for (g in seq_along(splices)) {
@@ -3042,8 +3141,8 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
   }
   splice_part <- function(sg) {
     xy <- dedup(do.call(rbind, lapply(sg$legs, `[[`, "coords")))
-    t1 <- if (sg$lo <= 0 && !is.null(ends$start)) s$t[1] else t_at(sg$lo)
-    t2 <- if (sg$hi >= total && !is.null(ends$end)) s$t[nrow(s)] else t_at(sg$hi)
+    t1 <- if ("start" %in% sg$keys) t_start_new else t_at(sg$lo)
+    t2 <- if ("end" %in% sg$keys) t_end_new else t_at(sg$hi)
     sc <- path_cumulative_m(xy)
     inside <- s[s$t > t1 & s$t < t2, , drop = FALSE]
     d <- if (nrow(inside)) project_samples_monotonic(xy, sc, inside, th$pins$max_off_m, th$pins$max_speed_mps, th$pins$min_reach_m) else numeric(0)
@@ -3069,12 +3168,24 @@ splice_route_fix <- function(s, base_path, pins, profile, ends = NULL, legs = NU
   colnames(coords) <- c("lon", "lat")
   timed$t <- cummax(timed$t)
   path <- if (is.null(base_t)) pinned_timed_path(s, coords, th, angle_deg = 0, keep_shape = TRUE) else
-    whole_second_path(timed, s$t[1], s$t[nrow(s)])
+    whole_second_path(timed, t_start_new %||% s$t[1], t_end_new %||% s$t[nrow(s)])
   if (!is.null(base_t)) attr(path, "anchored") <- anchored
+  warn <- union(warn, intersect(names(fail), as.character(op$id)))
   op$warn <- as.character(op$id) %in% warn
+  op$warn_text <- vapply(as.character(op$id), function(id) fail[[id]] %||% "", character(1))
   failed <- any(unlist(lapply(splices, function(sg) vapply(sg$legs, `[[`, logical(1), "failed"))))
   list(path = path, method = "pins", on_network = !failed, n_pins = nrow(op), pins = op, anchored = attr(path, "anchored"),
-       splices = splices, warn = warn, coords = coords)
+       splices = splices, warn = warn, fail = fail, t_start_new = t_start_new, t_end_new = t_end_new,
+       start_clamped = start_clamped, end_clamped = end_clamped, coords = coords)
+}
+
+# Why a dragged end or a pin got no splice (splice_route_fix()'s fail), for its tooltip
+splice_fail_text <- function(why, lang = APP_LANGUAGE) {
+  switch(why %||% "",
+    route = tr_lang("No route from here (OSRM): the previous path is kept.", lang),
+    no_road = tr_lang("No road within 150 m: the previous path is kept.", lang),
+    ""
+  )
 }
 
 # New positions for samples (s: lon, lat, t, by time) on a route (Edit Samples
@@ -3538,7 +3649,7 @@ multimodal_note_range <- function(t_start, t_end, margin_s = 15, min_leg_s = 40)
 # list(side, gap_s, mode, auto, place, from, to)), span (the covered range),
 # raw (the main tracks' range before any change)).
 review_cover <- function(segments, span, s = NULL, fill = list(), places = list(), keep_start = FALSE,
-                         th = REVIEW_THRESHOLDS) {
+                         th = REVIEW_THRESHOLDS, keep_end = FALSE) {
   cv <- th$cover
   span <- as.numeric(span)
   n <- length(segments)
@@ -3557,7 +3668,7 @@ review_cover <- function(segments, span, s = NULL, fill = list(), places = list(
   t1 <- last_row(segments[[n]]$path)$t
   raw <- c(t0, t1)
   lo <- if (keep_start) min(span[1], t0) else span[1]
-  hi <- span[2]
+  hi <- if (keep_end) max(span[2], t1) else span[2]
   if (t0 < lo || t1 > hi) {
     b0 <- max(t0, lo)
     b1 <- min(t1, hi)
@@ -3644,8 +3755,8 @@ review_main_segments <- function(a) {
 # An accepted fix covering its original item (review_cover()): its tracks as
 # segments, its joined path, span, covered = TRUE and the gaps
 review_cover_entry <- function(a, span, s = NULL, fill = list(), places = list(), keep_start = FALSE,
-                               th = REVIEW_THRESHOLDS) {
-  cv <- review_cover(review_main_segments(a), span, s, fill, places, keep_start, th)
+                               th = REVIEW_THRESHOLDS, keep_end = FALSE) {
+  cv <- review_cover(review_main_segments(a), span, s, fill, places, keep_start, th, keep_end)
   joined <- do.call(rbind, lapply(cv$segments, function(g) g$path[, c("lon", "lat", "t")]))
   a$path <- joined[c(TRUE, diff(joined$t) > 0), ]
   rownames(a$path) <- NULL
