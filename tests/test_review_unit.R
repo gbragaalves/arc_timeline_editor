@@ -268,6 +268,25 @@ check(sprintf("inventory: flagged %s | fragment %s | skips part %s | bulk %s", s
       identical(show("flagged"), "FRAG,ROUND,SHORT") && identical(show("fragment"), "FRAG") &&
         identical(show("short_proposal"), "SHORT") && identical(show("bulk_ok"), "ROUND"))
 
+# No samples (the local weekly file predates the item's last save): not a fragment; a cached measurement
+# without samples is measured again on the next Find and isn't cached
+m_ns <- with(n_samples = 0L, path_km = 0, straight_km = 0, off_share = NA, longest_off_m = NA, max_offset_m = NA)
+check(sprintf("no samples: %s, not a fragment", paste(codes(m_ns, "taxi"), collapse = ",")),
+      identical(codes(m_ns, "taxi"), "no_samples") && identical(codes(with(n_samples = 1L, path_km = 0), "taxi"), c("no_samples", "fragment")))
+trips_ns <- rbind(mk_trip("NOSAMP"), mk_trip("FRAG"))
+trips_ns$end_utc <- trips_ns$start_utc + 1200
+cache_ns <- list()
+cache_ns[[review_cache_key(trips_ns[1, ])]] <- list(metrics = m_ns, match = NULL, saved = Sys.time())
+cache_ns[[review_cache_key(trips_ns[2, ])]] <- cache_b[[review_cache_key(trips_b[1, ])]]
+cf_ns <- tempfile(fileext = ".rds"); saveRDS(cache_ns, cf_ns)
+wd_ns <- tempfile("weeks_"); dir.create(wd_ns)
+rb_ns <- review_trips(trips_ns, weekly_dir = wd_ns, cache_file = cf_ns)
+check(sprintf("no samples, cached: flagged %s, fragment %s, \"%s\"; left the cache %s", rb_ns$flagged[1], rb_ns$fragment[1],
+              format_reasons(rb_ns$reasons[[1]], "pt"), !review_cache_key(trips_ns[1, ]) %in% names(readRDS(cf_ns))),
+      isTRUE(rb_ns$flagged[1]) && isFALSE(rb_ns$fragment[1]) && isTRUE(rb_ns$fragment[2]) &&
+        identical(format_reasons(rb_ns$reasons[[1]], "pt"), "nenhuma amostra no backup local: busque do iCloud de novo") &&
+        !review_cache_key(trips_ns[1, ]) %in% names(readRDS(cf_ns)) && review_cache_key(trips_ns[2, ]) %in% names(readRDS(cf_ns)))
+
 # ---- 10. Re-route through the recorded path (via waypoints) ----
 xs10 <- seq(0, 3000, by = 50)
 t10 <- 1.79e9 + c(xs10[xs10 <= 1500] / 10, 150 + (xs10[xs10 > 1500] - 1500) / 5)  # 10 m/s, then 5 m/s
@@ -700,25 +719,40 @@ check(sprintf("GPX: %d tracks %s; touching %s; strictly increasing inside %s; %d
         all(vapply(trk_times, function(x) all(diff(x) > 0), logical(1))) && review_gpx_track_count(acc_split) == 4 &&
         identical(acc_split$trip1$activity, "car") && !is.unsorted(acc_split$trip1$path$t, strictly = TRUE))
 
-# ---- 13. OSRM profile of road trips (official) ----
-check(sprintf("car trips default to the official profile (%s); taxi stays on car, bus on bus",
-              REVIEW_ACTIVITIES$car$osrm),
-      REVIEW_ACTIVITIES$car$osrm == "official" && REVIEW_ACTIVITIES$taxi$osrm == "car" && REVIEW_ACTIVITIES$bus$osrm == "bus")
-check("official is a configured, enabled driving profile",
-      "official" %in% osrm_enabled_profiles() && OSRM_PROFILES$official == "driving")
+# ---- 13. OSRM profile of road trips: one road profile (official) ----
+check(sprintf("car, taxi and bus trips all route on the road profile (%s)", ROAD_PROFILE),
+      ROAD_PROFILE == "official" && all(vapply(REVIEW_ACTIVITIES[c("car", "taxi", "bus")], `[[`, "", "osrm") == "official"))
+check("official is a configured, enabled driving profile; the car and bus servers are gone",
+      "official" %in% osrm_enabled_profiles() && OSRM_PROFILES$official == "driving" &&
+        !any(c("car", "bus") %in% names(OSRM_SERVERS)) && identical(osrm_enabled_profiles(), c("official", "foot", "official-noturn")))
+check("car / bus are names for the road profile; others are themselves",
+      identical(osrm_profile_of(c("car", "bus", "official", "foot", "official-noturn", "metro")),
+                c("official", "official", "official", "foot", "official-noturn", "metro")) &&
+        identical(osrm_profile_of(character(0)), character(0)))
 osrm_fns <- c("calculate_osrm_route", "recalculate_segment", "osrm_match", "osrm_route_via")
-check("every OSRM function accepts profile = 'official' (match.arg lists)",
-      all(vapply(osrm_fns, function(f) "official" %in% eval(formals(get(f))$profile), logical(1))))
+check("every OSRM function accepts profile = 'official' and the car / bus names (match.arg lists)",
+      all(vapply(osrm_fns, function(f) all(c("official", "car", "bus") %in% eval(formals(get(f))$profile)), logical(1))))
 check("every configured OSRM profile is accepted by every OSRM function",
       all(vapply(osrm_fns, function(f) all(names(OSRM_SERVERS) %in% eval(formals(get(f))$profile)), logical(1))))
-check("Batch review profile select: Car / Official / Bus", identical(unname(profile_choices(REVIEW_PROFILE_CHOICES)), c("car", "official", "bus")))
-# Without the official server enabled, car trips fall back to the car profile
-fallback <- local({
-  OSRM_ENABLED_PROFILES <- c("car", "foot", "bus")
-  environment(osrm_enabled_profiles) <- environment()
-  if ("official" %in% osrm_enabled_profiles()) "official" else "car"
+check("Route Builder modes: Car, Bus, Foot, Metro, Train, Tram (no Official); snap: Road, Foot, Metro, Train, Tram",
+      identical(unname(profile_choices()), c("car", "bus", "foot", "metro", "train", "tram")) &&
+        identical(unname(profile_choices(SNAP_PROFILE_CHOICES)), c("official", "foot", "metro", "train", "tram")))
+check("status dot labels cover every enabled server", all(osrm_enabled_profiles() %in% OSRM_PROFILE_LABELS))
+check("router network: the road profile's tiles, also for car / bus",
+      identical(router_tile_url("bus"), router_tile_url()) && identical(router_tile_url("car"), router_tile_url()) &&
+        grepl("^http://127.0.0.1:5005/tile/v1/driving/", router_tile_url()))
+# A car / bus request goes to the official server (with its default exclude)
+urls13 <- character(0)
+local({
+  osrm_get_json <- function(url, exclude = "", timeout_s = 30) { urls13 <<- c(urls13, paste0(url, "#", exclude)); list(code = "NoRoute") }
+  check_osrm_server <- function(...) TRUE
+  f_route <- calculate_osrm_route; environment(f_route) <- environment()
+  f_match <- osrm_match; environment(f_match) <- environment()
+  f_route(data.frame(lat = c(-22.9, -22.91), lng = c(-43.2, -43.21)), profile = "bus")
+  f_match(cbind(c(-43.2, -43.21), c(-22.9, -22.91)), c(0, 10), c(10, 10), profile = "car")
 })
-check("official not enabled: car trips use car", fallback == "car")
+check(sprintf("car / bus requests go to the official server, exclude=wwmajor (%d requests)", length(urls13)),
+      length(urls13) == 2 && all(startsWith(urls13, "http://127.0.0.1:5005/")) && all(endsWith(urls13, "#wwmajor")))
 trip13 <- data.frame(id = "T13", last_saved = "2026-06-13T09:00:00Z", activity = "car")
 k_off <- review_cache_key(trip13)
 REVIEW_ACTIVITIES$car$osrm <- "car"; k_car <- review_cache_key(trip13); REVIEW_ACTIVITIES$car$osrm <- "official"
@@ -731,9 +765,9 @@ spy_route <- function(points, profile = "car", ...) {
   list(coords = cbind(points$lng, points$lat), distance_m = 1, duration_s = 1)
 }
 p13 <- road_proposal(s9, same_match(cbind(s9$lon, s9$lat), s9$t, NULL, "x"), "car", route_fn = spy_route, match_fn = spy_match,
-                     profile = "bus")
-check(sprintf("road_proposal(profile = 'bus') uses it for the re-match: %s", paste(unique(seen), collapse = ", ")),
-      !is.null(p13) && length(seen) > 0 && all(grepl(":bus$", seen)))
+                     profile = "official-noturn")
+check(sprintf("road_proposal(profile = 'official-noturn') uses it for the re-match: %s", paste(unique(seen), collapse = ", ")),
+      !is.null(p13) && length(seen) > 0 && all(grepl(":official-noturn$", seen)))
 seen <- character(0)
 p13b <- road_proposal(s9, same_match(cbind(s9$lon, s9$lat), s9$t, NULL, "x"), "car", route_fn = spy_route, match_fn = spy_match)
 check(sprintf("road_proposal default for car: %s", paste(unique(seen), collapse = ", ")), all(grepl(":official$", seen)))
@@ -1070,7 +1104,7 @@ check(sprintf("snap through pins: %d positions, the outlier placed between its n
               sn_d[14], sn_d[15], sn_d[16]),
       nrow(sn) == nrow(noisy) && sn_d[14] <= sn_d[15] && sn_d[15] <= sn_d[16] && !is.unsorted(sn_d))
 
-# ---- 16. official.lua: wrong-way driving (profile diff); car.lua / bus.lua untouched ----
+# ---- 16. official.lua: wrong-way driving, plain access=no (profile diff); car.lua / bus.lua untouched ----
 lua <- readLines(path.expand("~/osrm-data/official.lua"))
 cfg_line <- grep("^OFFICIAL_WRONG_WAY_SPEED = 10", lua)
 handlers <- trimws(lua[grep("^    (wrong_way_before|WayHandlers.oneway|wrong_way_open|WayHandlers.surface|wrong_way_speed|WayHandlers.penalties),", lua)])
@@ -1089,6 +1123,12 @@ check("official.lua: wrong-way classes wwminor / wwmajor (primary, secondary and
         grepl("OFFICIAL_WRONG_WAY_EXCLUDED = { motorway = true, motorway_link = true, trunk = true, trunk_link = true }", lua_txt, fixed = TRUE) &&
         grepl("WayHandlers.classes,\\s+wrong_way_classes,", lua_txt) &&
         any(grepl("require('official')", noturn, fixed = TRUE)) && any(grepl("use_turn_restrictions = false", noturn, fixed = TRUE)))
+check("official.lua: a plain access=no way is open (official_open_access = {'no'}) unless motorcar / motor_vehicle / vehicle decides; data.*_access keeps 'no'",
+      grepl("official_open_access = Set \\{\\s+'no'\\s+\\}", lua_txt, perl = TRUE) &&
+        grepl("vehicle_tags_hierarchy = Sequence \\{\\s+'motorcar',\\s+'motor_vehicle',\\s+'vehicle'\\s+\\}", lua_txt, perl = TRUE) &&
+        all(vapply(c("forward", "backward"), function(d) grepl(sprintf(
+          "if not vehicle_%s and profile.official_open_access[data.%s_access] then\n    result.%s_mode = mode.driving\n", d, d, d),
+          lua_txt, fixed = TRUE), logical(1))))
 md5 <- unname(tools::md5sum(path.expand(c("~/osrm-data/car.lua", "~/osrm-data/bus.lua"))))
 check(sprintf("car.lua unchanged, bus.lua as of the busway rule (9be4917) (md5 %s / %s)", substr(md5[1], 1, 8), substr(md5[2], 1, 8)),
       identical(md5, c("1b9d7b7a49525e51619892c7c49cefac", "2e29abf91e49862210793bad7d4e4223")))
@@ -1591,6 +1631,21 @@ check(sprintf("times: OSRM's drive time (5 m/s) and -30 s -> start %+.0f s; end 
               fe4$path$t[nrow(fe4$path)] - 600, fe4$end_clamped),
       fe2$path$t[1] == -70 && fe3$path$t[nrow(fe3$path)] == 625 && fe4$path$t[1] == -10 && isTRUE(fe4$start_clamped) &&
         fe4$path$t[nrow(fe4$path)] == 610 && isTRUE(fe4$end_clamped) && all(diff(fe4$path$t) > 0))
+# Stopped inside a dragged end's splice: the end comes from the drive time (400 m at 8 m/s: 350 -> 400 s), but the
+# recording stands at the junction until 390 s; its anchors used to squeeze the 400 m into the last seconds, and one
+# point per second cut the corners in straight lines. Anchors that need over 1.5x the splice's speed are dropped
+stop_t <- seq(0, 600, by = 10)
+stop_s <- samples_at(ifelse(stop_t <= 350, 10 * stop_t, ifelse(stop_t < 400, 3500, 10 * stop_t)), 0, stop_t)
+fe7 <- splice_route_fix(stop_s, n_path, NULL, "car", ends = list(end = ll(3500, 400)[1, ]), route_fn = net)
+p7 <- fe7$path
+up7 <- local_xy(as.matrix(p7[, c("lon", "lat")]))[, "y"] > 1
+v7 <- geosphere::distHaversine(as.matrix(p7[-nrow(p7), c("lon", "lat")]), as.matrix(p7[-1, c("lon", "lat")])) / diff(p7$t)
+an7 <- splice_time_anchors(c(0, 0, 0, 0, 0, 400), c(350, 360, 370, 380, 390, 400), 12)
+check(sprintf("stopped inside a dragged end's splice: ends %+.0f s, fastest second up the side street %.1f m/s (60 before; cap 12 + whole seconds); anchors kept at %s",
+              fe7$t_end_new - 400, max(v7[up7[-1]]), paste(an7$t, collapse = ",")),
+      isTRUE(abs(fe7$t_end_new - 400) < 0.5) && max(v7[up7[-1]]) <= 20 && sum(up7) >= 5 &&
+        identical(an7$t, c(350, 360, 400)) && identical(splice_time_anchors(c(0, 50, 100), c(0, 10, 20), 12)$t, c(0, 10, 20)) &&
+        identical(splice_time_anchors(c(0, 0, 400), c(0, 1, 2), Inf)$t, c(0, 1, 2)))
 fe5 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = st0), route_fn = function(...) NULL)
 off <- ll(40, -150)[1, ]
 fe6 <- splice_route_fix(n_s, n_path, NULL, "car", ends = list(start = off), route_fn = net)
@@ -1654,13 +1709,15 @@ sp_s <- sp_base[seq(1, nrow(sp_base), by = 2), ]
 # Per-pin rules -> server and exclude
 r_no <- pin_osrm_options("official", "no", "respect"); r_mi <- pin_osrm_options("official", "minor", "respect")
 r_all <- pin_osrm_options("official", "all", "ignore"); r_car <- pin_osrm_options("car", "all", "ignore")
-check(sprintf("rules: no -> %s/%s, minor -> %s/%s, all+ignore -> %s/'%s', car -> %s/default",
-              r_no$profile, r_no$exclude, r_mi$profile, r_mi$exclude, r_all$profile, r_all$exclude, r_car$profile),
+r_foot <- pin_osrm_options("foot", "all", "ignore")
+check(sprintf("rules: no -> %s/%s, minor -> %s/%s, all+ignore -> %s/'%s', car (the road profile) -> %s/'%s', foot -> %s/default",
+              r_no$profile, r_no$exclude, r_mi$profile, r_mi$exclude, r_all$profile, r_all$exclude, r_car$profile, r_car$exclude, r_foot$profile),
       identical(r_no, list(profile = "official", exclude = "wwminor,wwmajor")) &&
         identical(r_mi, list(profile = "official", exclude = "wwmajor")) &&
-        identical(r_all, list(profile = "official-noturn", exclude = "")) && identical(r_car, list(profile = "car", exclude = NULL)) &&
+        identical(r_all, list(profile = "official-noturn", exclude = "")) && identical(r_car, r_all) &&
+        identical(r_foot, list(profile = "foot", exclude = NULL)) &&
         identical(osrm_exclude_for("official"), "wwmajor") && identical(osrm_exclude_for("official", ""), "") &&
-        identical(osrm_exclude_for("car"), "") && identical(osrm_exclude_for("official-noturn"), "wwmajor"))
+        identical(osrm_exclude_for("foot"), "") && identical(osrm_exclude_for("official-noturn"), "wwmajor"))
 lr <- leg_rules("minor", "respect", "all", "ignore")
 check("rules: a leg between two pins takes the more permissive (all, ignore); anchors (NA) don't count",
       identical(lr, list(ww = "all", turns = "ignore")) && identical(leg_rules(NA, NA, "no", "respect"), list(ww = "no", turns = "respect")))
@@ -1671,8 +1728,8 @@ check(sprintf("official trip: a pin's legs are asked with %s",
       length(legs_seen) == 2 && all(vapply(legs_seen, function(o) identical(o, list(profile = "official-noturn", exclude = "")), TRUE)))
 legs_seen <- list()
 invisible(splice_route_fix(sp_s, sp_path, pin_at("1", 2000, 120, ww = "all", turns = "ignore"), "bus", route_fn = straight_route))
-check("bus trip: the rules don't apply (bus server, its default)",
-      all(vapply(legs_seen, function(o) identical(o, list(profile = "bus", exclude = NULL)), TRUE)))
+check("bus trip (old name of the road profile): the rules apply too",
+      length(legs_seen) == 2 && all(vapply(legs_seen, function(o) identical(o, list(profile = "official-noturn", exclude = "")), TRUE)))
 check("old pins (no grab, no rules) get the defaults", {
   pn <- pins_normalize(data.frame(id = "1", lon = 0, lat = 0))
   identical(pn$ww, "minor") && identical(pn$turns, "respect") && is.na(pn$grab_lon) && is.na(pn$after)
@@ -2182,6 +2239,415 @@ check(sprintf("anchor with project_onto: node kept %s, the end's wait point is t
         identical(Filter(function(g) identical(g$role, "cover"), cv_node$segments)[[1]]$gpx_name, "H") &&
         geosphere::distHaversine(c(main_end$lon, main_end$lat), ll(0, 0)[1, ]) < 0.5 && off_street < 0.5 &&
         is.null(review_trip_ends(list(end = unname(ll(5, 5)[1, ])), e_h)$info$end$wait))
+
+# ---- "Hide imported": only GPX imports, not old Arc Timeline recordings ----
+src <- data.frame(id = c("a", "b", "c", "d"), source = c("GPX", "LocoKit", "LocoKit2", NA))
+check(sprintf("trip_imported: GPX %s, LocoKit %s, LocoKit2 %s, NA %s; no source column -> none",
+              trip_imported(src)[1], trip_imported(src)[2], trip_imported(src)[3], trip_imported(src)[4]),
+      identical(trip_imported(src), c(TRUE, FALSE, FALSE, FALSE)) &&
+        identical(trip_imported(src[, "id", drop = FALSE]), rep(FALSE, 4)))
+
+# ---- 20. Edit Samples parts (split / join, a mode each); untyped trips in Batch review ----
+t0p <- 1785592800
+mk_s <- function(t, item, code) {
+  lapply(seq_along(t), function(i) list(id = paste0("p", i), date = format(as.POSIXct(t0p + t[i], origin = "1970-01-01", tz = "UTC"),
+                                                                           "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+                                        timelineItemId = item[i], confirmedActivityType = code[i], latitude = ll(10 * t[i], 0)[1, 2],
+                                        longitude = ll(10 * t[i], 0)[1, 1]))
+}
+# Trip A (walking in items), visit V, trip B (no type anywhere), then one sample of C
+smp_p <- mk_s(c(0, 60, 120, 180, 240, 300, 360, 420, 480, 540, 600), c(rep("A", 4), rep("V", 3), rep("B", 3), "C"),
+              c(NA, NA, NA, NA, 1L, 1L, 1L, NA, NA, NA, 21L))
+items_p <- data.frame(id = c("A", "V", "B"), is_visit = c(FALSE, TRUE, FALSE), activity_code = c(2L, NA, NA))
+pp <- edit_default_parts(smp_p, items_p)
+check(sprintf("edit parts: one per item run (%s), modes %s, visit %s; the last run of one sample joins the one before",
+              paste(pp$t_start - t0p, pp$t_end - t0p, sep = "-", collapse = " "), paste0("'", pp$mode, "'", collapse = " "),
+              paste(pp$visit, collapse = " ")),
+      identical(pp$t_start - t0p, c(0, 240, 420)) && identical(pp$t_end - t0p, c(240, 420, 600)) &&
+        identical(pp$mode, c("walking", "stationary", "bus")) && identical(pp$visit, c(FALSE, TRUE, FALSE)))
+pp_nomode <- edit_default_parts(smp_p[1:10], items_p)
+pp_split <- edit_split_parts(pp_nomode, t0p + 120)
+check(sprintf("edit parts: B without a type -> '' (%s); split at 120 s -> %d parts, both halves walking; at a boundary or outside -> unchanged",
+              pp_nomode$mode[3], nrow(pp_split)),
+      identical(pp_nomode$mode, c("walking", "stationary", "")) && nrow(pp_split) == 4 &&
+        identical(pp_split$mode[1:2], c("walking", "walking")) && identical(pp_split$t_end[1], t0p + 120) &&
+        identical(edit_split_parts(pp_nomode, t0p + 240), pp_nomode) && identical(edit_split_parts(pp_nomode, t0p + 9999), pp_nomode))
+j_vb <- edit_join_parts(pp_nomode, 3)   # visit + untyped trip: the trip's (none)
+j_av <- edit_join_parts(pp_nomode, 2)   # trip + visit: the trip's
+j_all <- edit_join_all(pp_nomode)
+check(sprintf("edit parts: join visit + untyped trip -> '%s' (not stationary), trip + visit -> '%s', all -> 1 part '%s' %s-%s; k = 1 unchanged",
+              j_vb$mode[2], j_av$mode[1], j_all$mode, j_all$t_start - t0p, j_all$t_end - t0p),
+      identical(j_vb$mode, c("walking", "")) && !j_vb$visit[2] && identical(j_av$mode, c("walking", "")) &&
+        nrow(j_all) == 1 && identical(j_all$mode, "walking") && j_all$t_end - t0p == 540 && identical(edit_join_parts(pp_nomode, 1), pp_nomode))
+main_p <- data.frame(lon = vapply(smp_p, sample_lon, 0), lat = vapply(smp_p, sample_lat, 0), t = t0p + seq(0, 600, 60))
+segs_p <- edit_part_segments(main_p[2:10, ], pp)   # the export starts / ends inside the first / last part
+seg_ok <- length(segs_p) == 3 && identical(vapply(segs_p, `[[`, 0L, "code"), c(2L, 1L, 21L)) &&
+  segs_p[[1]]$t_start == t0p + 60 && segs_p[[3]]$t_end == t0p + 540 &&
+  all(vapply(1:2, function(k) utils::tail(segs_p[[k]]$path$t, 1) == segs_p[[k + 1]]$path$t[1], logical(1)))
+check(sprintf("edit part segments: 3 tracks (codes %s), stretched to the samples (%s-%s), consecutive tracks touch",
+              paste(vapply(segs_p, `[[`, 0L, "code"), collapse = " "), segs_p[[1]]$t_start - t0p, segs_p[[3]]$t_end - t0p), seg_ok)
+pkg_p <- build_edit_package(smp_p, smp_p, "A", "additive", "2026-11-02T00:00:00Z", activity_code = 21L)
+gpx_p <- build_edit_gpx(pkg_p, "2026-11-02T00:00:00Z", smp_p, pp)
+gpx_1 <- build_edit_gpx(pkg_p, "2026-11-02T00:00:00Z", smp_p)
+types_p <- sub(".*<type>(.*)</type>.*", "\\1", grep("<type>", gpx_p, value = TRUE))
+check(sprintf("edit GPX: one track per part (%s); without parts one track of the chosen code (%s); package item code %s",
+              paste(types_p, collapse = " "), paste(sub(".*<type>(.*)</type>.*", "\\1", grep("<type>", gpx_1, value = TRUE)), collapse = " "),
+              pkg_p$item$trip$confirmedActivityType),
+      identical(types_p, c("walking", "stationary", "bus")) && identical(grep("<type>", gpx_1, value = TRUE), "    <type>bus</type>") &&
+        identical(pkg_p$item$trip$confirmedActivityType, 21L) &&
+        identical(build_edit_package(smp_p[11], smp_p[11], "C", "additive", "2026-11-02T00:00:00Z")$item$trip$confirmedActivityType, 21L) &&
+        identical(activity_name_of(-1L), "") && identical(activity_name_of(0L), "") && identical(activity_name_of(NULL), ""))
+
+items_u <- data.frame(id = c("t1", "t2", "t3", "t4", "v1", "t5"), is_visit = c(FALSE, FALSE, FALSE, FALSE, TRUE, FALSE),
+                      start_utc = as.POSIXct(t0p + c(0, 100, 200, 300, 400, 500), origin = "1970-01-01", tz = "UTC"),
+                      end_utc = as.POSIXct(t0p + c(90, 190, 290, 390, 490, 590), origin = "1970-01-01", tz = "UTC"),
+                      activity_code = c(NA, -1L, 0L, 21L, NA, NA), distance_m = c(1500, 800, 10, 900, 0, 50),
+                      source = c("LocoKit2", "LocoKit", "LocoKit2", "LocoKit2", "LocoKit2", "LocoKit2"),
+                      deleted = c(FALSE, FALSE, FALSE, FALSE, FALSE, TRUE), disabled = FALSE, last_saved = "x", stringsAsFactors = FALSE)
+ut <- review_untyped_trips(items_u)
+um <- review_unmeasured(ut)
+check(sprintf("untyped trips: %s (no code, unknown; not bogus, visits or deleted), activity '%s', already_fixed %s; unmeasured: path_km %s, not flagged, no reasons",
+              paste(ut$id, collapse = " "), ut$activity[1], paste(ut$already_fixed, collapse = " "), paste(um$path_km, collapse = " ")),
+      identical(ut$id, c("t1", "t2")) && all(ut$activity == REVIEW_UNTYPED) && all(ut$untyped) &&
+        identical(ut$already_fixed, c(FALSE, TRUE)) && identical(um$path_km, c(1.5, 0.8)) && !any(um$flagged) &&
+        all(lengths(um$reasons) == 0) && all(is.na(um$off_share)))
+typed <- trip_inventory(items_u, 21L, with_samples = FALSE)
+typed$samples <- NULL
+bt <- review_bind_trips(review_unmeasured(typed), um)
+check(sprintf("review_bind_trips: %d rows, untyped column %s (NA for the typed row), list column kept",
+              nrow(bt), paste(bt$untyped, collapse = " ")),
+      nrow(bt) == 3 && identical(bt$id, c("t4", "t1", "t2")) && identical(bt$untyped, c(NA, TRUE, TRUE)) && is.list(bt$reasons) &&
+        identical(review_bind_trips(NULL, um), um))
+acc_u <- list(w = list(activity = "walking", path = data.frame(lon = c(-43.2, -43.199), lat = c(-22.9, -22.9), t = t0p + c(0, 60))),
+              s = list(activity = "stationary", path = data.frame(lon = c(-43.2, -43.2), lat = c(-22.9, -22.9), t = t0p + c(100, 160))))
+inp_u <- review_gpx_input(acc_u)
+gpx_u <- build_gpx(inp_u$items, inp_u$samples)
+check(sprintf("modes set on untyped trips: family %s / %s / %s, tracks %s, batch file %s",
+              review_mode("walking")$family, review_mode("bus")$family, review_mode(REVIEW_UNTYPED)$family,
+              paste(sub(".*<type>(.*)</type>.*", "\\1", grep("<type>", gpx_u, value = TRUE)), collapse = " "), review_batch_filename(acc_u)),
+      identical(review_mode("walking")$family, "recorded") && identical(review_mode("bus")$family, "road") &&
+        identical(review_mode(REVIEW_UNTYPED)$family, "untyped") &&
+        identical(sub(".*<type>(.*)</type>.*", "\\1", grep("<type>", gpx_u, value = TRUE)), c("walking", "stationary")) &&
+        identical(review_main_segments(acc_u$w)[[1]]$code, 2L) && grepl("^arc_batch_stationary-walking_", review_batch_filename(acc_u)))
+
+# ---- 21. Join trips across a short visit (Batch review) ----
+
+t0j <- as.numeric(as.POSIXct("2026-10-21 16:30:00", tz = "UTC"))
+tj <- function(s) as.POSIXct(t0j + s, origin = "1970-01-01", tz = "UTC")
+# a 20-min visit, trip A, a 3-min visit, trip B, trip C (right after B), a 12-min visit, trip D (deleted visit before E)
+items_j <- data.frame(
+  id = c("V0", "A", "V1", "B", "C", "V2", "D", "VX", "E"),
+  is_visit = c(TRUE, FALSE, TRUE, FALSE, FALSE, TRUE, FALSE, TRUE, FALSE),
+  start_utc = tj(c(0, 1200, 1400, 1600, 2400, 2600, 3400, 3500, 3600)),
+  end_utc = tj(c(1190, 1390, 1590, 2390, 2590, 3320, 3490, 3590, 3700)),
+  activity_code = c(NA, NA, NA, 5L, 2L, NA, NA, NA, NA), distance_m = c(NA, 400, NA, 3300, 200, NA, 100, NA, 50),
+  source = "LocoKit2", deleted = c(rep(FALSE, 7), TRUE, FALSE), disabled = FALSE,
+  last_saved = paste0("s", 1:9), stringsAsFactors = FALSE)
+cj_a <- review_join_candidates(items_j, "A")
+cj_b <- review_join_candidates(items_j, "B")
+cj_ab <- review_join_candidates(items_j, c("A", "V1", "B"))
+cj_d <- review_join_candidates(items_j, "D")
+check(sprintf("join candidates: A prev %s (20-min visit), next %s via %s (%s, %.1f km); B prev %s, next %s (no visit, %s); A+B next %s; D prev %s (12 min), next %s (deleted visit skipped)",
+              is.null(cj_a$prev), cj_a[["next"]]$trip, cj_a[["next"]]$visit, cj_a[["next"]]$activity, cj_a[["next"]]$km,
+              cj_b$prev$trip, cj_b[["next"]]$trip, cj_b[["next"]]$activity, cj_ab[["next"]]$trip, is.null(cj_d$prev), cj_d[["next"]]$trip),
+      is.null(cj_a$prev) && identical(cj_a[["next"]]$trip, "B") && identical(cj_a[["next"]]$visit, "V1") &&
+        identical(cj_a[["next"]]$activity, "car") && cj_a[["next"]]$km == 3.3 &&
+        identical(cj_b$prev$trip, "A") && identical(cj_b$prev$visit, "V1") && identical(cj_b[["next"]]$trip, "C") &&
+        is.null(cj_b[["next"]]$visit) && identical(cj_b[["next"]]$activity, "walking") && identical(cj_ab[["next"]]$trip, "C") &&
+        is.null(cj_d$prev) && identical(cj_d[["next"]]$trip, "E") && is.null(cj_d[["next"]]$visit) &&
+        is.null(review_join_candidates(items_j, "nope")[["next"]]) && is.null(review_join_candidates(NULL, "A")$prev))
+check(sprintf("mode of Arc's code: 5 %s, 2 %s, 21 %s, NA %s, -1 %s, 0 %s", review_mode_of_code(5L), review_mode_of_code(2L),
+              review_mode_of_code(21L), review_mode_of_code(NA), review_mode_of_code(-1L), review_mode_of_code(0L)),
+      identical(review_mode_of_code(5L), "car") && identical(review_mode_of_code(2L), "walking") &&
+        identical(review_mode_of_code(21L), "bus") && identical(review_mode_of_code(NA), REVIEW_UNTYPED) &&
+        identical(review_mode_of_code(-1L), REVIEW_UNTYPED) && identical(review_mode_of_code(0L), REVIEW_UNTYPED))
+
+trips_j <- review_untyped_trips(items_j)   # A, D, E (B is a car trip, C walking: not in this search)
+mj <- list(A = c("A", "V1", "B"))
+aj <- review_apply_merges(trips_j, items_j, mj, list(A = "car"))
+rj <- aj[aj$id == "A", ]
+check(sprintf("apply joins: %d rows (%s); A %s-%s, %.1f km, %s (code %s), %d trips, members %s, cache key %s, untyped %s",
+              nrow(aj), paste(aj$id, collapse = " "), rj$start_utc - tj(0), rj$end_utc - tj(0), rj$distance_m / 1000, rj$activity,
+              rj$activity_code, rj$n_joined, paste(rj$member_ids[[1]], collapse = ","), rj$last_saved, rj$untyped),
+      identical(aj$id, c("A", "D", "E")) && identical(aj$merged, c(TRUE, FALSE, FALSE)) &&
+        as.numeric(rj$start_utc) == t0j + 1200 && as.numeric(rj$end_utc) == t0j + 2390 && rj$distance_m == 3700 &&
+        identical(rj$activity, "car") && identical(rj$activity_code, 5L) && rj$n_joined == 2 &&
+        identical(rj$member_ids[[1]], c("A", "V1", "B")) && identical(rj$last_saved, "s2+s3+s4") && isTRUE(rj$untyped) &&
+        !rj$already_fixed && is.null(aj$member_ids[[2]]))
+aj_none <- review_apply_merges(trips_j[trips_j$id != "A", ], items_j, mj, list())        # none of its trips in the search
+aj_gone <- review_apply_merges(trips_j, items_j[items_j$id != "V1", ], mj, list())       # a visit gone (imported)
+aj_del <- review_apply_merges(trips_j, items_j, list(D = c("D", "VX", "E")), list())   # a deleted item
+aj_un <- review_apply_merges(trips_j, items_j, mj, list())
+check(sprintf("apply joins: no trip in the search -> %s; an item gone -> %s; a deleted item -> %s; no mode -> %s",
+              paste(aj_none$id, collapse = " "), paste(aj_gone$id, collapse = " "), paste(aj_del$id, collapse = " "), aj_un$activity[1]),
+      identical(aj_none$id, c("D", "E")) && !any(aj_none$merged) && identical(aj_gone$id, c("A", "D", "E")) && !any(aj_gone$merged) &&
+        identical(aj_del$id, c("A", "D", "E")) && !any(aj_del$merged) && identical(aj_un$activity[1], REVIEW_UNTYPED) &&
+        is.na(aj_un$activity_code[1]))
+mm <- review_mark_merged(review_mark_merged(review_unmeasured(aj)))
+check(sprintf("joined trips pending: flagged %s, reasons \"%s\" (once), others %s",
+              mm$flagged[1], format_reasons(mm$reasons[[1]], "pt"), paste(mm$flagged[-1], collapse = " ")),
+      isTRUE(mm$flagged[1]) && identical(format_reasons(mm$reasons[[1]], "pt"), "2 viagens unidas") &&
+        identical(format_reasons(mm$reasons[[1]], "en"), "2 trips joined") && !any(mm$flagged[-1]))
+
+# Samples of a joined trip: every item's (a weekly file of its week)
+wd_j <- tempfile("weeks_j_"); dir.create(wd_j)
+smp_j <- data.frame(id = paste0("S", 1:6), timelineItemId = c("A", "A", "V1", "V1", "B", "Z"),
+                    date = format(tj(c(1210, 1300, 1450, 1500, 1700, 1800)), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+                    latitude = -22.93, longitude = -43.18 + (1:6) / 1000, horizontalAccuracy = 10, stringsAsFactors = FALSE)
+gz <- gzfile(file.path(wd_j, paste0(strftime(tj(1200), "%G-W%V"), ".json.gz")), "w")
+writeLines(jsonlite::toJSON(smp_j), gz); close(gz)
+sj <- trip_samples_for(aj[1:2, ], weekly_dir = wd_j)
+sj_plain <- trip_samples_for(trips_j[trips_j$id == "A", ], weekly_dir = wd_j)
+check(sprintf("joined trip samples: %s (items %s, by time); unjoined A: %s; D: %d",
+              paste(sj[[1]]$id, collapse = " "), paste(unique(sj[[1]]$item_id), collapse = ","), paste(sj_plain[[1]]$id, collapse = " "),
+              nrow(sj[[2]])),
+      identical(sj[[1]]$id, paste0("S", 1:5)) && identical(unique(sj[[1]]$item_id), c("A", "V1", "B")) &&
+        identical(sj_plain[[1]]$id, c("S1", "S2")) && nrow(sj[[2]]) == 0)
+
+# ---- 22. Extra base maps: OpenFreeMap Positron, Rio Mosaico 2024 (only in the city, only close in) ----
+
+rc <- sf::st_read(RIO_CITY_FILE, quiet = TRUE)
+rc_bb <- sf::st_bbox(rc)
+rc_km2 <- as.numeric(sf::st_area(rc)) / 1e6
+check(sprintf("city limit: %d feature, %s, box %.3f %.3f %.3f %.3f (inside the IPP mosaic's), %.0f km2",
+              nrow(rc), as.character(sf::st_geometry_type(rc)), rc_bb[1], rc_bb[2], rc_bb[3], rc_bb[4], rc_km2),
+      nrow(rc) == 1 && as.character(sf::st_geometry_type(rc)) == "MULTIPOLYGON" &&
+        rc_bb[1] > -43.8146 && rc_bb[2] > -23.1067 && rc_bb[3] < -43.0884 && rc_bb[4] < -22.7282 && abs(rc_km2 - 1205) < 15)
+js_b <- paste0(rio_city_js(), "\n", MAP_BASES_JS)
+js_f <- tempfile(fileext = ".js")
+writeLines(js_b, js_f)
+node_ok <- if (nzchar(Sys.which("node"))) system2("node", c("--check", js_f), stdout = FALSE, stderr = FALSE) == 0 else NA
+check(sprintf("base maps script: Positron style, Mosaico_2024 exportImage in 3857 from MapLibre zoom 17 through ipp2024://, city limit in the page; JS syntax %s",
+              if (is.na(node_ok)) "not checked (no node)" else if (node_ok) "OK" else "BROKEN"),
+      grepl("tiles.openfreemap.org/styles/positron", MAP_BASES_JS, fixed = TRUE) &&
+        grepl("Mosaico_2024/ImageServer/exportImage'", MAP_BASES_JS, fixed = TRUE) &&
+        grepl("'?bboxSR=3857&imageSR=3857&size=256,256&format=jpgpng&f=image&bbox='", MAP_BASES_JS, fixed = TRUE) &&
+        grepl("ORTHO_MIN_ZOOM = 17;", MAP_BASES_JS, fixed = TRUE) && grepl("ipp2024://{bbox-epsg-3857}", MAP_BASES_JS, fixed = TRUE) &&
+        startsWith(rio_city_js(), "window.RIO_CITY = {") && identical(rio_city_js(tempfile()), "") && !isFALSE(node_ok))
+
+# ---- 23. Period review: every trip and visit of a period, as Arc has it now and as recorded ----
+
+# Douglas-Peucker: a straight line with 2 m wiggles keeps its ends; a corner stays
+lon_s <- -43.2 + (0:100) * 1e-4
+lat_s <- -22.9 + c(rep(c(0, 2e-5), 50), 0)
+k_line <- simplify_idx(lon_s, lat_s, 4)
+k_corner <- simplify_idx(c(lon_s, rep(lon_s[101], 50)), c(lat_s, -22.9 + (1:50) * 1e-4), 4)
+check(sprintf("simplify: a wiggly line -> %d points, with a corner -> %d (the corner at %d)", length(k_line), length(k_corner), k_corner[2]),
+      identical(k_line, c(1L, 101L)) && length(k_corner) == 3 && abs(k_corner[2] - 101) <= 1 && identical(simplify_idx(1, 1), 1L))
+
+# Weekly samples: disabled ones only with keep_disabled
+t0p <- as.numeric(as.POSIXct("2026-10-14 15:00:00", tz = "UTC"))
+tp <- function(s) as.POSIXct(t0p + s, origin = "1970-01-01", tz = "UTC")
+wd_p <- tempfile("weeks_p_"); dir.create(wd_p)
+smp_p <- data.frame(id = paste0("P", 1:8), timelineItemId = c("R", "R", "R", "G", "G", "N", "N", "Q"),
+                    date = format(tp(c(10, 60, 120, 20, 100, 400, 500, 900)), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"),
+                    latitude = -22.93 - (1:8) / 1000, longitude = -43.18 + (1:8) / 1000, horizontalAccuracy = 10,
+                    disabled = c(TRUE, TRUE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE), stringsAsFactors = FALSE)
+gz <- gzfile(file.path(wd_p, paste0(strftime(tp(0), "%G-W%V"), ".json.gz")), "w")
+writeLines(jsonlite::toJSON(smp_p), gz); close(gz)
+wk_p <- strftime(tp(0), "%G-W%V")
+w_def <- read_week_samples(wk_p, wd_p)
+w_all <- read_week_samples(wk_p, wd_p, keep_disabled = TRUE)
+w_def2 <- read_week_samples(wk_p, wd_p)   # from the cache
+check(sprintf("weekly samples: default %d (no disabled column), keep_disabled %d (%d disabled), cached default %d",
+              nrow(w_def), nrow(w_all), sum(w_all$disabled), nrow(w_def2)),
+      nrow(w_def) == 5 && is.null(w_def$disabled) && nrow(w_all) == 8 && sum(w_all$disabled) == 3 && identical(w_def, w_def2))
+
+# Items: R recorded and disabled by the GPX G over it; N recorded, active; X deleted; Q a 0-s bridge with 1 sample;
+# visits V (a known place) and W (no place: its address)
+items_p <- data.frame(
+  id = c("V", "R", "G", "N", "X", "Q", "W"), is_visit = c(TRUE, FALSE, FALSE, FALSE, FALSE, FALSE, TRUE),
+  start_utc = tp(c(-600, 0, 0, 300, 300, 900, 1000)), end_utc = tp(c(0, 200, 200, 600, 600, 900, 2000)),
+  activity_code = c(NA, 5L, 5L, 21L, 2L, 2L, NA), distance_m = c(NA, 1500, 1400, 2000, 10, 0, NA),
+  source = c("LocoKit2", "LocoKit2", "GPX", "LocoKit2", "LocoKit2", "LocoKit2", "LocoKit2"),
+  deleted = c(FALSE, FALSE, FALSE, FALSE, TRUE, FALSE, FALSE), disabled = c(FALSE, TRUE, FALSE, FALSE, FALSE, FALSE, FALSE),
+  last_saved = "x", place_id = c("PL1", NA, NA, NA, NA, NA, "PL9"), lat = c(-22.9, NA, NA, NA, NA, NA, -22.95),
+  lon = c(-43.2, NA, NA, NA, NA, NA, -43.25), address = c("Rua A, 1", NA, NA, NA, NA, NA, "Rua B, 2"), stringsAsFactors = FALSE)
+trips_p <- items_p[!items_p$is_visit & !items_p$deleted, ]
+smp_by <- period_item_samples(trips_p, weekly_dir = wd_p, keep_disabled = trips_p$id[trips_p$disabled])
+check(sprintf("period samples: R %d (its disabled samples kept), G %d, N %d (its disabled sample out), Q %d",
+              nrow(smp_by$R), nrow(smp_by$G), nrow(smp_by$N), nrow(smp_by$Q)),
+      nrow(smp_by$R) == 3 && nrow(smp_by$G) == 2 && nrow(smp_by$N) == 1 && nrow(smp_by$Q) == 1 && !is.unsorted(smp_by$R$t))
+places_dir <- tempfile("places_"); dir.create(places_dir)
+jsonlite::write_json(data.frame(id = c("PL1", "PL2"), name = c("Old name", "Elsewhere"), lastSaved = c("2026-01-01T00:00:00Z", "x")),
+                     file.path(places_dir, "0.json"))
+jsonlite::write_json(data.frame(id = "PL1", name = "Casa", lastSaved = "2026-06-01T00:00:00Z"), file.path(places_dir, "1.json"))
+pl_p <- load_places(places_dir)
+check(sprintf("places: %d, PL1 '%s' (the latest save); no folder -> %d", nrow(pl_p), pl_p$name[pl_p$id == "PL1"], nrow(load_places(tempfile()))),
+      nrow(pl_p) == 2 && identical(pl_p$name[pl_p$id == "PL1"], "Casa") && nrow(load_places(tempfile())) == 0)
+tl_p <- period_timeline(items_p, smp_by, pl_p)
+row_p <- function(id) tl_p[tl_p$id == id, ]
+check(sprintf("period timeline: %s; now %s; recorded %s; G gpx; visits '%s' / '%s'",
+              paste(tl_p$id, collapse = " "), paste(tl_p$id[tl_p$now], collapse = ","), paste(tl_p$id[tl_p$recorded], collapse = ","),
+              row_p("V")$place, row_p("W")$place),
+      identical(tl_p$id, c("V", "R", "G", "N", "W")) && identical(tl_p$id[tl_p$now], c("V", "G", "N", "W")) &&
+        identical(tl_p$id[tl_p$recorded], c("V", "R", "N", "W")) && isTRUE(row_p("G")$gpx) && !isTRUE(row_p("R")$gpx) &&
+        identical(row_p("V")$place, "Casa") && identical(row_p("W")$place, "Rua B, 2") &&
+        nrow(row_p("R")$path[[1]]) == 2 && is.null(row_p("N")$path[[1]]) && identical(row_p("N")$mode, "bus") && identical(row_p("R")$km, 1.5))
+pay_p <- period_payload(tl_p)
+pj <- jsonlite::fromJSON(as.character(shiny:::toJSON(pay_p)), simplifyVector = FALSE)   # as Shiny sends it
+pj1 <- jsonlite::fromJSON(as.character(shiny:::toJSON(period_payload(tl_p[2, ]))), simplifyVector = FALSE)
+check(sprintf("period payload (columns): %d ids; k %s; R path %d values; V at %s; G g=%s now=%s rec=%s; styles %s; one item: still arrays (%s)",
+              length(pj$id), paste(unlist(pj$k), collapse = ""), length(pj$p[[2]]), paste(c(pj$lat[[1]], pj$lon[[1]]), collapse = ","),
+              pj$g[[3]], pj$now[[3]], pj$rec[[3]], paste(names(pj$styles), collapse = ","), class(pj1$id)),
+      length(pj$id) == 5 && identical(unlist(pj$k), c("v", "t", "t", "t", "v")) && length(pj$p[[2]]) == 4 && is.null(pj$p[[4]]) &&
+        identical(c(pj$lat[[1]], pj$lon[[1]]), c(-22.9, -43.2)) && is.null(pj$lat[[2]]) && isTRUE(pj$g[[3]]) && isTRUE(pj$now[[3]]) &&
+        isFALSE(pj$rec[[3]]) && identical(pj$styles$car$label, "Car") && identical(pj$styles$bus$label, "Bus") &&
+        is.list(pj1$id) && length(pj1$id) == 1 && is.list(pj1$p))
+st_p <- lapply(c("car", "airplane", "unknown", "tuktuk"), period_mode_style)
+check(sprintf("mode styles: %s", paste(vapply(st_p, function(x) paste(x$icon, x$label), ""), collapse = " | ")),
+      st_p[[1]]$label == "Car" && st_p[[2]]$label == "Airplane" && st_p[[3]]$label == "No mode" && st_p[[4]]$label == "Tuk tuk" &&
+        st_p[[4]]$color == PERIOD_OTHER_MODE$color)
+# load_items(visits = TRUE): the visit's place id, coordinates and address
+items_dir_p <- tempfile("items_p_"); dir.create(items_dir_p)
+writeLines(jsonlite::toJSON(list(
+  list(base = list(id = "V", isVisit = TRUE, startDate = "2026-10-14T14:50:00Z", endDate = "2026-10-14T15:00:00Z", source = "LocoKit2",
+                   lastSaved = "x"),
+       visit = list(placeId = "PL1", latitude = -22.9, longitude = -43.2, streetAddress = "Rua A, 1")),
+  list(base = list(id = "R", isVisit = FALSE, startDate = "2026-10-14T15:00:00Z", endDate = "2026-10-14T15:03:20Z", source = "LocoKit2",
+                   lastSaved = "x"), trip = list(confirmedActivityType = 5L, distance = 1500))), auto_unbox = TRUE),
+  file.path(items_dir_p, "2026-10.json"))
+li_v <- load_items(items_dir_p, "2026-10-14", "2026-10-14", visits = TRUE)
+li_n <- load_items(items_dir_p, "2026-10-14", "2026-10-14")
+check(sprintf("load_items(visits = TRUE): %s; V %s %.1f %.1f '%s'; without: %d columns",
+              paste(names(li_v)[11:14], collapse = ","), li_v$place_id[li_v$id == "V"], li_v$lat[li_v$id == "V"], li_v$lon[li_v$id == "V"],
+              li_v$address[li_v$id == "V"], ncol(li_n)),
+      identical(names(li_v)[11:14], c("place_id", "lat", "lon", "address")) && identical(li_v$place_id[li_v$id == "V"], "PL1") &&
+        is.na(li_v$lat[li_v$id == "R"]) && ncol(li_n) == 10 && nrow(li_v) == 2 &&
+        ncol(load_items(tempfile(), "2026-10-14", "2026-10-14", visits = TRUE)) == 14)
+js_p <- tempfile(fileext = ".js")
+writeLines(PERIOD_JS, js_p)
+node_p <- if (nzchar(Sys.which("node"))) system2("node", c("--check", js_p), stdout = FALSE, stderr = FALSE) == 0 else NA
+check(sprintf("period script: JS syntax %s; message handlers of one argument; the Period mode in the hidden radio; Edit has two segments, Review and Batch review",
+              if (is.na(node_p)) "not checked (no node)" else if (node_p) "OK" else "BROKEN"),
+      !isFALSE(node_p) && grepl("'period_data'", PERIOD_JS, fixed = TRUE) &&
+        # Shiny throws on a message handler without exactly one argument (and the rest of the script is lost)
+        all(grepl("addCustomMessageHandler\\('[a-z_]+', function\\([a-z]+\\)", regmatches(PERIOD_JS, gregexpr("addCustomMessageHandler\\([^{]*", PERIOD_JS))[[1]])) && any(grepl('c("Review" = "Period", "Batch review" = "BatchReview")', readLines("R/ui.R"), fixed = TRUE)) &&
+        any(grepl('"BatchReview", "Period"),', readLines("R/ui.R"), fixed = TRUE)))
+
+# ---- 24. Edit Samples: boundaries moved, parts routed one at a time, freehand drawing ----
+
+# A walk 0-360 s, a car trip 360-1300 s, a visit after
+parts_b <- data.frame(t_start = c(0, 360, 1300), t_end = c(360, 1300, 1500), mode = c("walking", "car", "stationary"),
+                      visit = c(FALSE, FALSE, TRUE), stringsAsFactors = FALSE)
+mb_next <- edit_move_boundary(parts_b, 200, "next")
+mb_prev <- edit_move_boundary(parts_b, 1400, "prev")   # a sample inside the visit: the car ends there
+check(sprintf("move boundary: the car starts at 200 (walk %g-%g, car %g-%g); the car ends at 1400 (%g), the visit starts there; last part / first part / a boundary itself: unchanged",
+              mb_next$t_start[1], mb_next$t_end[1], mb_next$t_start[2], mb_next$t_end[2], mb_prev$t_end[2]),
+      identical(mb_next$t_end[1], 200) && identical(mb_next$t_start[2], 200) && identical(mb_next$mode, parts_b$mode) &&
+        identical(mb_prev$t_start[3], 1400) && identical(mb_prev$t_end[2], 1400) && identical(mb_prev$t_start[2], 360) &&
+        identical(edit_move_boundary(parts_b, 1400, "next"), parts_b) && identical(edit_move_boundary(parts_b, 100, "prev"), parts_b) &&
+        identical(edit_move_boundary(parts_b, 360, "next"), parts_b))
+r1 <- edit_ranges_add(edit_ranges_empty(), 0, 1500)
+r2 <- edit_ranges_add(r1, 200, 1300)
+r3 <- edit_ranges_add(r2, 0, 200)
+check(sprintf("routed stretches: whole %s; a part inside it -> %d stretches; again over the first -> %d",
+              paste(r1$t0, r1$t1), nrow(r2), nrow(r3)),
+      nrow(r1) == 1 && nrow(r2) == 3 && r2$t0[2] == 200 && r2$t1[2] == 1300 && r2$t1[1] < 200 && r2$t0[3] > 1300 &&
+        nrow(r3) == 3 && r3$t0[1] == 0 && r3$t1[1] == 200 && r3$t0[2] > 200)
+mk_s <- function(id, t) list(id = id, date = format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ"),
+                             latitude = -22.9, longitude = -43.2)
+t00 <- as.numeric(as.POSIXct("2026-10-28 16:52:00", tz = "UTC"))
+act_e <- lapply(1:6, function(i) mk_s(paste0("A", i), t00 + (i - 1) * 100))
+virt_e <- lapply(1:3, function(i) mk_s(paste0("V", i), t00 + 300 + (i - 1) * 50))
+sel_r <- select_edit_export_samples(act_e, ignored = "A1", virtual = virt_e, ranges = data.frame(t0 = t00 + 300, t1 = t00 + 400))
+sel_all <- select_edit_export_samples(act_e, virtual = virt_e)
+check(sprintf("export with a routed stretch: %s; without stretches (old snap): %s",
+              paste(vapply(sel_r, `[[`, "", "id"), collapse = " "), paste(vapply(sel_all, `[[`, "", "id"), collapse = " ")),
+      identical(vapply(sel_r, `[[`, "", "id"), c("A2", "A3", "A6", "V1", "V2", "V3")) &&
+        identical(vapply(sel_all, `[[`, "", "id"), c("V1", "V2", "V3")) &&
+        identical(length(select_edit_export_samples(act_e)), 6L))
+check("profile from a part's mode: walk -> foot, car / bus -> road, metro -> metro, a visit -> none",
+      identical(edit_profile_for_mode("walking"), "foot") && identical(edit_profile_for_mode("car"), ROAD_PROFILE) &&
+        identical(edit_profile_for_mode("bus"), ROAD_PROFILE) && identical(edit_profile_for_mode("metro"), "metro") &&
+        is.na(edit_profile_for_mode("stationary")))
+drawn <- cbind(c(-43.20, -43.19, -43.18), c(-22.90, -22.90, -22.90))
+o_same <- edit_orient_path(drawn, c(-43.2001, -22.9), c(-43.1799, -22.9))
+o_back <- edit_orient_path(drawn, c(-43.1799, -22.9), c(-43.2001, -22.9))
+check("a drawing is used in the stretch's direction (reversed when drawn from its end)",
+      identical(o_same, drawn) && identical(o_back, drawn[3:1, ]))
+js_d <- tempfile(fileext = ".js")
+writeLines(EDIT_DRAW_JS, js_d)
+node_d <- if (nzchar(Sys.which("node"))) system2("node", c("--check", js_d), stdout = FALSE, stderr = FALSE) == 0 else NA
+ui_src <- readLines("R/ui.R")
+check(sprintf("draw script: JS syntax %s; sends edit_draw; the Draw button, the part select and the two sample-menu items in the UI",
+              if (is.na(node_d)) "not checked (no node)" else if (node_d) "OK" else "BROKEN"),
+      !isFALSE(node_d) && grepl("Shiny.setInputValue('edit_draw'", EDIT_DRAW_JS, fixed = TRUE) &&
+        any(grepl('id = "edit_draw_toggle"', ui_src, fixed = TRUE)) && any(grepl('uiOutput("edit_snap_part_ui")', ui_src, fixed = TRUE)) &&
+        any(grepl('id = "ctx-start-next"', ui_src, fixed = TRUE)) && any(grepl('id = "ctx-end-prev"', ui_src, fixed = TRUE)))
+
+# ---- 25. Review: month cache, Jaé taps, sends checked against Arc, suggested modes ----
+
+# The month cache: built once, reused while the files don't change, rebuilt when one does
+old_scratch <- REVIEW_SCRATCH_DIR
+REVIEW_SCRATCH_DIR <- tempfile("scratch25_")
+dir.create(items_dir_p25 <- tempfile("items25_"))
+file.copy(file.path(items_dir_p, "2026-10.json"), items_dir_p25)
+m1 <- period_month_timeline("2026-10-01", 4, items_dir_p25, wd_p, places_dir)
+cache_f <- file.path(period_cache_dir(), "2026-10_4m.rds")
+mt1 <- file.mtime(cache_f)
+Sys.sleep(1.1)
+m2 <- period_month_timeline("2026-10-01", 4, items_dir_p25, wd_p, places_dir)
+reused <- identical(file.mtime(cache_f), mt1)
+Sys.setFileTime(file.path(items_dir_p25, "2026-10.json"), Sys.time() + 5)
+m3 <- period_month_timeline("2026-10-01", 4, items_dir_p25, wd_p, places_dir)
+pl25 <- period_load("2026-10-14", "2026-10-14", items_dir_p25, wd_p, places_dir)
+check(sprintf("month cache: %d rows, reused %s, rebuilt after a change %s; period_load %d rows (place ids: %s); tolerance 4/8/15 m",
+              nrow(m1), reused, !identical(file.mtime(cache_f), mt1), nrow(pl25), paste(stats::na.omit(pl25$place_id), collapse = ",")),
+      nrow(m1) == 2 && identical(m1, m2) && reused && !identical(file.mtime(cache_f), mt1) && identical(m1, m3) &&
+        nrow(pl25) == 2 && identical(stats::na.omit(pl25$place_id)[1], "PL1") &&
+        period_tolerance(31) == 4 && period_tolerance(92) == 8 && period_tolerance(366) == 15)
+REVIEW_SCRATCH_DIR <- old_scratch
+taps25 <- data.frame(datetime_utc = as.POSIXct(c("2026-10-15 02:30:00", "2026-10-14 15:00:00", "2026-10-15 03:30:00"), tz = "UTC"),
+                     profile = c("bus", "metro", "bus"), label = c("A", "B", "C"), latitude = c(-22.9, NA, -22.8),
+                     longitude = c(-43.2, NA, -43.1), stringsAsFactors = FALSE)
+pt25 <- period_taps("2026-10-14", "2026-10-14", taps25, tz = "America/Sao_Paulo")
+check(sprintf("period taps (local day 14/10, UTC-3): %s", paste(unlist(pt25$lb), collapse = ",")),
+      identical(as.character(pt25$lb), c("A", "B")) && is.na(pt25$lat[2]))
+
+# Sends: a GPX with a car track (in Arc) and a walk (no GPX item: absorbed); a bus track missing
+gpx25 <- tempfile(fileext = ".gpx")
+trk <- function(type, t0, n) paste0("  <trk><name>x</name><type>", type, "</type><trkseg>",
+  paste0("<trkpt lat=\"", -22.9 - (1:n) / 1000, "\" lon=\"-43.2\"><time>", format(as.POSIXct(t0 + (1:n) * 60, origin = "1970-01-01", tz = "UTC"), "%Y-%m-%dT%H:%M:%SZ"),
+         "</time></trkpt>", collapse = ""), "</trkseg></trk>")
+T25 <- as.numeric(as.POSIXct("2026-10-14 12:00:00", tz = "UTC"))
+writeLines(c('<?xml version="1.0" encoding="UTF-8"?>', '<gpx version="1.1" xmlns="http://www.topografix.com/GPX/1/1">',
+             trk("car", T25, 10), trk("walking", T25 + 700, 3), trk("bus", T25 + 3600, 5), "</gpx>"), gpx25)
+tr25 <- gpx_tracks_of(gpx25)
+it25 <- data.frame(id = c("G", "R", "W"), is_visit = FALSE, start_utc = as.POSIXct(T25 + c(30, 0, 700), origin = "1970-01-01", tz = "UTC"),
+                   end_utc = as.POSIXct(T25 + c(600, 650, 900), origin = "1970-01-01", tz = "UTC"), activity_code = c(5L, 5L, 2L),
+                   distance_m = 1, source = c("GPX", "LocoKit2", "LocoKit2"), deleted = FALSE, disabled = c(FALSE, FALSE, FALSE),
+                   last_saved = "x", stringsAsFactors = FALSE)
+st25 <- lapply(seq_len(nrow(tr25$tracks)), function(j) track_status(tr25$tracks$t0[j], tr25$tracks$t1[j], it25, tr25$tracks$type[j]))
+it25d <- it25; it25d$disabled[1] <- TRUE
+check(sprintf("sends: %d tracks (%s); car %s (recording visible %s), walk %s, bus %s; car with its GPX item disabled: %s; covered_s %g",
+              nrow(tr25$tracks), paste(tr25$tracks$type, collapse = ","), st25[[1]]$status, st25[[1]]$orig_visible, st25[[2]]$status,
+              st25[[3]]$status, track_status(tr25$tracks$t0[1], tr25$tracks$t1[1], it25d, "car")$status, covered_s(0, 100, c(10, 50, 200), c(60, 80, 300))),
+      nrow(tr25$tracks) == 3 && identical(tr25$tracks$type, c("car", "walking", "bus")) && length(tr25$paths[[1]]) >= 4 &&
+        st25[[1]]$status == "in_arc" && isTRUE(st25[[1]]$orig_visible) && st25[[2]]$status == "absorbed" && st25[[3]]$status == "missing" &&
+        track_status(tr25$tracks$t0[1], tr25$tracks$t1[1], it25d, "car")$status == "replaced" && covered_s(0, 100, c(10, 50, 200), c(60, 80, 300)) == 70)
+log25 <- data.frame(file = basename(gpx25), sent_utc = "2026-10-15T00:00:00Z", size = 1, stringsAsFactors = FALSE)
+ss25 <- gpx_sends_status(log25, archive_dir = dirname(gpx25), items_dir = items_dir_p)
+sp25 <- jsonlite::fromJSON(as.character(shiny:::toJSON(sends_payload(ss25))), simplifyVector = FALSE)
+check(sprintf("sends status: 1 file, %d tracks, %d missing, %d absorbed; payload %d tracks",
+              ss25$files$n_tracks, ss25$files$n_missing, ss25$files$n_absorbed, length(sp25$tracks$file)),
+      nrow(ss25$files) == 1 && ss25$files$n_tracks == 3 && length(sp25$tracks$file) == 3 && is.list(sp25$files$file))
+
+# Suggested modes for a trip without one
+mk_line <- function(kmh, mins, step_s = 10) {
+  t <- seq(0, mins * 60, by = step_s)
+  data.frame(lon = -43.2 + t * kmh / 3.6 / 111320 / cos(22.9 * pi / 180), lat = -22.9, t = 1.8e9 + t)
+}
+sg_walk <- review_suggest_mode(mk_line(4.5, 10), 1.8e9, 1.8e9 + 600, rail_off_fn = function(s, a) 0.9)
+sg_car <- review_suggest_mode(mk_line(35, 15), 1.8e9, 1.8e9 + 900, rail_off_fn = function(s, a) 0.9)
+sg_rail <- review_suggest_mode(mk_line(35, 15), 1.8e9, 1.8e9 + 900, rail_off_fn = function(s, a) if (a == "train") 0.03 else 0.6)
+sg_tap <- review_suggest_mode(mk_line(35, 15), 1.8e9, 1.8e9 + 900,
+                              taps = data.frame(datetime_utc = as.POSIXct(1.8e9 - 120, origin = "1970-01-01", tz = "UTC"), profile = "bus", label = "Linha 1"))
+sg_short <- review_suggest_mode(mk_line(4, 1), 1.8e9, 1.8e9 + 60)
+check(sprintf("suggested modes: slow %s, fast %s (%.0f km/h), on the rails %s (%.0f%%), with a tap %s, very short %s",
+              sg_walk$mode, sg_car$mode, sg_car$kmh, sg_rail$mode, 100 * sg_rail$on_rails, sg_tap$mode, sg_short$mode),
+      sg_walk$mode == "walking" && sg_car$mode == "car" && abs(sg_car$kmh - 35) < 2 && sg_rail$mode == "train" && sg_tap$mode == "bus" &&
+        identical(sg_tap$label, "Linha 1") && sg_short$mode == "stationary" && is.null(review_suggest_mode(mk_line(4, 0), 0, 0)))
 
 cat(if (fails == 0) "\nALL PASS\n" else sprintf("\n%d FAILED\n", fails))
 quit(status = if (fails == 0) 0 else 1)

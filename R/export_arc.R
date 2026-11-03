@@ -234,19 +234,68 @@ EDIT_EXPORT_MODES <- c("replace_disabled", "additive", "reuse_id")
 
 # Samples to export: virtual (snapped) samples if any, otherwise non-ignored edit samples.
 # Returns an empty list when every edit sample is ignored.
-select_edit_export_samples <- function(edit_samples, ignored = character(0), virtual = list()) {
+select_edit_export_samples <- function(edit_samples, ignored = character(0), virtual = list(), ranges = NULL) {
   if (length(edit_samples) == 0) return(list())
 
   ids <- vapply(edit_samples, sample_id, character(1))
   active <- edit_samples[!ids %in% ignored]
   if (length(active) == 0) return(list())
 
-  if (length(virtual) > 0) virtual else active
+  if (length(virtual) == 0) return(active)
+  if (is.null(ranges) || nrow(ranges) == 0) return(virtual)
+  # Snapped stretches (ranges): their virtual samples; elsewhere the recorded ones
+  t <- as.numeric(parse_timestamp_utc(vapply(active, function(x) as.character(x$date %||% NA_character_)[1], character(1))))
+  inside <- vapply(t, function(x) !is.na(x) && any(x >= ranges$t0 & x <= ranges$t1), logical(1))
+  c(active[!inside], virtual)
+}
+
+# ---- Edit Samples: stretches routed one at a time ----
+# Snap (or a freehand drawing) can route one part only, each with its own
+# profile: the stretches done so far are data.frame(t0, t1) (epoch s, the
+# first and last sample routed). A new one replaces what it overlaps.
+edit_ranges_empty <- function() data.frame(t0 = numeric(0), t1 = numeric(0))
+
+edit_ranges_add <- function(ranges, t0, t1) {
+  ranges <- ranges %||% edit_ranges_empty()
+  out <- list()
+  for (i in seq_len(nrow(ranges))) {
+    a <- ranges$t0[i]
+    b <- ranges$t1[i]
+    if (b < t0 || a > t1) { out[[length(out) + 1L]] <- c(a, b); next }
+    if (a < t0) out[[length(out) + 1L]] <- c(a, t0 - 1e-6)
+    if (b > t1) out[[length(out) + 1L]] <- c(t1 + 1e-6, b)
+  }
+  out[[length(out) + 1L]] <- c(t0, t1)
+  m <- do.call(rbind, out)
+  r <- data.frame(t0 = m[, 1], t1 = m[, 2])
+  r <- r[order(r$t0), , drop = FALSE]
+  rownames(r) <- NULL
+  r
+}
+
+# The routing profile a part's mode suggests (NA: leave the select alone)
+edit_profile_for_mode <- function(mode) {
+  if (mode %in% c("walking", "running", "hiking", "wheelchair")) return("foot")
+  if (mode %in% c("car", "taxi", "bus", "motorcycle", "scooter", "tuktuk")) return(ROAD_PROFILE)
+  if (mode %in% c("metro", "train", "tram")) return(mode)
+  NA_character_
+}
+
+# A drawn path (n x 2 lon / lat) in the stretch's direction: reversed when its
+# ends are nearer to the samples' last and first points than the other way
+edit_orient_path <- function(path, first_xy, last_xy) {
+  if (nrow(path) < 2) return(path)
+  d <- function(a, b) geosphere::distHaversine(a, b)
+  as_is <- d(path[1, ], first_xy) + d(path[nrow(path), ], last_xy)
+  flipped <- d(path[nrow(path), ], first_xy) + d(path[1, ], last_xy)
+  if (flipped < as_is) path[rev(seq_len(nrow(path))), , drop = FALSE] else path
 }
 
 # Build the item + samples for an edit export. Pure: no Shiny state, no I/O.
+# activity_code: the item's type (the mode chosen in Edit Samples), else the
+# original samples'.
 # Returns list(item = <item list>, samples = <list of samples sorted by date>).
-build_edit_package <- function(samples, originals, original_item_id, mode, now_utc) {
+build_edit_package <- function(samples, originals, original_item_id, mode, now_utc, activity_code = NULL) {
   mode <- match.arg(mode, EDIT_EXPORT_MODES)
   new_uuid <- function() toupper(uuid::UUIDgenerate(use.time = TRUE))
 
@@ -266,8 +315,8 @@ build_edit_package <- function(samples, originals, original_item_id, mode, now_u
 
   disabled <- mode == "replace_disabled"
 
-  # Activity type from the original samples (virtual samples are created as car)
-  at_code <- if (length(originals) > 0) {
+  # Activity type: the chosen one, else the original samples' (virtual samples are created as car)
+  at_code <- if (length(activity_code) == 1 && !is.na(activity_code)) activity_code else if (length(originals) > 0) {
     originals[[1]]$confirmedActivityType %||% originals[[1]]$classifiedActivityType %||% 5L
   } else {
     5L
@@ -570,11 +619,167 @@ build_gpx <- function(items, samples, now_utc = format(Sys.time(), "%Y-%m-%dT%H:
   )
 }
 
-# GPX of an edit package (corrected route): one track named "Arc edit <start>".
+# ---- Edit Samples: parts (split / join timeline items) ----
+# The loaded samples cut into parts, each exported as its own GPX track with
+# its own activity type (Arc makes one item per track): data.frame(t_start,
+# t_end, mode, visit), epoch s, in order and contiguous (a part ends where the
+# next one starts). mode: an ACTIVITY_TYPES name, "" while not chosen (no type
+# in Arc); visit: the part comes from a visit.
+
+edit_parts_empty <- function() {
+  data.frame(t_start = numeric(0), t_end = numeric(0), mode = character(0), visit = logical(0), stringsAsFactors = FALSE)
+}
+
+# Activity name of a LocoKit2 code; "" for none, unknown (-1) and bogus (0)
+activity_name_of <- function(code) {
+  code <- suppressWarnings(as.integer(unlist(code))[1])
+  if (length(code) != 1 || is.na(code) || code <= 0) return("")
+  name <- unname(ACTIVITY_TYPE_NAMES[as.character(code)])
+  if (is.na(name)) "" else name
+}
+
+# Default parts: one per run of consecutive samples of one timeline item (the
+# loaded window may span several), with the item's type (items: load_items()
+# rows; a visit: "stationary"), else its samples' first one (confirmed, then
+# classified), else "". A run's part ends where the next run starts.
+edit_default_parts <- function(samples, items = NULL) {
+  if (length(samples) == 0) return(edit_parts_empty())
+  chr <- function(s, key) as.character(unlist(s[[key]]) %||% NA_character_)[1]
+  int <- function(s, key) suppressWarnings(as.integer(unlist(s[[key]]) %||% NA_integer_)[1])
+  d <- data.frame(
+    t = as.numeric(parse_timestamp_utc(vapply(samples, chr, character(1), key = "date"))),
+    item = vapply(samples, chr, character(1), key = "timelineItemId"),
+    code = vapply(samples, function(s) {
+      v <- int(s, "confirmedActivityType")
+      if (is.na(v)) int(s, "classifiedActivityType") else v
+    }, integer(1)),
+    stringsAsFactors = FALSE
+  )
+  d <- d[!is.na(d$t), , drop = FALSE]
+  if (nrow(d) == 0) return(edit_parts_empty())
+  d <- d[order(d$t), , drop = FALSE]
+  key <- ifelse(is.na(d$item), "", d$item)
+  run <- cumsum(c(TRUE, key[-1] != key[-length(key)]))
+  first <- which(!duplicated(run))
+  n <- length(first)
+  parts <- data.frame(t_start = d$t[first], t_end = c(d$t[first[-1]], d$t[nrow(d)]), mode = "", visit = FALSE,
+                      stringsAsFactors = FALSE)
+  for (k in seq_len(n)) {
+    rows <- run == k
+    it <- if (!is.null(items) && nrow(items) && nzchar(key[first[k]])) items[items$id == key[first[k]], , drop = FALSE]
+    if (!is.null(it) && nrow(it) && isTRUE(it$is_visit[1])) {
+      parts$visit[k] <- TRUE
+      parts$mode[k] <- "stationary"
+      next
+    }
+    mode <- if (!is.null(it) && nrow(it)) activity_name_of(it$activity_code[1]) else ""
+    if (!nzchar(mode)) mode <- activity_name_of(d$code[rows][!is.na(d$code[rows])][1])
+    parts$mode[k] <- mode
+  }
+  # A last run of one sample (no length): joined to the part before it
+  if (n > 1 && parts$t_end[n] <= parts$t_start[n]) parts <- edit_join_parts(parts, n)
+  parts
+}
+
+# Mode of joined parts: the first trip's chosen mode ("" when no trip has one);
+# only visits: theirs
+edit_joined_mode <- function(parts) {
+  pick <- if (all(parts$visit)) parts$mode else parts$mode[!parts$visit]
+  pick <- pick[nzchar(pick)]
+  if (length(pick)) pick[1] else ""
+}
+
+# Part k joined to the one before it (k >= 2); unchanged otherwise
+edit_join_parts <- function(parts, k) {
+  k <- suppressWarnings(as.integer(k))
+  if (length(k) != 1 || is.na(k) || k < 2 || k > nrow(parts)) return(parts)
+  pair <- parts[c(k - 1L, k), , drop = FALSE]
+  parts$t_end[k - 1L] <- parts$t_end[k]
+  parts$mode[k - 1L] <- edit_joined_mode(pair)
+  parts$visit[k - 1L] <- all(pair$visit)
+  parts <- parts[-k, , drop = FALSE]
+  rownames(parts) <- NULL
+  parts
+}
+
+# A boundary moved to time t (inside a part): side "next", the part holding t
+# ends there and the next one starts there (the next part grows back, e.g. a
+# car trip that really started during the walk before it); side "prev", the
+# part holding t starts there and the one before ends there. Unchanged when t
+# isn't strictly inside a part, or there is no part on that side.
+edit_move_boundary <- function(parts, t, side = c("next", "prev")) {
+  side <- match.arg(side)
+  t <- as.numeric(t)
+  k <- which(parts$t_start < t & parts$t_end > t)
+  if (length(t) != 1 || length(k) != 1) return(parts)
+  if (side == "next") {
+    if (k >= nrow(parts)) return(parts)
+    parts$t_end[k] <- t
+    parts$t_start[k + 1L] <- t
+  } else {
+    if (k <= 1) return(parts)
+    parts$t_start[k] <- t
+    parts$t_end[k - 1L] <- t
+  }
+  parts
+}
+
+# Every part joined into one
+edit_join_all <- function(parts) {
+  if (nrow(parts) < 2) return(parts)
+  data.frame(t_start = parts$t_start[1], t_end = parts$t_end[nrow(parts)], mode = edit_joined_mode(parts),
+             visit = all(parts$visit), stringsAsFactors = FALSE)
+}
+
+# The part holding time t split there (both halves keep its mode); unchanged
+# when t isn't strictly inside a part
+edit_split_parts <- function(parts, t) {
+  t <- as.numeric(t)
+  k <- which(parts$t_start < t & parts$t_end > t)
+  if (length(t) != 1 || length(k) != 1) return(parts)
+  after <- parts[k, , drop = FALSE]
+  after$t_start <- t
+  parts$t_end[k] <- t
+  rest <- seq_len(nrow(parts))[-seq_len(k)]
+  parts <- rbind(parts[seq_len(k), , drop = FALSE], after, parts[rest, , drop = FALSE])
+  rownames(parts) <- NULL
+  parts
+}
+
+# The export samples (main: data.frame(lon, lat, t), sorted) cut into the
+# parts' tracks (segments for review_cover()): each part's samples plus the
+# points at its boundaries (interpolated), so consecutive tracks touch. Parts
+# outside the samples' time range are dropped, and the first and last kept
+# ones stretched to it.
+edit_part_segments <- function(main, parts) {
+  if (nrow(main) == 0 || nrow(parts) == 0) return(list())
+  lo <- main$t[1]
+  hi <- main$t[nrow(main)]
+  keep <- which(pmin(parts$t_end, hi) > pmax(parts$t_start, lo))
+  if (length(keep) == 0) keep <- 1L
+  at <- function(t) {
+    if (nrow(main) == 1) return(data.frame(lon = main$lon, lat = main$lat, t = t))
+    data.frame(lon = stats::approx(main$t, main$lon, t, rule = 2)$y, lat = stats::approx(main$t, main$lat, t, rule = 2)$y, t = t)
+  }
+  lapply(seq_along(keep), function(j) {
+    k <- keep[j]
+    a <- if (j == 1) lo else max(parts$t_start[k], lo)
+    b <- if (j == length(keep)) hi else min(parts$t_end[k], hi)
+    inside <- main[main$t > a & main$t < b, c("lon", "lat", "t"), drop = FALSE]
+    path <- rbind(at(a), inside, if (b > a) at(b))
+    rownames(path) <- NULL
+    mode <- parts$mode[k]
+    list(role = "main", name = "Arc edit", code = ACTIVITY_TYPES[[mode]] %||% NA_integer_, type = mode,
+         path = path, t_start = a, t_end = b)
+  })
+}
+
+# GPX of an edit package (corrected route): one track named "Arc edit <start>",
+# or one per part (parts: see edit_default_parts(), each with its mode).
 # With the original samples (originals), the tracks cover the original item's
 # time range exactly (review_cover(): the gaps filled from the recorded
 # samples, as a wait or a walk), since Arc replaces only what a GPX covers.
-build_edit_gpx <- function(pkg, now_utc, originals = NULL) {
+build_edit_gpx <- function(pkg, now_utc, originals = NULL, parts = NULL) {
   item <- pkg$item
   item$description <- "Arc edit"
   as_df <- function(ss) {
@@ -589,8 +794,10 @@ build_edit_gpx <- function(pkg, now_utc, originals = NULL) {
   main <- as_df(pkg$samples)
   if (is.null(orig) || nrow(orig) == 0 || nrow(main) == 0) return(build_gpx(list(item), pkg$samples, now_utc))
   code <- item$trip$confirmedActivityType %||% item$trip$classifiedActivityType
-  seg <- list(role = "main", name = "Arc edit", code = code, path = main, t_start = main$t[1], t_end = main$t[nrow(main)])
-  cov <- review_cover(list(seg), range(orig$t), orig)
+  segs <- if (!is.null(parts) && nrow(parts)) edit_part_segments(main, parts)
+  if (!length(segs)) segs <- list(list(role = "main", name = "Arc edit", code = code, path = main, t_start = main$t[1],
+                                       t_end = main$t[nrow(main)]))
+  cov <- review_cover(segs, range(orig$t), orig)
   inp <- review_gpx_input(list(edit = list(segments = cov$segments, covered = TRUE)))
   build_gpx(inp$items, inp$samples, now_utc)
 }

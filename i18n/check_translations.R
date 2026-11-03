@@ -14,7 +14,7 @@ KEY_ARGS <- list(
 )
 # Named vectors whose names are labels (keys)
 LABEL_VECTORS <- c("PROFILE_CHOICES", "ACTIVITY_CHOICES", "REVIEW_ACTIVITY_CHOICES", "REVIEW_SORT_CHOICES",
-                   "REVIEW_PROFILE_CHOICES")
+                   "SNAP_PROFILE_CHOICES", "OSRM_PROFILE_LABELS")
 
 fn_name <- function(fn) {
   if (is.name(fn)) return(as.character(fn))

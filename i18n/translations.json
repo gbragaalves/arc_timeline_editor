@@ -255,10 +255,6 @@
     "pt": "Escolha pelo menos uma atividade.",
     "en": "Choose at least one activity."
   },
-  "Clean & snap": {
-    "pt": "Limpar e ajustar",
-    "en": "Clean & snap"
-  },
   "Clear": {
     "pt": "Limpar",
     "en": "Clear"
@@ -306,10 +302,6 @@
   "Click to re-check.": {
     "pt": "Clique para verificar de novo.",
     "en": "Click to re-check."
-  },
-  "Click waypoints on the map, then calculate a snap-to-road route. Car/Official/Foot/Bus use local OSRM (Docker ports 5000-5005). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).": {
-    "pt": "Clique nos pontos de passagem no mapa e calcule uma rota ajustada às vias. Carro/Oficial/A pé/Ônibus usam o OSRM local (Docker, portas 5000-5005). Metrô/Trem/VLT usam a Google Maps Directions API (requer GOOGLE_MAPS_API_KEY).",
-    "en": "Click waypoints on the map, then calculate a snap-to-road route. Car/Official/Foot/Bus use local OSRM (Docker ports 5000-5005). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
   },
   "Click waypoints on the map.": {
     "pt": "Clique nos pontos de passagem no mapa.",
@@ -462,14 +454,6 @@
   "Edit item": {
     "pt": "Editar item",
     "en": "Edit item"
-  },
-  "Edit route": {
-    "pt": "Editar rota",
-    "en": "Edit route"
-  },
-  "Edit samples": {
-    "pt": "Editar amostras",
-    "en": "Edit samples"
   },
   "Edit the waypoints of a trip.": {
     "pt": "Edite os pontos de passagem de um trajeto.",
@@ -630,10 +614,6 @@
   "First point of the OSRM route is invalid.": {
     "pt": "O primeiro ponto da rota OSRM é inválido.",
     "en": "First point of the OSRM route is invalid."
-  },
-  "Fix existing samples from the weekly backups.": {
-    "pt": "Corrija amostras existentes dos backups semanais.",
-    "en": "Fix existing samples from the weekly backups."
   },
   "Fix trips that stray off the rails or roads.": {
     "pt": "Corrija viagens fora dos trilhos ou das ruas.",
@@ -923,10 +903,6 @@
     "pt": "Carregue pelo menos 2 amostras (não ignoradas) para ajustar à via.",
     "en": "Load at least 2 samples (not ignored) for snap-to-road."
   },
-  "Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options.": {
-    "pt": "Carregue amostras existentes dos backups semanais (.json.gz). Arraste os marcadores para corrigir posições de GPS, ajuste à via pelo OSRM e ignore ou descarte pontos ruins. Clique com o botão direito numa amostra para mais opções.",
-    "en": "Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options."
-  },
   "Load route": {
     "pt": "Carregar rota",
     "en": "Load route"
@@ -1123,10 +1099,6 @@
     "pt": "fora da rede",
     "en": "off-network"
   },
-  "Official": {
-    "pt": "Oficial",
-    "en": "Official"
-  },
   "OK": {
     "pt": "OK",
     "en": "OK"
@@ -1134,10 +1106,6 @@
   "One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data.": {
     "pt": "Uma trilha por trajeto (as visitas ficam de fora). No Arc, o Import GPX File adiciona os trajetos e desativa e oculta os dados sobrepostos, então serve para substituir trajetos mal registrados. O pacote do Arc abaixo só adiciona dados.",
     "en": "One track per trip (visits are skipped). In Arc, Import GPX File adds the trips and disables and hides the overlapping data, so it can replace badly recorded trips. The Arc package below only adds data."
-  },
-  "Only flagged": {
-    "pt": "Só sinalizadas",
-    "en": "Only flagged"
   },
   "Or if you use docker-compose:": {
     "pt": "Ou, se você usa docker-compose:",
@@ -1374,10 +1342,6 @@
   "Routed through the recorded path (%d waypoints)": {
     "pt": "Roteado pelo trajeto gravado (%d pontos de passagem)",
     "en": "Routed through the recorded path (%d waypoints)"
-  },
-  "Routing profile for this trip": {
-    "pt": "Perfil de roteamento desta viagem",
-    "en": "Routing profile for this trip"
   },
   "Routing through the pins...": {
     "pt": "Roteando pelos pinos...",
@@ -1659,10 +1623,6 @@
     "pt": "Para iniciar o OSRM, rode no terminal:",
     "en": "To start OSRM, run in terminal:"
   },
-  "Too many samples (%d). Using only the first 100.": {
-    "pt": "Amostras demais (%d). Usando só as 100 primeiras.",
-    "en": "Too many samples (%d). Using only the first 100."
-  },
   "Tractor": {
     "pt": "Trator",
     "en": "Tractor"
@@ -1910,10 +1870,6 @@
   "%s. Try again when it ends; the status dot turns green again.": {
     "pt": "%s. Tente de novo quando terminar; a bolinha de status volta a ficar verde.",
     "en": "%s. Try again when it ends; the status dot turns green again."
-  },
-  "Official (turn restrictions ignored)": {
-    "pt": "Oficial (ignorando conversões proibidas)",
-    "en": "Official (turn restrictions ignored)"
   },
   "Edit the route (P): drag the line to add a pin (only the stretch around it changes), drag the start, the end or a pin; click a pin for its options; right-click a stretch next to a pin to choose how it is drawn; right-click or double-click a pin removes it; Ctrl+Z undoes.": {
     "pt": "Editar a rota (P): arraste a linha para criar um pino (só o trecho em volta dele muda), arraste o início, o fim ou um pino; clique num pino para as opções dele; clique direito num trecho junto a um pino para escolher como ele é traçado; clique direito ou duplo num pino o remove; Ctrl+Z desfaz.",
@@ -2214,5 +2170,557 @@
   "Fixed trip-end points not resolved:": {
     "pt": "Pontos fixos de início e fim não resolvidos:",
     "en": "Fixed trip-end points not resolved:"
+  },
+  "%.0f km/h, %.0f%% on the rails": {
+    "pt": "%.0f km/h, %.0f%% nos trilhos",
+    "en": "%.0f km/h, %.0f%% on the rails"
+  },
+  "%d disabled samples left out (hidden in Arc, e.g. a recording a GPX import replaced).": {
+    "pt": "%d amostras desativadas deixadas de fora (ocultas no Arc, p. ex. uma gravação que um GPX substituiu).",
+    "en": "%d disabled samples left out (hidden in Arc, e.g. a recording a GPX import replaced)."
+  },
+  "%d parts": {
+    "pt": "%d partes",
+    "en": "%d parts"
+  },
+  "%d parts, one GPX track each": {
+    "pt": "%d partes, uma trilha de GPX cada",
+    "en": "%d parts, one GPX track each"
+  },
+  "%d samples: the route goes through 100 of them, spread along the stretch.": {
+    "pt": "%d amostras: a rota passa por 100 delas, espalhadas pelo trecho.",
+    "en": "%d samples: the route goes through 100 of them, spread along the stretch."
+  },
+  "%d trips got their suggested mode: check them before sending.": {
+    "pt": "%d viagens receberam o modo sugerido: confira antes de enviar.",
+    "en": "%d trips got their suggested mode: check them before sending."
+  },
+  "%d trips joined": {
+    "pt": "%d viagens unidas",
+    "en": "%d trips joined"
+  },
+  "1 part": {
+    "pt": "1 parte",
+    "en": "1 part"
+  },
+  "Activity type of this part in the GPX": {
+    "pt": "Tipo de atividade desta parte no GPX",
+    "en": "Activity type of this part in the GPX"
+  },
+  "Another time window": {
+    "pt": "Outra janela de horário",
+    "en": "Another time window"
+  },
+  "Apply the suggestions (%d)": {
+    "pt": "Aplicar as sugestões (%d)",
+    "en": "Apply the suggestions (%d)"
+  },
+  "Applying the suggested modes...": {
+    "pt": "Aplicando os modos sugeridos...",
+    "en": "Applying the suggested modes..."
+  },
+  "Arc now": {
+    "pt": "Arc agora",
+    "en": "Arc now"
+  },
+  "Back": {
+    "pt": "Voltar",
+    "en": "Back"
+  },
+  "Back to the review": {
+    "pt": "Voltar à revisão",
+    "en": "Back to the review"
+  },
+  "Can't split here: choose a sample inside a part (not its first or last).": {
+    "pt": "Não dá para separar aqui: escolha uma amostra no meio de uma parte (não a primeira nem a última).",
+    "en": "Can't split here: choose a sample inside a part (not its first or last)."
+  },
+  "Check again": {
+    "pt": "Conferir de novo",
+    "en": "Check again"
+  },
+  "Checking the GPX files sent...": {
+    "pt": "Conferindo os GPX enviados...",
+    "en": "Checking the GPX files sent..."
+  },
+  "Choose at most %d days.": {
+    "pt": "Escolha no máximo %d dias.",
+    "en": "Choose at most %d days."
+  },
+  "Choose the mode of each part (step 3) before exporting.": {
+    "pt": "Escolha o modo de cada parte (passo 3) antes de exportar.",
+    "en": "Choose the mode of each part (step 3) before exporting."
+  },
+  "Choose the mode: metro, train, tram, car, taxi and bus get a proposal; the others take the recorded path as is.": {
+    "pt": "Escolha o modo: metrô, trem, VLT, carro, táxi e ônibus ganham uma proposta; os outros levam o trajeto gravado como está.",
+    "en": "Choose the mode: metro, train, tram, car, taxi and bus get a proposal; the others take the recorded path as is."
+  },
+  "Choose this trip's mode first.": {
+    "pt": "Escolha antes o modo desta viagem.",
+    "en": "Choose this trip's mode first."
+  },
+  "Click a point on the map": {
+    "pt": "Clique num ponto do mapa",
+    "en": "Click a point on the map"
+  },
+  "Click waypoints on the map, then calculate a snap-to-road route. Car and Bus share one road profile; it and Foot use local OSRM (Docker ports 5005 and 5001). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY).": {
+    "pt": "Clique nos pontos de passagem no mapa e calcule uma rota ajustada às vias. Carro e Ônibus usam um só perfil viário; ele e A pé usam o OSRM local (Docker, portas 5005 e 5001). Metrô/Trem/VLT usam a Google Maps Directions API (requer GOOGLE_MAPS_API_KEY).",
+    "en": "Click waypoints on the map, then calculate a snap-to-road route. Car and Bus share one road profile; it and Foot use local OSRM (Docker ports 5005 and 5001). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
+  },
+  "Create a trip": {
+    "pt": "Criar viagem",
+    "en": "Create a trip"
+  },
+  "Create a visit": {
+    "pt": "Criar visita",
+    "en": "Create a visit"
+  },
+  "Create the trip from this boarding": {
+    "pt": "Criar a viagem a partir deste embarque",
+    "en": "Create the trip from this boarding"
+  },
+  "Draw": {
+    "pt": "Desenhar",
+    "en": "Draw"
+  },
+  "Draw the path by hand: press and drag on the map; the samples of the chosen part (or of the whole window) go along the line, by time. For stretches no router follows. Esc cancels.": {
+    "pt": "Desenhe o trajeto à mão: pressione e arraste no mapa; as amostras da parte escolhida (ou da janela inteira) vão ao longo da linha, pelo horário. Para trechos que nenhum roteador segue. Esc cancela.",
+    "en": "Draw the path by hand: press and drag on the map; the samples of the chosen part (or of the whole window) go along the line, by time. For stretches no router follows. Esc cancels."
+  },
+  "Drawn: %d samples placed along %.2f km.": {
+    "pt": "Desenhado: %d amostras ao longo de %.2f km.",
+    "en": "Drawn: %d samples placed along %.2f km."
+  },
+  "Each trip without a mode gets the suggested one (a Jaé tap, its speed, the rails); check them before sending.": {
+    "pt": "Cada viagem sem modo recebe o sugerido (um toque do Jaé, a velocidade, os trilhos); confira antes de enviar.",
+    "en": "Each trip without a mode gets the suggested one (a Jaé tap, its speed, the rails); check them before sending."
+  },
+  "Exit full screen": {
+    "pt": "Sair da tela cheia",
+    "en": "Exit full screen"
+  },
+  "Export what is shown:": {
+    "pt": "Exportar o que está na tela:",
+    "en": "Export what is shown:"
+  },
+  "Fetching places...": {
+    "pt": "Buscando lugares...",
+    "en": "Fetching places..."
+  },
+  "Full screen": {
+    "pt": "Tela cheia",
+    "en": "Full screen"
+  },
+  "Gaps (no data)": {
+    "pt": "Lacunas (sem dados)",
+    "en": "Gaps (no data)"
+  },
+  "Hide imported": {
+    "pt": "Ocultar importadas",
+    "en": "Hide imported"
+  },
+  "In Arc, Import GPX File puts it over what is there now.": {
+    "pt": "No Arc, Import GPX File o coloca por cima do que está lá agora.",
+    "en": "In Arc, Import GPX File puts it over what is there now."
+  },
+  "Join": {
+    "pt": "Unir",
+    "en": "Join"
+  },
+  "Join all": {
+    "pt": "Unir tudo",
+    "en": "Join all"
+  },
+  "Join with the part before": {
+    "pt": "Unir com a parte anterior",
+    "en": "Join with the part before"
+  },
+  "Join with the trip of %s–%s%s, across the visit of %s–%s (%d min): one trip; its GPX covers the visit, so Arc drops it on import.": {
+    "pt": "Unir com a viagem de %s–%s%s, passando pela visita de %s–%s (%d min): vira uma viagem só; o GPX cobre a visita, e o Arc a remove na importação.",
+    "en": "Join with the trip of %s–%s%s, across the visit of %s–%s (%d min): one trip; its GPX covers the visit, so Arc drops it on import."
+  },
+  "Join with the trip of %s–%s%s: one trip.": {
+    "pt": "Unir com a viagem de %s–%s%s: vira uma viagem só.",
+    "en": "Join with the trip of %s–%s%s: one trip."
+  },
+  "Joined trip: the GPX gives it the mode chosen here.": {
+    "pt": "Viagem unida: o GPX leva o modo escolhido aqui.",
+    "en": "Joined trip: the GPX gives it the mode chosen here."
+  },
+  "List": {
+    "pt": "Lista",
+    "en": "List"
+  },
+  "Loading the period...": {
+    "pt": "Carregando o período...",
+    "en": "Loading the period..."
+  },
+  "Loading...": {
+    "pt": "Carregando...",
+    "en": "Loading..."
+  },
+  "Mode": {
+    "pt": "Modo",
+    "en": "Mode"
+  },
+  "Modes": {
+    "pt": "Modos",
+    "en": "Modes"
+  },
+  "Month": {
+    "pt": "Mês",
+    "en": "Month"
+  },
+  "No GPX sent yet.": {
+    "pt": "Nenhum GPX enviado ainda.",
+    "en": "No GPX sent yet."
+  },
+  "No data": {
+    "pt": "Sem dados",
+    "en": "No data"
+  },
+  "No items in this period (local backup).": {
+    "pt": "Nenhum item neste período (backup local).",
+    "en": "No items in this period (local backup)."
+  },
+  "No items in this view.": {
+    "pt": "Nenhum item nesta visão.",
+    "en": "No items in this view."
+  },
+  "No local copy of this file.": {
+    "pt": "Não há cópia local deste arquivo.",
+    "en": "No local copy of this file."
+  },
+  "No mode": {
+    "pt": "Sem modo",
+    "en": "No mode"
+  },
+  "No mode: %d trips · %d given a mode here": {
+    "pt": "Sem modo: %d viagens · %d com modo escolhido aqui",
+    "en": "No mode: %d trips · %d given a mode here"
+  },
+  "No part on that side of this sample.": {
+    "pt": "Não há parte desse lado desta amostra.",
+    "en": "No part on that side of this sample."
+  },
+  "No samples in the local backup.": {
+    "pt": "Sem amostras no backup local.",
+    "en": "No samples in the local backup."
+  },
+  "Numbers": {
+    "pt": "Números",
+    "en": "Numbers"
+  },
+  "Open an item from Review.": {
+    "pt": "Abra um item pelo Revisar.",
+    "en": "Open an item from Review."
+  },
+  "OpenFreeMap": {
+    "pt": "OpenFreeMap Bright",
+    "en": "OpenFreeMap Bright"
+  },
+  "Part %d now starts at %s. Route each part in step 2 (Part).": {
+    "pt": "A parte %d agora começa às %s. Roteie cada parte no passo 2 (Parte).",
+    "en": "Part %d now starts at %s. Route each part in step 2 (Part)."
+  },
+  "Parts and modes": {
+    "pt": "Partes e modos",
+    "en": "Parts and modes"
+  },
+  "Path": {
+    "pt": "Trajeto",
+    "en": "Path"
+  },
+  "Places": {
+    "pt": "Lugares",
+    "en": "Places"
+  },
+  "Recorded": {
+    "pt": "Gravado",
+    "en": "Recorded"
+  },
+  "Recorded path as is · %.1f km · %s–%s": {
+    "pt": "Trajeto gravado como está · %.1f km · %s–%s",
+    "en": "Recorded path as is · %.1f km · %s–%s"
+  },
+  "Right-click a sample → Split here cuts a part; × joins a part to the one before it.": {
+    "pt": "Clique direito numa amostra → Separar aqui corta uma parte; × une a parte com a anterior.",
+    "en": "Right-click a sample → Split here cuts a part; × joins a part to the one before it."
+  },
+  "Right-click a sample: split here, or move the start of the next part (or the end of the previous one) to it.": {
+    "pt": "Clique direito numa amostra: separar ali, ou trazer para ela o início da próxima parte (ou o fim da anterior).",
+    "en": "Right-click a sample: split here, or move the start of the next part (or the end of the previous one) to it."
+  },
+  "Rio Mosaico 2024: only in the city of Rio": {
+    "pt": "Rio Mosaico 2024: só na cidade do Rio",
+    "en": "Rio Mosaico 2024: only in the city of Rio"
+  },
+  "Rio Mosaico 2024: zoom in closer": {
+    "pt": "Rio Mosaico 2024: aproxime mais",
+    "en": "Rio Mosaico 2024: zoom in closer"
+  },
+  "Road": {
+    "pt": "Viário",
+    "en": "Road"
+  },
+  "Road (turn restrictions ignored)": {
+    "pt": "Viário (ignorando conversões proibidas)",
+    "en": "Road (turn restrictions ignored)"
+  },
+  "Search a place by name": {
+    "pt": "Buscar um lugar pelo nome",
+    "en": "Search a place by name"
+  },
+  "See every trip and visit of a period.": {
+    "pt": "Veja todas as viagens e visitas de um período.",
+    "en": "See every trip and visit of a period."
+  },
+  "Send": {
+    "pt": "Enviar",
+    "en": "Send"
+  },
+  "Send the file again": {
+    "pt": "Reenviar o arquivo",
+    "en": "Send the file again"
+  },
+  "Send this GPX to iCloud again?": {
+    "pt": "Reenviar este GPX ao iCloud?",
+    "en": "Send this GPX to iCloud again?"
+  },
+  "Sends": {
+    "pt": "Envios",
+    "en": "Sends"
+  },
+  "Source: GPX import": {
+    "pt": "Origem: GPX importado",
+    "en": "Source: GPX import"
+  },
+  "Source: recorded": {
+    "pt": "Origem: gravado",
+    "en": "Source: recorded"
+  },
+  "Source: recorded, hidden in Arc (a GPX import replaced it)": {
+    "pt": "Origem: gravado, oculto no Arc (um GPX o substituiu)",
+    "en": "Source: recorded, hidden in Arc (a GPX import replaced it)"
+  },
+  "Split at %s: %d parts. Choose each part's mode in step 3 (Export).": {
+    "pt": "Separado às %s: %d partes. Escolha o modo de cada parte no passo 3 (Exportar).",
+    "en": "Split at %s: %d parts. Choose each part's mode in step 3 (Export)."
+  },
+  "Split here": {
+    "pt": "Separar aqui",
+    "en": "Split here"
+  },
+  "Stationary": {
+    "pt": "Parado",
+    "en": "Stationary"
+  },
+  "Suggestion:": {
+    "pt": "Sugestão:",
+    "en": "Suggestion:"
+  },
+  "The Arc JSON package holds one trip: with several parts, export as GPX.": {
+    "pt": "O pacote JSON do Arc leva uma viagem só: com várias partes, exporte em GPX.",
+    "en": "The Arc JSON package holds one trip: with several parts, export as GPX."
+  },
+  "The next part starts here": {
+    "pt": "A próxima parte começa aqui",
+    "en": "The next part starts here"
+  },
+  "The next period of the same length": {
+    "pt": "O período seguinte, do mesmo tamanho",
+    "en": "The next period of the same length"
+  },
+  "The original recording still shows in Arc there.": {
+    "pt": "A gravação original ainda aparece no Arc ali.",
+    "en": "The original recording still shows in Arc there."
+  },
+  "The previous part ends here": {
+    "pt": "A parte anterior termina aqui",
+    "en": "The previous part ends here"
+  },
+  "The previous period of the same length": {
+    "pt": "O período anterior, do mesmo tamanho",
+    "en": "The previous period of the same length"
+  },
+  "The timeline as Arc shows it: GPX imports and the recordings they didn't replace": {
+    "pt": "A linha do tempo como o Arc mostra: os GPX importados e as gravações que eles não substituíram",
+    "en": "The timeline as Arc shows it: GPX imports and the recordings they didn't replace"
+  },
+  "This trip has no type in Arc: the GPX gives it the mode chosen here.": {
+    "pt": "Esta viagem não tem tipo no Arc: o GPX leva o modo escolhido aqui.",
+    "en": "This trip has no type in Arc: the GPX gives it the mode chosen here."
+  },
+  "Up to a year from the local backup (items, weekly samples, places; each month is kept ready, so only the months whose files changed are read again). Arc now: the timeline as Arc shows it, with the GPX imports. Recorded: what the phone recorded, also the trips a GPX import replaced. Click a line, a visit or a row to select it; Up / Down go to the previous / next item; a day's header zooms to that day. Edit opens the item in the editor, alone or with the item before / after (to move the boundary between them).": {
+    "pt": "Até um ano, do backup local (itens, amostras semanais, lugares; cada mês fica pronto, e só os meses cujos arquivos mudaram são lidos de novo). Arc agora: a linha do tempo como o Arc mostra, com os GPX importados. Gravado: o que o celular gravou, inclusive as viagens que um GPX substituiu. Clique numa linha, numa visita ou numa linha da lista para selecionar; ↑ / ↓ vão para o item anterior / seguinte; o cabeçalho de um dia aproxima o mapa naquele dia. Editar abre o item no editor, sozinho ou com o item anterior / seguinte (para mover o limite entre eles).",
+    "en": "Up to a year from the local backup (items, weekly samples, places; each month is kept ready, so only the months whose files changed are read again). Arc now: the timeline as Arc shows it, with the GPX imports. Recorded: what the phone recorded, also the trips a GPX import replaced. Click a line, a visit or a row to select it; Up / Down go to the previous / next item; a day's header zooms to that day. Edit opens the item in the editor, alone or with the item before / after (to move the boundary between them)."
+  },
+  "Use": {
+    "pt": "Usar",
+    "en": "Use"
+  },
+  "Visits": {
+    "pt": "Visitas",
+    "en": "Visits"
+  },
+  "Visits that go on import: %s": {
+    "pt": "Visitas removidas na importação: %s",
+    "en": "Visits that go on import: %s"
+  },
+  "What Snap and Draw route: one part (each with its own profile) or the whole window": {
+    "pt": "O que Ajustar e Desenhar roteiam: uma parte (cada uma com o seu perfil) ou a janela inteira",
+    "en": "What Snap and Draw route: one part (each with its own profile) or the whole window"
+  },
+  "What the phone recorded, also the trips a GPX import replaced (no GPX items)": {
+    "pt": "O que o celular gravou, inclusive as viagens que um GPX substituiu (sem os itens de GPX)",
+    "en": "What the phone recorded, also the trips a GPX import replaced (no GPX items)"
+  },
+  "When was I here?": {
+    "pt": "Quando estive aqui?",
+    "en": "When was I here?"
+  },
+  "Whole window": {
+    "pt": "Janela inteira",
+    "en": "Whole window"
+  },
+  "absorbed by Arc (short leg)": {
+    "pt": "absorvido pelo Arc (trecho curto)",
+    "en": "absorbed by Arc (short leg)"
+  },
+  "all": {
+    "pt": "todos",
+    "en": "all"
+  },
+  "bus / metro / tram trips without a tap": {
+    "pt": "viagens de ônibus / metrô / VLT sem toque",
+    "en": "bus / metro / tram trips without a tap"
+  },
+  "clear": {
+    "pt": "limpar",
+    "en": "clear"
+  },
+  "files": {
+    "pt": "arquivos",
+    "en": "files"
+  },
+  "gaps": {
+    "pt": "lacunas",
+    "en": "gaps"
+  },
+  "h moving": {
+    "pt": "h em movimento",
+    "en": "h moving"
+  },
+  "hidden in Arc": {
+    "pt": "oculto no Arc",
+    "en": "hidden in Arc"
+  },
+  "in Arc": {
+    "pt": "no Arc",
+    "en": "in Arc"
+  },
+  "joined": {
+    "pt": "unida",
+    "en": "joined"
+  },
+  "last": {
+    "pt": "última",
+    "en": "last"
+  },
+  "next →": {
+    "pt": "próxima →",
+    "en": "next →"
+  },
+  "no local copy": {
+    "pt": "sem cópia local",
+    "en": "no local copy"
+  },
+  "no mode": {
+    "pt": "sem modo",
+    "en": "no mode"
+  },
+  "no samples in the local backup: fetch from iCloud again": {
+    "pt": "nenhuma amostra no backup local: busque do iCloud de novo",
+    "en": "no samples in the local backup: fetch from iCloud again"
+  },
+  "no visit": {
+    "pt": "sem visita",
+    "en": "no visit"
+  },
+  "none": {
+    "pt": "nenhum",
+    "en": "none"
+  },
+  "not found in Arc": {
+    "pt": "não encontrado no Arc",
+    "en": "not found in Arc"
+  },
+  "replaced by a later import": {
+    "pt": "substituído por um import posterior",
+    "en": "replaced by a later import"
+  },
+  "summary (HTML)": {
+    "pt": "resumo (HTML)",
+    "en": "summary (HTML)"
+  },
+  "taps without a trip": {
+    "pt": "toques sem viagem",
+    "en": "taps without a trip"
+  },
+  "tracks": {
+    "pt": "trilhas",
+    "en": "tracks"
+  },
+  "trips passing by": {
+    "pt": "viagens passando",
+    "en": "trips passing by"
+  },
+  "trips whose mode differs from the tap": {
+    "pt": "viagens com modo diferente do toque",
+    "en": "trips whose mode differs from the tap"
+  },
+  "very short": {
+    "pt": "muito curta",
+    "en": "very short"
+  },
+  "visit %d min": {
+    "pt": "visita %d min",
+    "en": "visit %d min"
+  },
+  "visits": {
+    "pt": "visitas",
+    "en": "visits"
+  },
+  "with the item after": {
+    "pt": "com o item seguinte",
+    "en": "with the item after"
+  },
+  "with the item before": {
+    "pt": "com o item anterior",
+    "en": "with the item before"
+  },
+  "with the recording still visible": {
+    "pt": "com a gravação ainda visível",
+    "en": "with the recording still visible"
+  },
+  "within": {
+    "pt": "num raio de",
+    "en": "within"
+  },
+  "without samples in the local backup (fetch from iCloud)": {
+    "pt": "sem amostras no backup local (busque no iCloud)",
+    "en": "without samples in the local backup (fetch from iCloud)"
+  },
+  "— choose the mode —": {
+    "pt": "— escolha o modo —",
+    "en": "— choose the mode —"
+  },
+  "← previous": {
+    "pt": "← anterior",
+    "en": "← previous"
+  },
+  "No Batch review trip at this time.": {
+    "pt": "Nenhuma viagem da Revisão em lote neste horário.",
+    "en": "No Batch review trip at this time."
   }
 }

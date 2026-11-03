@@ -30,26 +30,33 @@ MAPLIBRE_DEPS <- list(
 )
 
 
+# Route Builder: the new trip's mode (Car and Bus both route on ROAD_PROFILE)
 PROFILE_CHOICES <- c(
-  "Car" = "car", "Official" = "official", "Foot" = "foot", "Bike" = "bike", "Bus" = "bus",
+  "Car" = "car", "Bus" = "bus", "Foot" = "foot", "Bike" = "bike",
+  "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"
+)
+
+# Edit Samples: the snap's routing profile (one road profile)
+SNAP_PROFILE_CHOICES <- c(
+  "Road" = "official", "Foot" = "foot", "Bike" = "bike",
   "Metro" = "metro", "Train" = "train", "Tram/VLT" = "tram"
 )
 
 # Labels (translation keys) of the OSRM servers in the status dot
-OSRM_PROFILE_LABELS <- c(PROFILE_CHOICES, stats::setNames("official-noturn", i18n_key("Official (turn restrictions ignored)")))
+OSRM_PROFILE_LABELS <- c("Road" = "official", "Foot" = "foot", "Bike" = "bike",
+                         stats::setNames("official-noturn", i18n_key("Road (turn restrictions ignored)")))
 
-# Profile select choices: OSRM profiles not in OSRM_ENABLED_PROFILES are left out
+# Profile select choices: OSRM profiles not in OSRM_ENABLED_PROFILES are left
+# out (Car / Bus: as ROAD_PROFILE)
 profile_choices <- function(choices = PROFILE_CHOICES) {
-  choices[!choices %in% names(OSRM_SERVERS) | choices %in% osrm_enabled_profiles()]
+  p <- osrm_profile_of(choices)
+  choices[!p %in% names(OSRM_SERVERS) | p %in% osrm_enabled_profiles()]
 }
-
-# Batch review: OSRM profile of a road trip
-REVIEW_PROFILE_CHOICES <- c("Car" = "car", "Official" = "official", "Bus" = "bus")
 
 # Batch review: activities, sort order (labels are translation keys)
 REVIEW_ACTIVITY_CHOICES <- c(
   "Metro" = "metro", "Train" = "train", "Tram" = "tram",
-  "Car" = "car", "Taxi" = "taxi", "Bus" = "bus"
+  "Car" = "car", "Taxi" = "taxi", "Bus" = "bus", "No mode" = "untyped"
 )
 REVIEW_SORT_CHOICES <- c("By date" = "date", "By severity" = "severity")
 
@@ -275,14 +282,89 @@ APP_CSS <- "
     max-width: 100%;
   }
   .review-empty { padding: 6px; font-size: 0.76rem; color: var(--bs-secondary-color); }
+  .period-view { margin: 0.4rem 0 0.2rem; }
+  .period-view .btn { font-size: 0.76rem; padding: 0.15rem 0.3rem; }
+  .period-place { margin: 0.3rem 0 0; }
+  .period-place input { font-size: 0.76rem; }
+  .period-ctl {
+    background: rgba(255,255,255,0.95); border-radius: 6px; padding: 6px 8px; font-size: 0.74rem;
+    box-shadow: 0 1px 4px rgba(0,0,0,0.3); max-width: 240px; clear: both;
+  }
+  .period-ctl .pc-head { display: flex; align-items: center; gap: 6px; margin-bottom: 3px; }
+  .period-ctl .pc-head .pc-fs { margin-left: auto; padding: 0 6px; line-height: 1.4; }
+  .period-ctl .pc-modes { max-height: 260px; overflow-y: auto; }
+  .period-ctl .pc-mode { display: flex; align-items: center; gap: 4px; margin: 0; white-space: nowrap; cursor: pointer; }
+  .period-ctl .pc-sw { display: inline-block; width: 14px; height: 4px; border-radius: 2px; }
+  .period-ctl .pc-n { margin-left: auto; color: var(--bs-secondary-color); font-variant-numeric: tabular-nums; }
+  .period-ctl .pc-place { display: flex; gap: 4px; margin-top: 5px; }
+  .period-ctl .pc-place .btn { font-size: 0.72rem; padding: 0.05rem 0.4rem; white-space: nowrap; }
+  .period-ctl .pc-place select { font-size: 0.72rem; padding: 0 1.4rem 0 0.3rem; width: auto; }
+  .period-ctl .pc-q { margin-top: 4px; color: #B71C1C; }
+  .period-ctl .pc-jae { margin-top: 5px; line-height: 1.35; }
+  .period-ctl .pc-jae a.pc-on { font-weight: 700; color: #B71C1C; }
+  .period-tabs { margin: 0.35rem 0 0; }
+  .period-tabs .btn { font-size: 0.72rem; padding: 0.1rem 0.2rem; }
+  .period-list.period-list-tall { height: 330px; }
+  .period-row.pr-gap { color: #8D6E00; background: #FFFDE7; }
+  .period-row.pr-gap.selected { background: #FFF59D; }
+  .period-table { width: 100%; font-size: 0.72rem; border-collapse: collapse; margin-bottom: 0.4rem; }
+  .period-table th { position: sticky; top: 0; background: var(--bs-secondary-bg); font-weight: 600; }
+  .period-table th, .period-table td { padding: 1px 4px; text-align: right; white-space: nowrap; }
+  .period-table th:first-child, .period-table td:first-child { text-align: left; white-space: normal; }
+  .period-table tr.pp-row { cursor: pointer; }
+  .period-table tr.pp-row:hover, .period-table tr.ps-row:hover { background: var(--bs-tertiary-bg); }
+  .period-export { font-size: 0.72rem; padding: 3px 4px; }
+  .ps-file { display: grid; grid-template-columns: 112px minmax(0, 1fr) auto; gap: 4px; padding: 2px 4px; font-size: 0.72rem;
+             cursor: pointer; border-bottom: 1px solid var(--bs-border-color-translucent); white-space: nowrap; }
+  .ps-file:hover { background: var(--bs-tertiary-bg); }
+  .ps-file.open { background: var(--bs-secondary-bg); font-weight: 600; }
+  .ps-file .ps-name { overflow: hidden; text-overflow: ellipsis; }
+  .ps-file .ps-flags { font-variant-numeric: tabular-nums; }
+  .period-row.ps-trk { padding-left: 14px; grid-template-columns: 18px 96px minmax(0, 1fr) auto; }
+  .period-row.ps-missing .pr-what { color: #B71C1C; font-weight: 600; }
+  .period-row.ps-absorbed .pr-what { color: var(--bs-secondary-color); }
+  .ps-file-name { font-size: 0.7rem; color: var(--bs-secondary-color); word-break: break-all; }
+  .period-list {
+    overflow-y: auto;
+    border: 1px solid var(--bs-border-color);
+    border-radius: 0.375rem;
+    margin: 0.3rem 0;
+    height: 230px;
+  }
+  .period-day {
+    position: sticky; top: 0; z-index: 1;
+    display: flex; justify-content: space-between;
+    padding: 2px 4px; font-size: 0.72rem; font-weight: 600; cursor: pointer;
+    background: var(--bs-secondary-bg); border-bottom: 1px solid var(--bs-border-color);
+  }
+  .period-day:hover { background: var(--bs-tertiary-bg); }
+  .period-row {
+    display: grid; grid-template-columns: 18px 70px minmax(0, 1fr) auto;
+    gap: 3px; align-items: center; padding: 1px 4px; font-size: 0.74rem; white-space: nowrap; cursor: pointer;
+    border-bottom: 1px solid var(--bs-border-color-translucent);
+  }
+  .period-row:hover { background: var(--bs-tertiary-bg); }
+  .period-row.selected { background: var(--bs-primary-bg-subtle); }
+  .period-row .pr-time { font-variant-numeric: tabular-nums; }
+  .period-row .pr-what { overflow: hidden; text-overflow: ellipsis; }
+  .period-row .pr-tag { font-size: 0.62rem; padding: 0 3px; border-radius: 3px; background: #E3F2FD; color: #0D47A1; }
+  .period-row .pr-tag.pr-replaced { background: #FFF3E0; color: #E65100; }
+  .period-detail { font-size: 0.76rem; }
+  .period-detail .btn { font-size: 0.74rem; padding: 0.1rem 0.5rem; margin-top: 0.25rem; }
+  .period-detail .period-open-near { display: flex; gap: 4px; }
+  .period-detail .period-open-near .btn { flex: 1 1 0; font-size: 0.7rem; padding: 0.05rem 0.3rem; }
+  .edit-snap-part .shiny-input-container { margin-bottom: 0.3rem !important; }
+  .edit-snap-part select, .edit-snap-part .selectize-input { font-size: 0.76rem; }
+  #map.draw-mode { cursor: crosshair; }
+  .editor-head { display: flex; align-items: center; gap: 8px; margin-bottom: 0.4rem; }
+  .editor-head .btn { font-size: 0.76rem; padding: 0.1rem 0.5rem; white-space: nowrap; }
+  .editor-window { font-size: 0.76rem; color: var(--bs-secondary-color); }
   .review-summary { font-size: 0.76rem; margin-top: 0.3rem; }
   .review-detail { font-size: 0.76rem; margin-bottom: 0.3rem; }
   .review-detail .rv-title { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .review-detail .rv-title .rv-stations { font-weight: 400; }
   .review-detail .rv-title-row { display: flex; align-items: center; gap: 6px; }
   .review-detail .rv-title-row .rv-title { flex: 1 1 auto; min-width: 0; }
-  .review-detail .review-profile { flex: 0 0 auto; font-weight: 400; }
-  .review-profile .selectize-input { line-height: 1.2; vertical-align: top; }
   .review-detail .rv-jae { display: flex; flex-wrap: wrap; align-items: center; column-gap: 6px; }
   .review-detail .rv-jae > .rv-clamp { flex: 1 1 auto; min-width: 0; }
   .review-detail .rv-jae.rv-split-on { flex-wrap: nowrap; }
@@ -348,8 +430,19 @@ APP_CSS <- "
     align-items: center;
     margin-top: 2px;
   }
-  .review-end .shiny-input-container, .review-xfer .shiny-input-container, .review-profile .shiny-input-container { margin-bottom: 0 !important; }
-  .review-end .selectize-input, .review-xfer .selectize-input, .review-toolbar .selectize-input, .review-profile .selectize-input {
+  .rv-mode-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 2px 3px; align-items: center; margin-top: 2px; }
+  .map-base-note { background: rgba(255, 255, 255, 0.92); border-radius: 4px; padding: 2px 8px; font-size: 0.78rem;
+                   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25); clear: both; }
+  .rv-join-row { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 2px 3px; align-items: center; margin-top: 2px; }
+  .rv-join-opts { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: center; min-width: 0; }
+  .rv-join-opt { display: inline-flex; gap: 4px; align-items: center; white-space: nowrap; font-size: 0.8rem; }
+  .review-detail .rv-suggest { font-size: 0.78rem; }
+  .review-detail .rv-suggest .btn { font-size: 0.72rem; padding: 0 6px; }
+  .rv-join-opt .btn { padding: 0 6px; font-size: 0.78rem; line-height: 1.5; }
+  .review-end .shiny-input-container, .review-xfer .shiny-input-container,
+  .rv-mode-row .shiny-input-container { margin-bottom: 0 !important; }
+  .review-end .selectize-input, .review-xfer .selectize-input, .review-toolbar .selectize-input,
+  .rv-mode-row .selectize-input {
     font-size: 0.72rem;
     min-height: 0;
     padding: 1px 18px 1px 4px;
@@ -357,7 +450,7 @@ APP_CSS <- "
     overflow: hidden;
   }
   .review-end .selectize-input > .item, .review-xfer .selectize-input > .item, .review-toolbar .selectize-input > .item,
-  .review-profile .selectize-input > .item {
+  .rv-mode-row .selectize-input > .item {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -476,6 +569,18 @@ APP_CSS <- "
     margin: 5px 0;
   }
 
+  /* Edit Samples: parts (one GPX track each) and their modes */
+  .edit-parts { margin-bottom: 6px; }
+  .edit-parts-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; }
+  .edit-parts-head .btn-link { padding: 0 2px; font-size: 12px; }
+  .edit-part-row { display: grid; grid-template-columns: 12px 104px minmax(0, 1fr) 24px; gap: 4px; align-items: center; margin-bottom: 3px; font-size: 12px; }
+  .edit-part-row.edit-part-one { grid-template-columns: auto 1fr; }
+  .edit-part-row .form-select { padding-top: 1px; padding-bottom: 1px; font-size: 12px; }
+  .edit-part-row .btn { padding: 0 4px; line-height: 1.3; }
+  .edit-part-n { color: #6A1B9A; font-weight: 600; }
+  .edit-part-time { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .edit-part-visit { margin-left: 3px; color: #6c757d; font-size: 11px; }
+
   /* Selection lasso */
   .selection-lasso {
     position: absolute;
@@ -499,7 +604,7 @@ APP_CSS <- "
 osrm_pane <- shiny::tagList(
   mode_hint(
     "Click waypoints on the map.",
-    "Click waypoints on the map, then calculate a snap-to-road route. Car/Official/Foot/Bus use local OSRM (Docker ports 5000-5005). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
+    "Click waypoints on the map, then calculate a snap-to-road route. Car and Bus share one road profile; it and Foot use local OSRM (Docker ports 5005 and 5001). Metro/Train/Tram use Google Maps Directions API (requires GOOGLE_MAPS_API_KEY)."
   ),
   shiny::selectInput("osrm_profile", t_("Profile:"), choices = tr_choices(profile_choices()), selected = "car", width = "100%"),
   shiny::uiOutput("jae_list"),
@@ -565,33 +670,40 @@ import_pane <- shiny::tagList(
 )
 
 edit_samples_pane <- shiny::tagList(
-  mode_hint(
-    "Fix existing samples from the weekly backups.",
-    "Load existing samples from weekly .json.gz backup files. Drag markers to fix GPS positions, snap to road via OSRM, ignore or discard bad points. Right-click a sample for more options."
+  # The editor opens from Review (an item, or it and a neighbour); Back returns there
+  shiny::div(
+    class = "editor-head",
+    shiny::tags$button(type = "button", id = "editor_back", class = "btn btn-sm btn-outline-secondary",
+                       "\u2190 ", t_("Back to the review")),
+    shiny::uiOutput("editor_window", inline = TRUE)
   ),
   bslib::accordion(
     id = "edit_samples_steps",
     multiple = FALSE,
-    open = "load",
+    open = "parts",
     bslib::accordion_panel(
-      shiny::tagList("1 · ", t_("Load")), value = "load",
-      date_time_row("Start", "edit_samples_date_start", "edit_samples_time_start", "00:00"),
-      date_time_row("End", "edit_samples_date_end", "edit_samples_time_end", "23:59"),
-      if (icloud_available()) {
-        shiny::checkboxInput("fetch_icloud", t_("Fetch weeks from iCloud first"), value = TRUE)
-      },
-      bslib::input_task_button("load_samples", t_("Load"), label_busy = t_("Processing..."), class = "btn-sm w-100")
+      shiny::tagList("1 · ", t_("Parts and modes")), value = "parts",
+      shiny::uiOutput("edit_parts"),
+      shiny::div(class = "mode-hint", t_("Right-click a sample: split here, or move the start of the next part (or the end of the previous one) to it."))
     ),
     bslib::accordion_panel(
-      shiny::tagList("2 · ", t_("Clean & snap")), value = "clean",
+      shiny::tagList("2 · ", t_("Path")), value = "clean",
+      shiny::uiOutput("edit_snap_part_ui"),
       shiny::div(
         class = "btn-row",
-        shiny::selectInput("edit_osrm_profile", NULL, choices = tr_choices(profile_choices()), selected = "car", width = "100%"),
+        shiny::selectInput("edit_osrm_profile", NULL, choices = tr_choices(profile_choices(SNAP_PROFILE_CHOICES)), selected = ROAD_PROFILE, width = "100%"),
         bslib::input_task_button(
           "snap_to_road", t_("Snap"), label_busy = t_("Processing..."), type = "warning", class = "btn-sm",
           title = tr_lang("Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route"),
           `data-i18n-title` = "Snap all active samples to the nearest road via OSRM and generate virtual intermediate points along the route"
         )
+      ),
+      shiny::div(
+        class = "btn-row",
+        shiny::tags$button(id = "edit_draw_toggle", type = "button", class = "btn btn-sm btn-outline-secondary",
+                           `data-i18n-title` = "Draw the path by hand: press and drag on the map; the samples of the chosen part (or of the whole window) go along the line, by time. For stretches no router follows. Esc cancels.",
+                           title = tr_lang("Draw the path by hand: press and drag on the map; the samples of the chosen part (or of the whole window) go along the line, by time. For stretches no router follows. Esc cancels."),
+                           "\u270F\uFE0F ", t_("Draw"))
       ),
       shiny::div(
         class = "btn-row",
@@ -626,7 +738,7 @@ edit_samples_pane <- shiny::tagList(
       )
     ),
     bslib::accordion_panel(
-      shiny::tagList("3 · ", t_("Export")), value = "export",
+      shiny::tagList("3 · ", t_("Send")), value = "export",
       shiny::div(
         class = "mode-hint",
         t_("Corrected route as GPX"),
@@ -669,11 +781,24 @@ edit_samples_pane <- shiny::tagList(
           bslib::input_task_button("send_edit_icloud", t_("Send to iCloud (Import)"), label_busy = t_("Sending..."), type = "outline-primary", class = "btn-sm w-100")
         }
       )
+    ),
+    bslib::accordion_panel(
+      t_("Another time window"), value = "load",
+      date_time_row("Start", "edit_samples_date_start", "edit_samples_time_start", "00:00"),
+      date_time_row("End", "edit_samples_date_end", "edit_samples_time_end", "23:59"),
+      if (icloud_available()) {
+        shiny::checkboxInput("fetch_icloud", t_("Fetch weeks from iCloud first"), value = TRUE)
+      },
+      bslib::input_task_button("load_samples", t_("Load"), label_busy = t_("Processing..."), class = "btn-sm w-100")
     )
   )
 )
 
 edit_route_pane <- shiny::tagList(
+  # Opens from a trip of the day timeline (its Path button); Back returns to Edit
+  shiny::div(class = "editor-head",
+             shiny::tags$button(type = "button", id = "route_editor_back", class = "btn btn-sm btn-outline-secondary",
+                                "\u2190 ", t_("Back"))),
   mode_hint(
     "Edit the waypoints of a trip.",
     "Select a trip from the timeline to edit its waypoints. Drag nodes to move, right-click to delete, or insert new waypoints. Average speed is preserved when you apply changes."
@@ -704,6 +829,70 @@ edit_route_pane <- shiny::tagList(
     shiny::actionButton("apply_route_edits", t_("Apply"), class = "btn-sm btn-success"),
     shiny::actionButton("cancel_route_edits", t_("Cancel"), class = "btn-sm btn-outline-danger")
   )
+)
+
+# Edit > Period: every trip and visit of a period (server_period.R; the map,
+# the list and the view switch are client-side, PERIOD_JS)
+period_pane <- shiny::tagList(
+  mode_hint(
+    "See every trip and visit of a period.",
+    "Up to a year from the local backup (items, weekly samples, places; each month is kept ready, so only the months whose files changed are read again). Arc now: the timeline as Arc shows it, with the GPX imports. Recorded: what the phone recorded, also the trips a GPX import replaced. Click a line, a visit or a row to select it; Up / Down go to the previous / next item; a day's header zooms to that day. Edit opens the item in the editor, alone or with the item before / after (to move the boundary between them)."
+  ),
+  shiny::div(
+    class = "range-row",
+    shiny::span(class = "dt-label", t_("From")),
+    date_input("period_from", NULL, lubridate::floor_date(Sys.Date(), "month"), width = "100%"),
+    shiny::span(class = "dt-label", t_("To")),
+    date_input("period_to", NULL, Sys.Date(), width = "100%")
+  ),
+  shiny::div(
+    class = "range-step",
+    shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", `data-period-step` = "-1",
+                       `data-i18n-title` = "The previous period of the same length",
+                       title = tr_lang("The previous period of the same length"), "\u25C0"),
+    shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", `data-period-step` = "1",
+                       `data-i18n-title` = "The next period of the same length",
+                       title = tr_lang("The next period of the same length"), "\u25B6")
+  ),
+  if (icloud_available()) {
+    shiny::checkboxInput("period_fetch_icloud", t_("Fetch everything from iCloud first"), FALSE)
+  },
+  bslib::input_task_button("period_load", t_("Load"), label_busy = t_("Processing..."), class = "btn-sm w-100"),
+  shiny::div(
+    class = "btn-group btn-group-sm w-100 period-view", role = "group",
+    shiny::tags$input(type = "radio", class = "btn-check", name = "period_view", id = "period_view_now", value = "now",
+                      autocomplete = "off", checked = NA),
+    shiny::tags$label(class = "btn btn-outline-primary", `for` = "period_view_now",
+                      `data-i18n-title` = "The timeline as Arc shows it: GPX imports and the recordings they didn't replace",
+                      title = tr_lang("The timeline as Arc shows it: GPX imports and the recordings they didn't replace"),
+                      t_("Arc now")),
+    shiny::tags$input(type = "radio", class = "btn-check", name = "period_view", id = "period_view_rec", value = "rec",
+                      autocomplete = "off"),
+    shiny::tags$label(class = "btn btn-outline-primary", `for` = "period_view_rec",
+                      `data-i18n-title` = "What the phone recorded, also the trips a GPX import replaced (no GPX items)",
+                      title = tr_lang("What the phone recorded, also the trips a GPX import replaced (no GPX items)"),
+                      t_("Recorded"))
+  ),
+  # The list area: the items, the places, the numbers, the GPX files sent
+  shiny::div(
+    class = "btn-group btn-group-sm w-100 period-tabs", role = "group",
+    lapply(list(list("list", t_("List")), list("places", t_("Places")), list("stats", t_("Numbers")), list("sends", t_("Sends"))), function(x) {
+      shiny::tagList(
+        shiny::tags$input(type = "radio", class = "btn-check", name = "period_tab", id = paste0("period_tab_", x[[1]]), value = x[[1]],
+                          autocomplete = "off", checked = if (x[[1]] == "list") NA),
+        shiny::tags$label(class = "btn btn-outline-secondary", `for` = paste0("period_tab_", x[[1]]), x[[2]])
+      )
+    })
+  ),
+  # When was I at a place: its visits by name (the map panel also takes a point)
+  shiny::div(
+    class = "period-place",
+    shiny::tags$input(type = "search", id = "period_place_q", class = "form-control form-control-sm", autocomplete = "off",
+                      placeholder = tr_lang("Search a place by name"))
+  ),
+  shiny::div(id = "period_summary", class = "review-summary"),
+  shiny::div(id = "period_list", class = "period-list"),
+  shiny::div(id = "period_detail", class = "period-detail")
 )
 
 batch_review_pane <- shiny::tagList(
@@ -757,7 +946,7 @@ batch_review_pane <- shiny::tagList(
       shiny::tagList("2 · ", t_("Review")), value = "review",
       shiny::div(
         class = "review-toolbar",
-        shiny::checkboxInput("review_only_flagged", t_("Only flagged"), TRUE),
+        shiny::checkboxInput("review_hide_imported", t_("Hide imported"), TRUE),
         shiny::selectInput("review_sort", NULL, choices = tr_choices(REVIEW_SORT_CHOICES), selected = "date",
                            width = "106px")
       ),
@@ -912,7 +1101,7 @@ ui <- bslib::page_fillable(
         class = "d-none",
         shiny::radioButtons(
           "mode", NULL,
-          choices = c("OSRM", "Visit", "Manual", "Import", "EditSamples", "EditRoute", "BatchReview"),
+          choices = c("OSRM", "Visit", "Manual", "Import", "EditSamples", "EditRoute", "BatchReview", "Period"),
           selected = "OSRM"
         )
       ),
@@ -934,12 +1123,13 @@ ui <- bslib::page_fillable(
           t_("Edit"), value = "edit",
           mode_segments(
             "edit_mode_seg",
-            c("Edit samples" = "EditSamples", "Edit route" = "EditRoute", "Batch review" = "BatchReview"),
-            "EditSamples"
+            c("Review" = "Period", "Batch review" = "BatchReview"),
+            "Period"
           ),
           shiny::conditionalPanel("input.mode == 'EditSamples'", edit_samples_pane),
           shiny::conditionalPanel("input.mode == 'EditRoute'", edit_route_pane),
-          shiny::conditionalPanel("input.mode == 'BatchReview'", batch_review_pane)
+          shiny::conditionalPanel("input.mode == 'BatchReview'", batch_review_pane),
+          shiny::conditionalPanel("input.mode == 'Period'", period_pane)
         ),
         bslib::nav_panel(t_("Export"), value = "export", export_pane)
       )
@@ -978,6 +1168,9 @@ ui <- bslib::page_fillable(
     shiny::div(class = "sample-context-menu-separator"),
     shiny::div(id = "ctx-ignore", class = "sample-context-menu-item", t_("Ignore")),
     shiny::div(id = "ctx-insert", class = "sample-context-menu-item", t_("Insert sample after")),
+    shiny::div(id = "ctx-split", class = "sample-context-menu-item", t_("Split here")),
+    shiny::div(id = "ctx-start-next", class = "sample-context-menu-item", t_("The next part starts here")),
+    shiny::div(id = "ctx-end-prev", class = "sample-context-menu-item", t_("The previous part ends here")),
     shiny::div(class = "sample-context-menu-separator"),
     shiny::div(id = "ctx-discard", class = "sample-context-menu-item danger", t_("Discard"))
   ),
@@ -1035,6 +1228,14 @@ ui <- bslib::page_fillable(
         Shiny.setInputValue('review_pick', {key: $(this).attr('data-review-pick'), ts: Date.now()}, {priority: 'event'});
       });
 
+      // Join the selected trip with the one before / after it, or undo the join
+      $(document).on('click', '[data-review-suggest]', function() {
+        Shiny.setInputValue('review_suggest', {which: $(this).attr('data-review-suggest'), ts: Date.now()}, {priority: 'event'});
+      });
+      $(document).on('click', '[data-review-join]', function() {
+        Shiny.setInputValue('review_join', {side: $(this).attr('data-review-join'), ts: Date.now()}, {priority: 'event'});
+      });
+
       // Split at the Jaé tap: on / off
       $(document).on('click', '[data-review-split]', function() {
         Shiny.setInputValue('review_split', {action: $(this).attr('data-review-split'), ts: Date.now()}, {priority: 'event'});
@@ -1072,7 +1273,7 @@ ui <- bslib::page_fillable(
         reviewStep(e.key === 'ArrowLeft' ? -1 : 1);
       });
 
-      // Batch review: the last trip types and 'Only flagged', remembered in this browser.
+      // Batch review: the last trip types and 'Hide imported', remembered in this browser.
       // Read at page load and sent to the server, which applies them once
       // (review_saved_filters); every change after that is stored.
       function rvStore(k, v) {
@@ -1082,11 +1283,11 @@ ui <- bslib::page_fillable(
         } catch (err) { return null; }
         return null;
       }
-      var rvSaved = {activities: rvStore('arc_review_activities'), only_flagged: rvStore('arc_review_only_flagged')};
+      var rvSaved = {activities: rvStore('arc_review_activities'), hide_imported: rvStore('arc_review_hide_imported')};
       $(document).on('shiny:connected', function() { Shiny.setInputValue('review_saved_filters', rvSaved); });
       $(document).on('shiny:inputchanged', function(e) {
         if (e.name === 'review_activities') rvStore('arc_review_activities', e.value || []);
-        if (e.name === 'review_only_flagged') rvStore('arc_review_only_flagged', !!e.value);
+        if (e.name === 'review_hide_imported') rvStore('arc_review_hide_imported', !!e.value);
       });
 
       // Keys: A accept, S skip, R re-route (Batch review only, not while typing)
@@ -1218,6 +1419,29 @@ ui <- bslib::page_fillable(
           Shiny.setInputValue('ctx_insert', {id: currentSampleId, ts: Date.now()});
         }
         $menu.removeClass('show');
+      });
+
+      $('#ctx-split').on('click', function() {
+        if (currentSampleId) {
+          Shiny.setInputValue('ctx_split', {id: currentSampleId, ts: Date.now()});
+        }
+        $menu.removeClass('show');
+      });
+      // A boundary moved to this sample: the next part starts / the previous one ends here
+      $('#ctx-start-next, #ctx-end-prev').on('click', function() {
+        if (currentSampleId) {
+          Shiny.setInputValue('ctx_boundary', {id: currentSampleId, side: this.id === 'ctx-end-prev' ? 'prev' : 'next', ts: Date.now()});
+        }
+        $menu.removeClass('show');
+      });
+
+      // Edit Samples parts: a part's mode, a part joined to the one before it (or all)
+      $(document).on('change', 'select[data-edit-part]', function() {
+        Shiny.setInputValue('edit_part_mode', {k: +this.getAttribute('data-edit-part'), mode: this.value}, {priority: 'event'});
+      });
+      $(document).on('click', '[data-edit-part-join]', function() {
+        var k = this.getAttribute('data-edit-part-join');
+        Shiny.setInputValue('edit_part_join', {k: k === 'all' ? 'all' : +k}, {priority: 'event'});
       });
 
       $('#ctx-discard').on('click', function() {
@@ -1663,8 +1887,64 @@ ui <- bslib::page_fillable(
       function segmentValue(name) {
         return $('input[name=\"' + name + '\"]:checked').val();
       }
+      window.setAppMode = setMode;
+      // Edit has two segments, Review and Batch review. The sample editor
+      // (EditSamples) opens from Review and the route editor (EditRoute) from
+      // a trip of the day timeline: both keep their segment, and the Edit tab
+      // comes back to them while open
+      var editSub = null;
       $(document).on('change', 'input[name=\"create_mode_seg\"], input[name=\"edit_mode_seg\"]', function() {
+        if (this.name === 'edit_mode_seg') editSub = null;
         setMode(this.value);
+      });
+      function showEditTab() {
+        var tab = document.querySelector('#nav_section [data-value=\"edit\"]');
+        if (tab && !tab.classList.contains('active')) bootstrap.Tab.getOrCreateInstance(tab).show();
+      }
+      // Review -> the editor (the server loads the item's window)
+      // A gap in Review -> Create > Visit / Manual route, its times set by the server
+      Shiny.addCustomMessageHandler('period_to_create', function(msg) {
+        editSub = null;
+        $('#seg_' + msg.segment).prop('checked', true);
+        var tab = document.querySelector('#nav_section [data-value=\"create\"]');
+        if (tab && !tab.classList.contains('active')) bootstrap.Tab.getOrCreateInstance(tab).show();
+        setMode(msg.segment);
+      });
+      Shiny.addCustomMessageHandler('period_to_edit', function(msg) {
+        $('#seg_Period').prop('checked', true);
+        editSub = 'EditSamples';
+        showEditTab();
+        setMode('EditSamples');
+      });
+      // Review -> Batch review, a trip selected there (its routing)
+      Shiny.addCustomMessageHandler('period_to_batch', function(msg) {
+        editSub = null;
+        $('#seg_BatchReview').prop('checked', true);
+        showEditTab();
+        setMode('BatchReview');
+      });
+      $(document).on('click', '#editor_back', function() {
+        editSub = null;
+        $('#seg_Period').prop('checked', true);
+        setMode('Period');
+      });
+      // A trip of the day timeline -> the route editor, that trip loaded
+      $(document).on('click', '[data-route-edit]', function() {
+        Shiny.setInputValue('timeline_route_edit', {id: this.getAttribute('data-route-edit'), ts: Date.now()}, {priority: 'event'});
+      });
+      Shiny.addCustomMessageHandler('route_edit_open', function(msg) {
+        editSub = 'EditRoute';
+        showEditTab();
+        setMode('EditRoute');
+        var tries = 0;
+        (function waitSelect() {
+          if ($('#selected_route').val() === msg.id) { $('#load_route').click(); return; }
+          if (++tries < 30) setTimeout(waitSelect, 100);
+        })();
+      });
+      $(document).on('click', '#route_editor_back', function() {
+        editSub = null;
+        setMode(segmentValue('edit_mode_seg'));
       });
 
       // ---- Jaé boardings: one input for every row's button ----
@@ -1682,7 +1962,7 @@ ui <- bslib::page_fillable(
       $(document).on('shown.bs.tab', '#nav_section [data-bs-toggle=\"tab\"]', function(e) {
         var section = $(e.target).attr('data-value');
         if (section === 'create') setMode(segmentValue('create_mode_seg'));
-        if (section === 'edit') setMode(segmentValue('edit_mode_seg'));
+        if (section === 'edit') setMode(editSub || segmentValue('edit_mode_seg'));
       });
 
       // ---- Status dots: first check after load, re-check on click ----
@@ -1708,6 +1988,11 @@ ui <- bslib::page_fillable(
 
   # Route editing by dragging, sample lasso, Ctrl+Z, map overlays (ui_route_edit_js.R)
   shiny::tags$script(shiny::HTML(ROUTE_EDIT_JS)),
+
+  # Extra base maps: OpenFreeMap Positron, Rio Mosaico 2024 (ui_map_bases_js.R)
+  if (!MAP_RASTER_BASE) shiny::tags$script(shiny::HTML(paste0(rio_city_js(), "\n", MAP_BASES_JS))),
+  shiny::tags$script(shiny::HTML(PERIOD_JS)),
+  shiny::tags$script(shiny::HTML(EDIT_DRAW_JS)),
 
   # Translations for the client-side language switch
   shiny::tags$script(shiny::HTML(paste0(

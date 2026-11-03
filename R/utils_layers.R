@@ -44,7 +44,8 @@ bus_infra_in_bounds <- function(w, s, e, n, zoom, pad = 0.2, max_ways = BUS_INFR
 }
 
 # OSRM vector-tile URL template of a profile (MapLibre placeholders)
-router_tile_url <- function(profile) {
-  base <- OSRM_SERVERS[[profile]] %||% OSRM_SERVERS[["car"]]
+router_tile_url <- function(profile = ROAD_PROFILE) {
+  profile <- osrm_profile_of(profile)
+  base <- OSRM_SERVERS[[profile]] %||% OSRM_SERVERS[[ROAD_PROFILE]]
   paste0(base, "/tile/v1/", OSRM_PROFILES[[profile]] %||% "driving", "/tile({x},{y},{z}).mvt")
 }

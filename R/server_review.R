@@ -19,6 +19,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     legs = list(),          # leg modes by trip id: c("<from>><to>" = "recorded" | "straight") (default: route)
     route_ends = list(),    # moved route ends by trip id: list(start = c(lon, lat), end = c(lon, lat))
     exclusions = list(),    # samples kept out of /match by trip id: their times (epoch s)
+    modes = list(),         # modes set on untyped trips by trip id (an activity of REVIEW_ACTIVITIES / REVIEW_SET_MODES)
+    merges = list(),        # joined trips: first trip's id -> its items' ids in time order (trips and the visits between)
     pin_mode = FALSE,       # route editing: drag the route, its ends and the pins
     lasso_mode = FALSE,     # lasso on the map: exclude samples from /match
     selected = NULL,
@@ -28,8 +30,8 @@ review_server <- function(input, output, session, tr, current_lang) {
   samples_cache <- new.env(parent = emptyenv())  # trip samples (this session)
   proposals <- new.env(parent = emptyenv())      # fixes by trip id: no repeated Google calls
   road_base <- new.env(parent = emptyenv())      # default road proposals by trip id (from the inventory)
-  road_alt <- new.env(parent = emptyenv())       # road match + proposal by "id profile", other OSRM profiles
-  overrides <- new.env(parent = emptyenv())      # by trip id: origin_idx, dest_idx, dep, arr, offsets, reroute, pick, profile,
+  road_alt <- new.env(parent = emptyenv())       # road match + proposal by "id profile excluded samples" (lasso)
+  overrides <- new.env(parent = emptyenv())      # by trip id: origin_idx, dest_idx, dep, arr, offsets, reroute, pick,
                                                  # split = list(on, alight_idx, after, osrm_walk)
   jae_all <- read_jae_boardings()                # Jaé taps: split a trip at its boarding
   bulk_pending <- new.env(parent = emptyenv())
@@ -45,9 +47,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     trips <- shiny::isolate(rv$trips)
     trips[trips$id == id, , drop = FALSE]
   }
-  family_of <- function(activity) REVIEW_ACTIVITIES[[activity]]$family
-  # OSRM profile of a road trip: chosen in the profile select, or the activity's
-  road_profile <- function(id) get_ov(id)$profile %||% REVIEW_ACTIVITIES[[trip_row(id)$activity]]$osrm
+  family_of <- function(activity) review_mode(activity)$family
   # Jaé taps of the trip's mode inside its time range
   trip_taps <- function(id) {
     row <- trip_row(id)
@@ -79,7 +79,28 @@ review_server <- function(input, output, session, tr, current_lang) {
     anchor_cache[[key]]
   }
   split_on <- function(id) isTRUE(get_ov(id)$split$on)
+  # Modes for an untyped trip: none yet, the reviewed activities, then the recorded ones
+  review_mode_choices <- function(lang) {
+    acts <- c(REVIEW_UNTYPED, names(REVIEW_ACTIVITIES), names(REVIEW_SET_MODES))
+    stats::setNames(acts, vapply(acts, function(a) paste(review_mode(a)$icon, tr_lang(review_mode(a)$label, lang)), ""))
+  }
   local_time <- function(t, fmt) format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), fmt, tz = Sys.timezone())
+  # The search's timeline items (the trips a trip can join): kept by the
+  # search, read again from the backup after a resume
+  timeline <- new.env(parent = emptyenv())
+  timeline_items <- function() {
+    if (is.null(timeline$items)) {
+      p <- shiny::isolate(rv$params)
+      if (is.null(p)) return(NULL)
+      timeline$items <- load_items(ITEMS_BACKUP_DIR, p$from, p$to)
+    }
+    timeline$items
+  }
+  # A trip's items: a joined trip's, else its own id
+  trip_members <- function(id) {
+    row <- trip_row(id)
+    if (nrow(row) && length(row$member_ids[[1]])) row$member_ids[[1]] else id
+  }
 
   trip_samples <- function(id) {
     if (!is.null(samples_cache[[id]])) return(samples_cache[[id]])
@@ -98,7 +119,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     shiny::isolate(save_review_state(list(
       params = rv$params, trips = rv$trips, status = rv$status,
       accepted = rv$accepted, checked = rv$checked, pins = rv$pins, route_ends = rv$route_ends,
-      exclusions = rv$exclusions, legs = rv$legs
+      exclusions = rv$exclusions, legs = rv$legs, modes = rv$modes, merges = rv$merges
     )))
   }
 
@@ -123,12 +144,12 @@ review_server <- function(input, output, session, tr, current_lang) {
   # match, built by the inventory); after "Re-route" / "Set as start/end", an
   # OSRM route between the endpoints, or, when the default is a possible
   # detour, a route through the recorded path offered next to the match
-  # (fx$candidates; o$pick chooses). Another OSRM profile (profile select)
-  # matches the trip again with it.
+  # (fx$candidates; o$pick chooses).
   compute_proposal <- function(id, refresh_route = FALSE) {
     row <- trip_row(id)
     if (nrow(row) == 0) return(NULL)
     act <- row$activity
+    if (family_of(act) == "untyped") return(NULL)  # its mode first
     s <- trip_samples(id)
     # A rail trip with one sample still gets its station rows (times: the item's)
     if (nrow(s) < 2 && !(family_of(act) == "rail" && nrow(s) == 1)) {
@@ -138,7 +159,11 @@ review_server <- function(input, output, session, tr, current_lang) {
     o <- get_ov(id)
     prev <- proposals[[id]]
 
-    if (family_of(act) == "rail") {
+    if (family_of(act) == "recorded") {
+      # A mode without a reference network (set on an untyped trip): the recorded path as is
+      fx <- list(method = "recorded", path = s[, c("lon", "lat", "t")],
+                 proposed_km = path_cumulative_m(cbind(s$lon, s$lat))[nrow(s)] / 1000)
+    } else if (family_of(act) == "rail") {
       if (!ensure_rail_reference()) return(NULL)
       # Stations (a Jaé tap's station starts it), Google transit between them,
       # else the route along the OSM rails; without a route, the stations
@@ -159,7 +184,7 @@ review_server <- function(input, output, session, tr, current_lang) {
                type = "warning", duration = 8)
       }
     } else {
-      profile <- o$profile %||% REVIEW_ACTIVITIES[[act]]$osrm
+      profile <- REVIEW_ACTIVITIES[[act]]$osrm   # the road profile (a state's old o$profile: the same)
       excl <- shiny::isolate(rv$exclusions[[id]])
       if (length(excl)) {
         # Samples excluded by lasso: matched again without them (cached per set)
@@ -174,24 +199,13 @@ review_server <- function(input, output, session, tr, current_lang) {
         }
         m <- alt$match
         base <- alt$base
-      } else if (identical(profile, REVIEW_ACTIVITIES[[act]]$osrm)) {
+      } else {
         m <- shiny::isolate(rv$matches[[id]])
         base <- road_base[[id]]
         if (is.null(base)) {
           base <- road_proposal(s, m, act)
           if (!is.null(base)) assign(id, base, envir = road_base)
         }
-      } else {
-        alt <- road_alt[[paste(id, profile)]]
-        if (is.null(alt)) {
-          alt <- shiny::withProgress(message = tr("Matching to the roads..."), value = 0.5, {
-            m <- review_match(s, profile)
-            list(match = m, base = road_proposal(s, m, act, profile = profile))
-          })
-          assign(paste(id, profile), alt, envir = road_alt)
-        }
-        m <- alt$match
-        base <- alt$base
       }
       from <- o$origin_idx %||% 1L
       to <- min(max(o$dest_idx %||% nrow(s), from + 1L), nrow(s))
@@ -362,10 +376,16 @@ review_server <- function(input, output, session, tr, current_lang) {
 
   # ---- Find ----
 
-  # The search: trips of acts from..to (dates), measured; the list on step 2
-  run_find <- function(acts, from, to) {
+  # The search: trips of acts from..to (dates), measured; the list on step 2.
+  # "untyped" in acts: the trips without a type too (a mode set on one earlier
+  # in this review: measured as that activity, when reviewed)
+  run_find <- function(acts, from, to, fetch = isTRUE(input$review_fetch_icloud)) {
+    untyped <- REVIEW_UNTYPED %in% acts
     acts <- intersect(acts, names(REVIEW_ACTIVITIES))
-    if (length(acts) == 0) {
+    merges <- shiny::isolate(rv$merges)
+    set_modes <- if (untyped || length(merges)) unlist(shiny::isolate(rv$modes)) else character(0)
+    fams <- c(vapply(acts, family_of, ""), vapply(set_modes, family_of, ""))
+    if (length(acts) == 0 && !untyped) {
       notify(tr("Choose at least one activity."), type = "error")
       return()
     }
@@ -374,22 +394,22 @@ review_server <- function(input, output, session, tr, current_lang) {
       return()
     }
 
-    if (isTRUE(input$review_fetch_icloud)) {
+    if (fetch) {
       res <- shiny::withProgress(message = tr("Fetching from iCloud..."), value = 0, {
         icloud_fetch_all(lang = current_lang(), on_step = function(f, label) shiny::setProgress(f, detail = label))
       })
       notify(res$message, type = if (isTRUE(res$ok)) "message" else "error", duration = if (isTRUE(res$ok)) 6 else NULL)
       if (!isTRUE(res$ok)) return()
     }
-    if (any(vapply(acts, family_of, "") == "rail") && !ensure_rail_reference()) return()
+    if (any(fams == "rail") && !ensure_rail_reference()) return()
     # The fixed trip-end points: resolved again when ROUTE_ANCHORS or the local OSM extract changed
-    if (any(acts %in% ANCHOR_ACTIVITIES) && route_anchors_stale()) {
+    if (any(c(acts, set_modes) %in% ANCHOR_ACTIVITIES) && route_anchors_stale()) {
       res <- shiny::withProgress(message = tr("Resolving the fixed trip-end points..."), value = 0.5, resolve_route_anchors())
       if (!isTRUE(res$ok)) notify(paste(tr("Fixed trip-end points not resolved:"), res$message), type = "warning", duration = 10)
     }
     # Road trips need OSRM: not while its data is rebuilt (the failed matches would be cached)
     m <- osrm_maintenance()
-    if (any(vapply(acts, family_of, "") == "road") && !is.null(m)) {
+    if (any(fams == "road") && !is.null(m)) {
       notify(osrm_maintenance_notice(m, current_lang()), type = "warning", duration = 10)
       return()
     }
@@ -401,23 +421,45 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     codes <- vapply(acts, function(a) REVIEW_ACTIVITIES[[a]]$code, integer(1))
     trips <- trip_inventory(items, codes, with_samples = FALSE)
-    # The neighbouring items' times: a dragged start / end stops there
+    trips$samples <- NULL
+    trips$untyped <- rep(FALSE, nrow(trips))
+    if (untyped) {
+      ut <- review_untyped_trips(items)
+      chosen <- vapply(ut$id, function(i) shiny::isolate(rv$modes)[[i]] %||% REVIEW_UNTYPED, "", USE.NAMES = FALSE)
+      ut$activity <- chosen
+      ut$activity_code <- vapply(chosen, function(a) review_mode(a)$code, integer(1), USE.NAMES = FALSE)
+      trips <- review_bind_trips(trips, ut)
+    }
+    # Joined trips: one row each (in place of their trips)
+    trips <- review_apply_merges(trips, items, merges, shiny::isolate(rv$modes))
+    timeline$items <- items
+    # The neighbouring items' times: a dragged start / end stops there (a joined trip's: around all its items)
     nb <- items[!items$deleted & !items$disabled, ]
     nb <- nb[order(nb$start_utc), ]
     k <- match(trips$id, nb$id)
+    last_id <- vapply(seq_len(nrow(trips)), function(i) utils::tail(trips$member_ids[[i]] %||% trips$id[i], 1), "")
+    k2 <- match(last_id, nb$id)
     trips$prev_start_utc <- nb$start_utc[ifelse(is.na(k) | k <= 1, NA, k - 1L)]
-    trips$next_end_utc <- nb$end_utc[ifelse(is.na(k) | k >= nrow(nb), NA, k + 1L)]
-    res <- shiny::withProgress(message = tr("Measuring trips..."), value = 0, {
-      review_trips(trips, progress = function(f, detail) shiny::setProgress(f, detail = detail))
-    })
-    matches <- attr(res, "matches")
+    trips$next_end_utc <- nb$end_utc[ifelse(is.na(k2) | k2 >= nrow(nb), NA, k2 + 1L)]
+    # Measured: the reviewed activities (untyped trips and "recorded" modes aren't)
+    measured <- vapply(trips$activity, family_of, "", USE.NAMES = FALSE) %in% c("rail", "road")
+    res <- if (any(measured)) shiny::withProgress(message = tr("Measuring trips..."), value = 0, {
+      review_trips(trips[measured, , drop = FALSE], progress = function(f, detail) shiny::setProgress(f, detail = detail))
+    }) else review_unmeasured(trips[0, , drop = FALSE])
+    matches <- attr(res, "matches") %||% list()
     names(matches) <- res$id
-    seed_road_base(res$id, attr(res, "proposals"))
+    seed_road_base(res$id, attr(res, "proposals") %||% list())
     attr(res, "matches") <- NULL
     attr(res, "proposals") <- NULL
-    res$samples <- NULL
+    res <- review_bind_trips(res, review_unmeasured(trips[!measured, , drop = FALSE]))
+    res <- review_mark_merged(res[order(res$start_utc), , drop = FALSE])
+    rownames(res) <- NULL
+    # A mode set here: flagged by its own checks (not "already fixed" by its source)
+    set <- res$untyped %in% TRUE & res$activity != REVIEW_UNTYPED
+    res$flagged[set] <- lengths(res$reasons[set]) > 0
 
-    status <- ifelse(res$already_fixed, "fixed", ifelse(res$flagged, "flagged", "ok"))
+    status <- ifelse(res$activity == REVIEW_UNTYPED, "untyped",
+                     ifelse(res$already_fixed & !set, "fixed", ifelse(res$flagged, "flagged", "ok")))
     names(status) <- res$id
     prev <- shiny::isolate(rv$status)
     kept <- intersect(names(prev)[prev %in% c("accepted", "skipped")], res$id)
@@ -428,42 +470,90 @@ review_server <- function(input, output, session, tr, current_lang) {
     rv$status <- status
     rv$selected <- NULL
     rv$proposal <- NULL
-    rv$params <- list(activities = acts, from = from, to = to)
+    rv$params <- list(activities = c(acts, if (untyped) REVIEW_UNTYPED), from = from, to = to)
     resume_state(NULL)
     save_state()
     bslib::accordion_panel_open("review_steps", "review")
   }
   shiny::observeEvent(input$review_find, run_find(input$review_activities, input$review_from, input$review_to))
 
-  # The last trip types and "Only flagged" in this browser (localStorage, sent
+  # The last trip types and "Hide imported" in this browser (localStorage, sent
   # by the client at page load), applied once; until the client reports those
   # types back, the language relabel keeps them too
   saved <- new.env(parent = emptyenv())
   shiny::observeEvent(input$review_saved_filters, {
     sv <- input$review_saved_filters
-    acts <- intersect(as.character(unlist(sv$activities)), names(REVIEW_ACTIVITIES))
+    acts <- intersect(as.character(unlist(sv$activities)), c(names(REVIEW_ACTIVITIES), REVIEW_UNTYPED))
     if (length(acts)) {
       saved$acts <- acts
       shiny::updateSelectizeInput(session, "review_activities", selected = acts)
     }
-    if (is.logical(sv$only_flagged) && length(sv$only_flagged) == 1) {
-      shiny::updateCheckboxInput(session, "review_only_flagged", value = sv$only_flagged)
+    if (is.logical(sv$hide_imported) && length(sv$hide_imported) == 1) {
+      shiny::updateCheckboxInput(session, "review_hide_imported", value = sv$hide_imported)
     }
   }, once = TRUE)
   shiny::observeEvent(input$review_activities, {
     if (!is.null(saved$acts) && setequal(input$review_activities, saved$acts)) saved$acts <- NULL
   })
 
-  # "Everything in range": every trip type, flagged or not, by date; the
-  # search runs once those show (after this flush)
+  # "Everything in range": every trip type by date, "No mode" too ("Hide
+  # imported" stays as it is); the search runs once those show (after this flush)
   shiny::observeEvent(input$review_find_all, {
-    acts <- names(REVIEW_ACTIVITIES)
+    acts <- c(names(REVIEW_ACTIVITIES), REVIEW_UNTYPED)
     shiny::updateSelectizeInput(session, "review_activities", selected = acts)
-    shiny::updateCheckboxInput(session, "review_only_flagged", value = FALSE)
     shiny::updateSelectInput(session, "review_sort", selected = "date")
     from <- input$review_from
     to <- input$review_to
     session$onFlushed(function() shiny::withReactiveDomain(session, shiny::isolate(run_find(acts, from, to))), once = TRUE)
+  })
+
+  # A trip opened from Review (its Edit; s / e its times, id its item, "" for
+  # a sent track): this review on its day(s), every type, the trip selected.
+  # The trip: the item itself, the joined trip holding it, or the trip that
+  # overlaps it most (an item hidden in Arc: the import that replaced it)
+  review_trip_at <- function(id, s, e, exact = FALSE) {
+    trips <- rv$trips
+    if (is.null(trips) || !nrow(trips)) return(NULL)
+    if (nzchar(id) && id %in% trips$id) return(id)
+    mem <- trips[["member_ids"]]
+    if (nzchar(id) && !is.null(mem)) {
+      k <- which(vapply(mem, function(m) id %in% m, logical(1)))
+      if (length(k)) return(trips$id[k[1]])
+    }
+    if (exact) return(NULL)
+    ov <- pmin(as.numeric(trips$end_utc), e) - pmax(as.numeric(trips$start_utc), s)
+    if (any(ov > 0)) trips$id[which.max(ov)] else NULL
+  }
+  open_trip_at <- function(id, s, e) {
+    t <- review_trip_at(id, s, e)
+    if (is.null(t)) {
+      notify(tr("No Batch review trip at this time."), type = "warning")
+      return()
+    }
+    # an import, hidden by "Hide imported": shown
+    if (!isFALSE(input$review_hide_imported) && trip_imported(rv$trips[rv$trips$id == t, , drop = FALSE])) {
+      shiny::updateCheckboxInput(session, "review_hide_imported", value = FALSE)
+    }
+    select_trip(t)
+    bslib::accordion_panel_open("review_steps", "review")
+  }
+  shiny::observeEvent(input$period_review, {
+    o <- input$period_review
+    s <- suppressWarnings(as.numeric(o$s))
+    e <- suppressWarnings(as.numeric(o$e))
+    id <- as.character(o$id %||% "")
+    if (length(s) != 1 || length(e) != 1 || is.na(s) || is.na(e) || e < s) return()
+    session$sendCustomMessage("period_to_batch", list())
+    if (!is.null(review_trip_at(id, s, e, exact = TRUE))) return(open_trip_at(id, s, e))  # already in this review
+    from <- as.Date(as.POSIXct(s, origin = "1970-01-01", tz = "UTC"), tz = Sys.timezone())
+    to <- as.Date(as.POSIXct(e, origin = "1970-01-01", tz = "UTC"), tz = Sys.timezone())
+    acts <- c(names(REVIEW_ACTIVITIES), REVIEW_UNTYPED)
+    shiny::updateSelectizeInput(session, "review_activities", selected = acts)
+    session$userData$set_date_range("review_from", "review_to", from, to)
+    session$onFlushed(function() shiny::withReactiveDomain(session, shiny::isolate({
+      run_find(acts, from, to, fetch = FALSE)
+      open_trip_at(id, s, e)
+    })), once = TRUE)
   })
 
   # Day stepping (the step buttons, Alt+arrows): a one-day range moves one day,
@@ -480,14 +570,27 @@ review_server <- function(input, output, session, tr, current_lang) {
     trips <- rv$trips
     if (is.null(trips)) return(NULL)
     acts <- intersect(names(REVIEW_ACTIVITIES), unique(trips$activity))
-    if (length(acts) == 0) return(shiny::div(class = "review-summary", tr("No trips of these types in this period.")))
+    # joined trips count with their mode (still untyped: here)
+    merged <- trips[["merged"]] %||% rep(FALSE, nrow(trips))   # a review saved before joins: none
+    untyped <- trips$untyped %in% TRUE & !(merged %in% TRUE & trips$activity != REVIEW_UNTYPED)
+    if (length(acts) == 0 && !any(untyped)) return(shiny::div(class = "review-summary", tr("No trips of these types in this period.")))
     shiny::div(
       class = "review-summary",
       lapply(acts, function(a) {
         sub <- trips[trips$activity == a, ]
         shiny::div(sprintf(tr("%s: %d trips · %d off-network · %d already fixed"),
-                           tr(REVIEW_ACTIVITIES[[a]]$label), nrow(sub), sum(sub$flagged), sum(sub$already_fixed)))
-      })
+                           tr(REVIEW_ACTIVITIES[[a]]$label), nrow(sub), sum(sub$flagged), sum(sub$already_fixed & !(sub$untyped %in% TRUE))))
+      }),
+      if (any(untyped)) {
+        open_n <- sum(untyped & trips$activity == REVIEW_UNTYPED)
+        shiny::div(sprintf(tr("No mode: %d trips · %d given a mode here"), sum(untyped),
+                           sum(untyped & trips$activity != REVIEW_UNTYPED)),
+                   if (open_n > 0) {
+                     shiny::tags$button(type = "button", class = "btn btn-sm btn-link p-0 ms-1", `data-review-suggest` = "all",
+                                        title = tr("Each trip without a mode gets the suggested one (a Jaé tap, its speed, the rails); check them before sending."),
+                                        sprintf(tr("Apply the suggestions (%d)"), open_n))
+                   })
+      }
     )
   })
 
@@ -524,7 +627,10 @@ review_server <- function(input, output, session, tr, current_lang) {
     rv$legs <- st$legs %||% list()
     rv$route_ends <- st$route_ends %||% list()
     rv$exclusions <- st$exclusions %||% list()
+    rv$modes <- st$modes %||% list()
+    rv$merges <- st$merges %||% list()
     rv$params <- st$params
+    timeline$items <- NULL
     rv$selected <- NULL
     rv$proposal <- NULL
     if (!is.null(st$params)) {
@@ -542,8 +648,8 @@ review_server <- function(input, output, session, tr, current_lang) {
     trips <- rv$trips
     if (is.null(trips) || nrow(trips) == 0) return(trips)
     status <- rv$status[trips$id]
-    if (!isFALSE(input$review_only_flagged)) {
-      trips <- trips[trips$flagged | status %in% c("accepted", "skipped"), , drop = FALSE]
+    if (!isFALSE(input$review_hide_imported)) {
+      trips <- trips[!trip_imported(trips) | status %in% c("accepted", "skipped"), , drop = FALSE]
     }
     ord <- if (identical(input$review_sort, "severity")) order(-trips$severity, trips$start_utc) else order(trips$start_utc)
     trips[ord, , drop = FALSE]
@@ -556,6 +662,7 @@ review_server <- function(input, output, session, tr, current_lang) {
       fixed    = c(tr("already fixed"), "bg-secondary-subtle text-secondary-emphasis"),
       accepted = c(tr("accepted"), "bg-primary-subtle text-primary-emphasis"),
       skipped  = c(tr("skipped"), "bg-light text-secondary"),
+      untyped  = c(tr("no mode"), "bg-warning-subtle text-warning-emphasis"),
       c(status, "")
     )
   }
@@ -588,6 +695,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     fragment <- col("fragment")
     detour <- col("detour")
     short <- col("short_proposal")
+    merged <- col("merged")
     rows <- vapply(seq_len(nrow(trips)), function(i) {
       id <- trips$id[i]
       st_i <- unname(status[id])
@@ -604,6 +712,8 @@ review_server <- function(input, output, session, tr, current_lang) {
         } else if (isTRUE(short[i])) {
           badge <- c(tr("skips part?"), "rv-detour")
           tip_i <- short_text(trips$proposed_km[i], trips$path_km[i], trips$len_ratio[i])
+        } else if (isTRUE(merged[i])) {
+          badge <- c(tr("joined"), "bg-info-subtle text-info-emphasis")
         }
       }
       badge_tip <- if (is.null(tip_i)) "" else sprintf(' title="%s"', esc(tip_i))
@@ -616,7 +726,7 @@ review_server <- function(input, output, session, tr, current_lang) {
                '<span>%s</span><span>%s</span><span>%s</span><span class="rv-num">%s</span>',
                '<span class="rv-num">%s</span><span class="rv-badge %s"%s>%s</span></div>'),
         if (id == selected) " selected" else "", esc(id), esc(tip), if (id %in% checked) " checked" else "",
-        REVIEW_ACTIVITIES[[trips$activity[i]]]$icon,
+        review_mode(trips$activity[i])$icon,
         local_time(trips$start_utc[i], day_fmt),
         paste0(local_time(trips$start_utc[i], "%H:%M"), "–", local_time(trips$end_utc[i], "%H:%M")),
         if (is.na(trips$off_share[i])) "–" else sprintf("%.0f%%", 100 * trips$off_share[i]),
@@ -708,6 +818,42 @@ review_server <- function(input, output, session, tr, current_lang) {
     c(out, list(chips, stop_row(id, sp)))
   }
 
+  # "Join": the trip before / after this one, next to it or across a short
+  # visit; on a joined trip, its number of trips (the visits that go in the
+  # tooltip) and "Undo"
+  join_row <- function(id, row, lang) {
+    cands <- review_join_candidates(timeline_items(), trip_members(id))
+    joined <- isTRUE(row$merged)
+    if (is.null(cands$prev) && is.null(cands$`next`) && !joined) return(NULL)
+    hm <- function(t) local_time(t, "%H:%M")
+    btn <- function(side, cd) {
+      if (is.null(cd)) return(NULL)
+      km <- if (is.na(cd$km)) "" else sprintf(", %.1f km", cd$km)
+      mins <- if (!is.null(cd$visit)) round((as.numeric(cd$visit_end) - as.numeric(cd$visit_start)) / 60)
+      tip <- if (is.null(cd$visit)) sprintf(tr("Join with the trip of %s–%s%s: one trip."), hm(cd$start_utc), hm(cd$end_utc), km) else
+        sprintf(tr("Join with the trip of %s–%s%s, across the visit of %s–%s (%d min): one trip; its GPX covers the visit, so Arc drops it on import."),
+                hm(cd$start_utc), hm(cd$end_utc), km, hm(cd$visit_start), hm(cd$visit_end), mins)
+      shiny::span(
+        class = "rv-join-opt", title = tip,
+        shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-primary", `data-review-join` = side,
+                           if (side == "prev") tr("← previous") else tr("next →")),
+        shiny::span(class = "text-secondary", if (is.null(mins)) tr("no visit") else sprintf(tr("visit %d min"), mins))
+      )
+    }
+    info <- if (joined) {
+      tl <- timeline_items()
+      v <- if (!is.null(tl)) tl[tl$id %in% row$member_ids[[1]] & tl$is_visit, , drop = FALSE] else NULL
+      gone <- if (!is.null(v) && nrow(v)) paste(paste0(hm(v$start_utc), "–", hm(v$end_utc)), collapse = ", ")
+      shiny::span(
+        class = "rv-join-opt", title = if (!is.null(gone)) sprintf(tr("Visits that go on import: %s"), gone),
+        shiny::span(sprintf(tr("%d trips joined"), as.integer(row$n_joined))),
+        shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", `data-review-join` = "undo", tr("Undo"))
+      )
+    }
+    shiny::div(class = "rv-join-row", shiny::span(class = "dt-label", tr("Join")),
+               shiny::div(class = "rv-join-opts", info, btn("prev", cands$prev), btn("next", cands$`next`)))
+  }
+
   # The bus wait's stop name (track name and wait note), editable, with its source
   split_stop <- function(id, sp) {
     edited <- get_ov(id)$split$stop_name
@@ -776,7 +922,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     }
     title <- shiny::div(
       class = "rv-title", title = paste(c(fmt_datetime(lubridate::with_tz(row$start_utc, Sys.timezone()), lang), stations), collapse = " · "),
-      paste(REVIEW_ACTIVITIES[[act]]$icon, when),
+      paste(review_mode(act)$icon, when),
       if (!is.null(stations)) shiny::span(class = "rv-stations", paste0("· ", stations))
     )
     # Road trips: their OSRM profile, on the title line (not while split: the bus leg uses bus)
@@ -797,15 +943,34 @@ review_server <- function(input, output, session, tr, current_lang) {
           title = tr("Exclude samples from the matching (L): every drag on the map circles jittery samples (e.g. stopped at a light), until you click again or press Esc; they still time the path. Ctrl+Z undoes."),
           paste0("\u27B0", if (n_excl > 0) n_excl else "")
         ),
-        shiny::span(class = "lasso-hint", tr("Shift + drag = lasso")),
-        shiny::div(class = "review-profile", title = tr("Routing profile for this trip"),
-                   shiny::selectInput("review_profile", NULL, choices = tr_choices(profile_choices(REVIEW_PROFILE_CHOICES), lang),
-                                      selected = road_profile(id), width = "84px"))
+        shiny::span(class = "lasso-hint", tr("Shift + drag = lasso"))
       )
     }
     fragment <- isTRUE(row$fragment)
+    # A trip without a type in Arc: its mode (rail / road ones get a proposal; the others go out as recorded)
+    mode_row <- if (isTRUE(row$untyped)) {
+      shiny::div(
+        class = "rv-mode-row",
+        title = if (isTRUE(row$merged)) tr("Joined trip: the GPX gives it the mode chosen here.") else
+          tr("This trip has no type in Arc: the GPX gives it the mode chosen here."),
+        shiny::span(class = "dt-label", tr("Mode")),
+        shiny::selectInput("review_trip_mode", NULL, choices = review_mode_choices(lang), selected = act, width = "100%")
+      )
+    }
+    # Its suggested mode (still without one)
+    sug_row <- if (isTRUE(row$untyped) && identical(act, REVIEW_UNTYPED)) {
+      sg <- suggestion_for(id)
+      if (!is.null(sg)) {
+        shiny::div(class = "rv-suggest",
+                   paste0(tr("Suggestion:"), " ", review_mode(sg$mode)$icon, " ", tr(review_mode(sg$mode)$label), " (", suggestion_why(sg), ") "),
+                   shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-primary", `data-review-suggest` = "one", tr("Use")))
+      }
+    }
     parts <- list(
       title,
+      mode_row,
+      sug_row,
+      join_row(id, row, lang),
       # While split, the split rows take the reasons' line (also in the list row's tooltip)
       if (nzchar(reasons) && !split_on(id)) shiny::div(class = "text-secondary rv-clamp", title = reasons, reasons),
       if (fragment) {
@@ -815,6 +980,12 @@ review_server <- function(input, output, session, tr, current_lang) {
       }
     )
 
+    if (family_of(act) == "untyped") {
+      return(shiny::div(class = "review-detail", parts, shiny::div(
+        class = "text-secondary",
+        tr("Choose the mode: metro, train, tram, car, taxi and bus get a proposal; the others take the recorded path as is.")
+      )))
+    }
     if (is.null(fx) || !identical(fx$id, id)) {
       return(shiny::div(class = "review-detail", parts, shiny::div(class = "rv-warn", tr("No proposal for this trip."))))
     }
@@ -828,7 +999,11 @@ review_server <- function(input, output, session, tr, current_lang) {
               fx$recorded_km)
     }
 
-    if (family_of(act) == "rail") {
+    if (family_of(act) == "recorded") {
+      txt <- sprintf(tr("Recorded path as is · %.1f km · %s–%s"), fx$proposed_km, local_time(fx$path$t[1], "%H:%M:%S"),
+                     local_time(fx$path$t[nrow(fx$path)], "%H:%M:%S"))
+      parts <- c(parts, list(shiny::div(class = "text-secondary rv-clamp", title = txt, txt)))
+    } else if (family_of(act) == "rail") {
       plan <- fx$plan
       # Station select: the recorded point, the nearest stations of any rail
       # system (with their distance), then every other station by name (all
@@ -1208,8 +1383,9 @@ review_server <- function(input, output, session, tr, current_lang) {
     status <- rv$status[trips$id]
     pos <- match(after_id, trips$id)
     if (is.na(pos)) pos <- 0
-    cand <- which(status == "flagged" & seq_along(status) > pos)
-    if (length(cand) == 0) cand <- which(status == "flagged")
+    waiting <- status %in% c("flagged", "untyped")
+    cand <- which(waiting & seq_along(status) > pos)
+    if (length(cand) == 0) cand <- which(waiting)
     if (length(cand) == 0) NULL else trips$id[cand[1]]
   }
 
@@ -1225,6 +1401,10 @@ review_server <- function(input, output, session, tr, current_lang) {
   shiny::observeEvent(input$review_accept, {
     id <- rv$selected
     fx <- rv$proposal
+    if (!is.null(id) && identical(trip_row(id)$activity, REVIEW_UNTYPED)) {
+      notify(tr("Choose this trip's mode first."), type = "warning")
+      return()
+    }
     if (is.null(id) || is.null(fx) || !identical(fx$id, id) || is.null(fx$path)) {
       notify(tr("No proposal to accept for this trip."), type = "warning")
       return()
@@ -1276,14 +1456,192 @@ review_server <- function(input, output, session, tr, current_lang) {
     recompute_selected(refresh_route = TRUE)
   })
 
-  # OSRM profile of the selected road trip (select on the detail's title line)
-  shiny::observeEvent(input$review_profile, {
+  # ---- Mode of an untyped trip ----
+
+  # The mode set on an untyped trip (REVIEW_UNTYPED: none again). What the trip
+  # had under its old mode goes (proposal, pins, ends, exclusions, acceptance);
+  # a rail / road mode measures it as that activity (match, flags, default
+  # proposal), the others take the recorded path. Remembered for later Finds.
+  set_trip_mode <- function(id, mode, select = TRUE) {
+    trips <- rv$trips
+    i <- match(id, trips$id)
+    if (is.na(i) || !isTRUE(trips$untyped[i]) || identical(trips$activity[i], mode)) return()
+    fam <- family_of(mode)
+    if (fam == "rail" && !ensure_rail_reference()) return()
+    m <- osrm_maintenance()
+    if (fam == "road" && !is.null(m)) {
+      notify(osrm_maintenance_notice(m, current_lang()), type = "warning", duration = 10)
+      return()
+    }
+    for (env in list(proposals, road_base, overrides)) if (exists(id, envir = env, inherits = FALSE)) rm(list = id, envir = env)
+    row <- trips[i, , drop = FALSE]
+    row$activity <- mode
+    row$activity_code <- review_mode(mode)$code
+    if (fam %in% c("rail", "road")) {
+      res <- shiny::withProgress(message = tr("Measuring trips..."), value = 0.5, review_trips(row))
+      mm <- rv$matches
+      mm[[id]] <- attr(res, "matches")[[1]]
+      rv$matches <- mm
+      p <- attr(res, "proposals")[[1]]
+      if (!is.null(p$path) && !isTRUE(p$failed)) assign(id, c(p, road_proposal_status(p)), envir = road_base)
+      attr(res, "matches") <- NULL
+      attr(res, "proposals") <- NULL
+      row <- res
+      row$flagged <- lengths(row$reasons) > 0
+    } else {
+      row <- review_unmeasured(row)
+    }
+    row <- review_mark_merged(row)
+    st <- if (fam == "untyped") "untyped" else if (row$flagged) "flagged" else "ok"
+    for (key in c("pins", "legs", "route_ends", "exclusions", "accepted")) {
+      v <- rv[[key]]
+      v[[id]] <- NULL
+      rv[[key]] <- v
+    }
+    modes <- rv$modes
+    modes[[id]] <- if (fam == "untyped") NULL else mode
+    rv$modes <- modes
+    trips <- review_bind_trips(trips[-i, , drop = FALSE], row)
+    trips <- trips[order(trips$start_utc), , drop = FALSE]
+    rownames(trips) <- NULL
+    rv$trips <- trips
+    status <- rv$status
+    status[[id]] <- st
+    rv$status <- status
+    save_state()
+    if (select) {
+      rv$selected <- NULL
+      select_trip(id)
+    }
+  }
+
+  # Suggested modes of trips without one (review_suggest_mode), kept per trip
+  suggestions <- new.env(parent = emptyenv())
+  suggestion_for <- function(id) {
+    if (exists(id, envir = suggestions, inherits = FALSE)) return(suggestions[[id]])
+    row <- trip_row(id)
+    sg <- tryCatch(review_suggest_mode(trip_samples(id), row$start_utc, row$end_utc, taps = jae_all,
+                                       rail_off_fn = function(s, act) {
+                                         if (!file.exists(RAIL_REFERENCE_FILE)) return(NA_real_)
+                                         conformity(s, act)$metrics$off_share
+                                       }),
+                   error = function(e) NULL)
+    assign(id, sg, envir = suggestions)
+    sg
+  }
+  suggestion_why <- function(sg) {
+    switch(sg$why,
+           jae = paste("Ja\u00e9:", sg$label),
+           short = tr("very short"),
+           rails = sprintf(tr("%.0f km/h, %.0f%% on the rails"), sg$kmh, 100 * sg$on_rails),
+           sprintf("%.0f km/h", sg$kmh))
+  }
+  shiny::observeEvent(input$review_suggest, {
+    trips <- rv$trips
+    if (is.null(trips)) return()
+    if (identical(input$review_suggest$which, "one")) {
+      id <- rv$selected
+      sg <- if (!is.null(id)) suggestion_for(id)
+      if (!is.null(sg)) set_trip_mode(id, sg$mode)
+      return()
+    }
+    ids <- trips$id[trips$untyped %in% TRUE & trips$activity == REVIEW_UNTYPED]
+    if (!length(ids)) return()
+    n <- 0L
+    shiny::withProgress(message = tr("Applying the suggested modes..."), value = 0, {
+      for (k in seq_along(ids)) {
+        shiny::setProgress(k / length(ids), detail = sprintf("%d / %d", k, length(ids)))
+        sg <- suggestion_for(ids[k])
+        if (!is.null(sg)) { set_trip_mode(ids[k], sg$mode, select = FALSE); n <- n + 1L }
+      }
+    })
+    notify(sprintf(tr("%d trips got their suggested mode: check them before sending."), n), duration = 8)
+    if (n > 0) { rv$selected <- NULL; select_trip(ids[1]) }
+  })
+
+  shiny::observeEvent(input$review_trip_mode, {
     id <- rv$selected
-    if (is.null(id) || nrow(trip_row(id)) == 0 || family_of(trip_row(id)$activity) != "road") return()
-    if (identical(input$review_profile, road_profile(id))) return()
-    set_ov(id, list(profile = input$review_profile, pick = NULL))
-    recompute_selected()
+    if (is.null(id) || nrow(trip_row(id)) == 0) return()
+    set_trip_mode(id, input$review_trip_mode)
   }, ignoreInit = TRUE)
+
+  # ---- Join trips across a short visit ----
+
+  # What the review holds for these trips goes (proposal, samples, match,
+  # pins, ends, exclusions, acceptance, status)
+  clear_trip_state <- function(ids) {
+    for (env in list(proposals, road_base, overrides, samples_cache)) {
+      rm(list = intersect(ids, ls(env)), envir = env)
+    }
+    for (env in list(road_alt, anchor_cache)) {  # keyed "<id> ..."
+      keys <- ls(env)
+      rm(list = keys[sub(" .*", "", keys) %in% ids], envir = env)
+    }
+    for (key in c("matches", "pins", "legs", "route_ends", "exclusions", "accepted", "modes")) {
+      v <- rv[[key]]
+      v[ids] <- NULL
+      rv[[key]] <- v
+    }
+    rv$status <- rv$status[!names(rv$status) %in% ids]
+    rv$checked <- setdiff(rv$checked, ids)
+  }
+
+  # The search again (no iCloud fetch) with the trip `id` selected
+  research <- function(id) {
+    p <- rv$params
+    run_find(p$activities, p$from, p$to, fetch = FALSE)
+    if (!is.null(rv$trips) && id %in% rv$trips$id) select_trip(id)
+  }
+
+  # The selected trip joined with the one before / after it (side "prev" /
+  # "next", across the visit between them): one trip from the first one's
+  # start to the last one's end. Its mode: this trip's, else the other's.
+  join_trip <- function(id, side) {
+    row <- trip_row(id)
+    if (nrow(row) == 0) return()
+    ids <- trip_members(id)
+    cand <- review_join_candidates(timeline_items(), ids)[[side]]
+    if (is.null(cand)) return()
+    other <- cand$trip
+    other_ids <- rv$merges[[other]] %||% other
+    all_ids <- if (side == "next") c(ids, cand$visit, other_ids) else c(other_ids, cand$visit, ids)
+    head <- all_ids[1]
+    other_act <- if (other %in% rv$trips$id) trip_row(other)$activity else cand$activity
+    act <- if (row$activity != REVIEW_UNTYPED) row$activity else other_act
+    m <- osrm_maintenance()
+    if (family_of(act) == "road" && !is.null(m)) {
+      notify(osrm_maintenance_notice(m, current_lang()), type = "warning", duration = 10)
+      return()
+    }
+    clear_trip_state(unique(c(id, other, head)))
+    merges <- rv$merges
+    merges[c(id, other)] <- NULL
+    merges[[head]] <- all_ids
+    rv$merges <- merges
+    if (act != REVIEW_UNTYPED) {
+      modes <- rv$modes
+      modes[[head]] <- act
+      rv$modes <- modes
+    }
+    research(head)
+  }
+
+  # A joined trip back to its trips (as the search finds them)
+  unjoin_trip <- function(id) {
+    if (is.null(rv$merges[[id]])) return()
+    clear_trip_state(id)
+    merges <- rv$merges
+    merges[[id]] <- NULL
+    rv$merges <- merges
+    research(id)
+  }
+
+  shiny::observeEvent(input$review_join, {
+    id <- rv$selected
+    side <- input$review_join$side
+    if (is.null(id) || is.null(side)) return()
+    if (side == "undo") unjoin_trip(id) else if (side %in% c("prev", "next")) join_trip(id, side)
+  })
 
   # ---- Split at the Jaé tap ----
 
@@ -1661,7 +2019,7 @@ review_server <- function(input, output, session, tr, current_lang) {
     act <- row$activity
     s <- trip_samples(id)
     if (nrow(s) < 2) return()
-    color <- REVIEW_ACTIVITIES[[act]]$color
+    color <- review_mode(act)$color
     fx <- rv$proposal
     lang <- shiny::isolate(current_lang())
 

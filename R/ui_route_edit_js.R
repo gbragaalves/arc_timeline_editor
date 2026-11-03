@@ -619,10 +619,18 @@ ROUTE_EDIT_JS <- "
       ]
     };
   }
+  // The OSRM tiles are fetched by the browser: an address local to the app's
+  // machine (127.0.0.1 / localhost) means that machine, so a page opened from
+  // elsewhere (e.g. over Tailscale) asks the host it was opened from
+  window.osrmUrlForBrowser = function(url, host) {
+    host = host === undefined ? window.location.hostname : host;
+    if (!host || host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]') return url;
+    return url.replace(/^(https?:\\/\\/)(127\\.0\\.0\\.1|localhost)(?=[:\\/])/, '$1' + host);
+  };
   Shiny.addCustomMessageHandler('router_profile', function(msg) {
-    ROUTER.url = msg.url;
+    ROUTER.url = window.osrmUrlForBrowser(msg.url);
     var gl = ROUTER.gl && ROUTER.gl.getMaplibreMap && ROUTER.gl.getMaplibreMap();
-    if (gl && gl.getSource && gl.getSource('osrm')) gl.getSource('osrm').setTiles([msg.url]);
+    if (gl && gl.getSource && gl.getSource('osrm')) gl.getSource('osrm').setTiles([ROUTER.url]);
   });
   window.setupOverlays = function(map) {
     if (map._overlaysHook) return;

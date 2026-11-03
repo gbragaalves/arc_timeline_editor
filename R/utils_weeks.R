@@ -1,7 +1,9 @@
 # ---- Helpers: weeks + samples to delete + overlap ----
 
-# Load existing samples from a time interval from weekly files
-load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP_DIR) {
+# Load existing samples from a time interval from weekly files. Disabled
+# samples (hidden in Arc, e.g. a recording a GPX import replaced) are left out
+# unless include_disabled; how many were left out: attr(, "n_disabled").
+load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP_DIR, include_disabled = FALSE) {
   if (is.null(start_utc) || is.null(end_utc) || is.na(start_utc) || is.na(end_utc)) {
     return(list())
   }
@@ -11,6 +13,7 @@ load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP
   if (length(weeks) == 0) return(list())
 
   found_samples <- list()
+  n_disabled <- 0L
 
   for (wk in weeks) {
     gz_path <- file.path(weekly_dir, paste0(wk, ".json.gz"))
@@ -33,6 +36,10 @@ load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP
       if (is.null(ts) || is.na(ts)) next
 
       if (ts >= start_utc && ts <= end_utc) {
+        if (!include_disabled && isTRUE(as.logical(unlist(s$disabled))[1])) {
+          n_disabled <- n_disabled + 1L
+          next
+        }
         found_samples[[length(found_samples) + 1L]] <- s
       }
     }
@@ -46,6 +53,7 @@ load_samples_interval <- function(start_utc, end_utc, weekly_dir = WEEKLY_BACKUP
     found_samples <- found_samples[order(ts_vec)]
   }
 
+  attr(found_samples, "n_disabled") <- n_disabled
   found_samples
 }
 

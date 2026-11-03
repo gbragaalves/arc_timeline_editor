@@ -20,11 +20,14 @@ function(el, x) {
       map.addLayer(lm.getLayerGroup('OSM', true));
     }
   }
+  var attr = '<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a> &copy; <a href=\"https://www.openmaptiles.org/\" target=\"_blank\">OpenMapTiles</a> Data from <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\">OpenStreetMap</a>';
   function start() {
+    // Positron and Rio Mosaico 2024 (ui_map_bases_js.R): their GL maps only while chosen
+    try { if (window.addExtraBases) window.addExtraBases(map, lm, attr); } catch (err) { console.warn('[map] extra base maps:', err && err.message); }
     try {
       var gl = L.maplibreGL({
-        style: 'https://tiles.openfreemap.org/styles/liberty',
-        attribution: '<a href=\"https://openfreemap.org\" target=\"_blank\">OpenFreeMap</a> &copy; <a href=\"https://www.openmaptiles.org/\" target=\"_blank\">OpenMapTiles</a> Data from <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\">OpenStreetMap</a>'
+        style: 'https://tiles.openfreemap.org/styles/bright',
+        attribution: attr
       });
       ofm.addLayer(gl);
       var glMap = gl.getMaplibreMap && gl.getMaplibreMap();
@@ -100,7 +103,7 @@ server <- function(input, output, session) {
         shiny::tags$p(
           shiny::tags$strong(tr("Expected ports:")),
           shiny::tags$ul(lapply(osrm_enabled_profiles(), function(p) {
-            label <- names(PROFILE_CHOICES)[match(p, PROFILE_CHOICES)]
+            label <- names(OSRM_PROFILE_LABELS)[match(p, OSRM_PROFILE_LABELS)]
             shiny::tags$li(if (is.na(label)) p else tr(label), ": ",
                            shiny::tags$code(sub("^https?://", "", OSRM_SERVERS[[p]])))
           }))
@@ -123,8 +126,10 @@ server <- function(input, output, session) {
   edit_excluded <- shiny::reactiveVal(character(0))  # sample ids kept out of the Snap routing (still placed)
   edit_hist <- new.env(parent = emptyenv())          # undo (Ctrl+Z) of pins and exclusions
   virtual_samples <- shiny::reactiveVal(list())  # Samples created from OSRM route (intermediate points)
+  snap_ranges <- shiny::reactiveVal(edit_ranges_empty())  # the stretches routed (virtual samples there; recorded elsewhere)
   original_samples <- shiny::reactiveVal(list())  # Original samples before editing
   original_timeline_item_id <- shiny::reactiveVal(NULL)  # Original timelineItemId of samples
+  edit_parts <- shiny::reactiveVal(edit_parts_empty())   # GPX tracks of the export: data.frame(t_start, t_end, mode, visit)
 
   # State for route editing
   route_edit_nodes <- shiny::reactiveVal(list())     # Editable route waypoints
@@ -151,10 +156,10 @@ server <- function(input, output, session) {
   # Select choices can't be swapped client-side: re-label them, keeping values
   shiny::observeEvent(current_lang(), {
     lang <- current_lang()
-    for (id in c("osrm_profile", "edit_osrm_profile")) {
-      shiny::updateSelectInput(session, id, choices = tr_choices(profile_choices(), lang),
-                               selected = shiny::isolate(input[[id]]) %||% "car")
-    }
+    shiny::updateSelectInput(session, "osrm_profile", choices = tr_choices(profile_choices(), lang),
+                             selected = shiny::isolate(input$osrm_profile) %||% "car")
+    shiny::updateSelectInput(session, "edit_osrm_profile", choices = tr_choices(profile_choices(SNAP_PROFILE_CHOICES), lang),
+                             selected = shiny::isolate(input$edit_osrm_profile) %||% ROAD_PROFILE)
     for (id in c("manual_activity_type", "import_activity_type")) {
       shiny::updateSelectInput(session, id, choices = tr_choices(ACTIVITY_CHOICES, lang),
                                selected = shiny::isolate(input[[id]]) %||% "car")
@@ -415,7 +420,9 @@ server <- function(input, output, session) {
       ) |>
       # First base group is the one shown by default
       leaflet::addLayersControl(
-        baseGroups = c(if (!MAP_RASTER_BASE) "OpenFreeMap", "OSM", "CartoDB", i18n_key("Satellite"), "Topo"),  # labels translated client-side
+        # labels translated client-side; Positron and Rio Mosaico 2024 filled by ui_map_bases_js.R
+        baseGroups = c(if (!MAP_RASTER_BASE) c(i18n_key("OpenFreeMap"), "OpenFreeMap Positron", if (file.exists(RIO_CITY_FILE)) "Rio Mosaico 2024"),
+                       "OSM", "CartoDB", i18n_key("Satellite"), "Topo"),
         overlayGroups = c("Bus infrastructure", "Router network"),  # filled client-side when switched on
         options = leaflet::layersControlOptions(collapsed = TRUE)
       ) |>
@@ -431,20 +438,9 @@ server <- function(input, output, session) {
                       error = function(e) list())
     session$sendCustomMessage("bus_infra_data", list(features = feats))
   })
-  # The router network follows the profile of the selected trip (Batch review),
-  # the Snap profile (Edit Samples) or the car default
+  # The router network: the road profile's (sent once, at the start)
   shiny::observe({
-    sel <- input$review_profile
-    snap <- input$edit_osrm_profile
-    md <- input$mode
-    profile <- if (identical(md, "BatchReview") && isTRUE(sel %in% c("car", "official", "bus"))) {
-      sel
-    } else if (identical(md, "EditSamples") && isTRUE(snap %in% c("car", "official", "bus"))) {
-      snap
-    } else {
-      ROAD_PROFILE_FOR_CAR
-    }
-    session$sendCustomMessage("router_profile", list(profile = profile, url = router_tile_url(profile)))
+    session$sendCustomMessage("router_profile", list(profile = ROAD_PROFILE, url = router_tile_url(ROAD_PROFILE)))
   })
 
   # Helper: update points on the map
@@ -489,8 +485,8 @@ server <- function(input, output, session) {
     # Ignore clicks in Import File mode (uses uploaded file)
     if (current_mode == "Import") return()
 
-    # Batch review uses its own markers (right-click on the samples)
-    if (current_mode == "BatchReview") return()
+    # Batch review uses its own markers (right-click on the samples); Period only looks
+    if (current_mode %in% c("BatchReview", "Period")) return()
 
     pts <- temp_points()
 
@@ -865,7 +861,7 @@ server <- function(input, output, session) {
       # Apply same smoothing as OSRM
       route$coords <- smooth_osrm_route(route$coords, tolerance_m = 5, angle_min = 2)
     } else {
-      base_url <- OSRM_SERVERS[[profile]]
+      base_url <- OSRM_SERVERS[[osrm_profile_of(profile)]]
 
       if (is.null(base_url) || !check_osrm_server(base_url)) {
         show_osrm_offline_modal(base_url %||% tr("not configured"))
@@ -1656,7 +1652,12 @@ server <- function(input, output, session) {
             paste0("delete_", it$.internalId),
             tr("Delete"),
             class = "btn-sm btn-danger"
-          )
+          ),
+          # A trip's path: the route editor (Edit route), this trip loaded
+          if (!isTRUE(it$.isVisit)) {
+            shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-primary", `data-route-edit` = it$.internalId,
+                               title = tr("Edit the waypoints of a trip."), tr("Path"))
+          }
         )
       })
     )
@@ -1848,7 +1849,26 @@ server <- function(input, output, session) {
 
     # Check if there is a stored OSRM route
     route <- osrm_route()
-    if (!is.null(route) && is.matrix(route) && nrow(route) >= 2) {
+    ranges <- snap_ranges()
+    if (nrow(ranges) > 0 && length(virtual) > 0) {
+      # Routed stretches in green (their virtual samples), the rest as recorded (blue)
+      t_s <- edit_sample_times(samples)
+      inside <- vapply(t_s, function(x) !is.na(x) && any(x >= ranges$t0 & x <= ranges$t1), logical(1))
+      runs <- cumsum(c(TRUE, diff(inside) != 0))
+      for (r in unique(runs[!inside])) {
+        k <- which(runs == r)
+        k <- c(if (min(k) > 1) min(k) - 1L, k, if (max(k) < length(samples)) max(k) + 1L)  # touching the routed ends
+        proxy <- leaflet::addPolylines(proxy, lng = lngs[k], lat = lats[k], color = "blue", weight = 2, opacity = 0.6, group = "edit_path")
+      }
+      vv <- Filter(sample_has_coords, virtual)
+      t_v <- edit_sample_times(vv)
+      for (i in seq_len(nrow(ranges))) {
+        k <- which(t_v >= ranges$t0[i] & t_v <= ranges$t1[i])
+        if (length(k) < 2) next
+        proxy <- leaflet::addPolylines(proxy, lng = vapply(vv[k], sample_lon, 0), lat = vapply(vv[k], sample_lat, 0),
+                                       color = "#28a745", weight = 4, opacity = 0.8, group = "edit_path")
+      }
+    } else if (!is.null(route) && is.matrix(route) && nrow(route) >= 2) {
       # Draw the complete OSRM route (green)
       proxy <- proxy %>%
         leaflet::addPolylines(
@@ -2039,9 +2059,30 @@ server <- function(input, output, session) {
     session$sendCustomMessage("route_edit", list(scope = "edit", on = TRUE, fixed_ends = TRUE, ctrl = ctrl,
                                                  path = lapply(seq_len(nrow(line)), function(k) c(line[k, 2], line[k, 1]))))
   })
-  # Leaving Edit Samples leaves pin mode (Batch review has its own)
+  # Leaving Edit Samples leaves pin mode (Batch review has its own) and takes
+  # its layers off the map (Review shows the period); coming back draws them again
+  edit_layers_off <- shiny::reactiveVal(FALSE)   # TRUE: the editor's layers were taken off the map
   shiny::observeEvent(input$mode, {
     if (!identical(input$mode, "EditSamples") && isTRUE(edit_pin_mode())) set_edit_pin_mode(FALSE)
+    if (identical(input$mode, "EditSamples")) {
+      if (isTRUE(edit_layers_off()) && length(edit_samples())) render_edit_samples()
+      edit_layers_off(FALSE)
+    } else if (!isTRUE(edit_layers_off()) && length(edit_samples())) {
+      edit_layers_off(TRUE)
+      proxy <- leaflet::leafletProxy("map")
+      for (g in c("edit_samples", "edit_virtual", "edit_path", "edit_parts", "edit_pins")) proxy <- leaflet::clearGroup(proxy, g)
+    }
+  })
+  # The editor's header: the window loaded and its parts
+  output$editor_window <- shiny::renderUI({
+    smp <- edit_samples()
+    parts <- edit_parts()
+    current_lang()
+    if (length(smp) == 0) return(shiny::span(class = "editor-window", tr("Open an item from Review.")))
+    t <- range(edit_sample_times(smp), na.rm = TRUE)
+    lt <- function(x, f) format(as.POSIXct(x, origin = "1970-01-01", tz = "UTC"), f, tz = Sys.timezone())
+    shiny::span(class = "editor-window", paste0(lt(t[1], "%d/%m %H:%M"), "\u2013", lt(t[2], "%H:%M"), " \u00b7 ",
+                                                if (nrow(parts) == 1) tr("1 part") else sprintf(tr("%d parts"), nrow(parts))))
   })
   # Samples (lon, lat, t) of the loaded, not ignored, samples, by time
   edit_samples_df <- function() {
@@ -2069,37 +2110,16 @@ server <- function(input, output, session) {
     )
   })
 
-  shiny::observeEvent(input$load_samples, {
+  # Loads the samples of a window (local times) into the editor: the parts by
+  # timeline item, nothing routed yet. fetch: the weekly files from iCloud first.
+  edit_load_window <- function(start_local, end_local, fetch = FALSE) {
     edit_pins(NULL)
-    start_time_fmt <- format_time(input$edit_samples_time_start)
-    end_time_fmt <- format_time(input$edit_samples_time_end)
-
-    if (is.na(start_time_fmt) || is.na(end_time_fmt)) {
-      shiny::showNotification(tr("Invalid times."), type = "error")
-      return()
-    }
-
-    # Convert to UTC (assumes system local timezone)
-    start_local <- lubridate::ymd_hms(
-      paste(input$edit_samples_date_start, start_time_fmt),
-      tz = Sys.timezone()
-    )
-    end_local <- lubridate::ymd_hms(
-      paste(input$edit_samples_date_end, end_time_fmt),
-      tz = Sys.timezone()
-    )
-
-    if (is.na(start_local) || is.na(end_local)) {
-      shiny::showNotification(tr("Invalid date/time."), type = "error")
-      return()
-    }
-
     start_utc <- lubridate::with_tz(start_local, "UTC")
     end_utc <- lubridate::with_tz(end_local, "UTC")
 
     # Refresh the weekly files from iCloud first; on failure keep going with
     # whatever is already on disk
-    if (isTRUE(input$fetch_icloud) && icloud_available()) {
+    if (isTRUE(fetch) && icloud_available()) {
       fetch <- shiny::withProgress(message = tr("Fetching from iCloud..."), value = 0.3, {
         icloud_fetch_weeks(weeks_for_interval(start_utc, end_utc), lang = current_lang())
       })
@@ -2112,6 +2132,11 @@ server <- function(input, output, session) {
     }
 
     samples_raw <- load_samples_interval(start_utc, end_utc)
+    n_disabled <- attr(samples_raw, "n_disabled") %||% 0L
+    if (n_disabled > 0) {
+      shiny::showNotification(sprintf(tr("%d disabled samples left out (hidden in Arc, e.g. a recording a GPX import replaced)."), n_disabled),
+                              type = "message", duration = 8)
+    }
 
     if (length(samples_raw) == 0) {
       shiny::showNotification(tr("No samples found in the interval."), type = "warning")
@@ -2144,15 +2169,64 @@ server <- function(input, output, session) {
       original_timeline_item_id(NULL)
     }
     edit_samples(samples)
+    # The parts: one per timeline item of the window, with its type (items/ on disk)
+    items <- tryCatch(load_items(ITEMS_BACKUP_DIR, as.Date(start_local, tz = Sys.timezone()),
+                                 as.Date(end_local, tz = Sys.timezone())), error = function(e) NULL)
+    edit_parts(edit_default_parts(samples, items))
     osrm_route(NULL)  # Clear OSRM route when loading new samples
     virtual_samples(list())  # Clear virtual samples
+    snap_ranges(edit_ranges_empty())
     render_edit_samples()
-    bslib::accordion_panel_open("edit_samples_steps", "clean")  # next step
+    edit_layers_off(FALSE)
+    bslib::accordion_panel_open("edit_samples_steps", "parts")  # next step
 
     shiny::showNotification(
       sprintf(tr("%d samples loaded."), length(samples)),
       type = "message"
     )
+    TRUE
+  }
+
+  shiny::observeEvent(input$load_samples, {
+    start_time_fmt <- format_time(input$edit_samples_time_start)
+    end_time_fmt <- format_time(input$edit_samples_time_end)
+
+    if (is.na(start_time_fmt) || is.na(end_time_fmt)) {
+      shiny::showNotification(tr("Invalid times."), type = "error")
+      return()
+    }
+
+    # Convert to UTC (assumes system local timezone)
+    start_local <- lubridate::ymd_hms(
+      paste(input$edit_samples_date_start, start_time_fmt),
+      tz = Sys.timezone()
+    )
+    end_local <- lubridate::ymd_hms(
+      paste(input$edit_samples_date_end, end_time_fmt),
+      tz = Sys.timezone()
+    )
+
+    if (is.na(start_local) || is.na(end_local)) {
+      shiny::showNotification(tr("Invalid date/time."), type = "error")
+      return()
+    }
+
+    edit_load_window(start_local, end_local, fetch = isTRUE(input$fetch_icloud))
+  })
+
+  # An item (or it and a neighbour) opened from Review: its window in the
+  # editor's inputs, loaded from the local backup, the editor shown
+  shiny::observeEvent(input$period_open, {
+    o <- input$period_open
+    s <- as.POSIXct(as.numeric(o$s), origin = "1970-01-01", tz = Sys.timezone())
+    e <- as.POSIXct(as.numeric(o$e), origin = "1970-01-01", tz = Sys.timezone())
+    if (length(s) != 1 || length(e) != 1 || is.na(s) || is.na(e) || e < s) return()
+    shiny::updateDateInput(session, "edit_samples_date_start", value = as.Date(s, tz = Sys.timezone()))
+    shiny::updateTextInput(session, "edit_samples_time_start", value = format(s, "%H:%M:%S"))
+    shiny::updateDateInput(session, "edit_samples_date_end", value = as.Date(e, tz = Sys.timezone()))
+    shiny::updateTextInput(session, "edit_samples_time_end", value = format(e, "%H:%M:%S"))
+    session$sendCustomMessage("period_to_edit", list())
+    edit_load_window(s, e, fetch = FALSE)
   })
 
   # Capture marker drag
@@ -2182,6 +2256,7 @@ server <- function(input, output, session) {
     edit_samples(samples)
     osrm_route(NULL)  # Clear OSRM route when manually moving marker
     virtual_samples(list())  # Clear virtual samples
+    snap_ranges(edit_ranges_empty())
 
     # Redraw the line (without redrawing markers to keep drag)
     # Filter samples with valid location
@@ -2205,6 +2280,230 @@ server <- function(input, output, session) {
         group = "edit_path"
       )
   })
+
+  # Epoch seconds of a list of samples (NA when unparseable)
+  edit_sample_times <- function(ss) {
+    as.numeric(parse_timestamp_utc(vapply(ss, function(x) as.character(unlist(x$date) %||% NA_character_)[1], character(1))))
+  }
+  # The time range of the part chosen for Snap / Draw (NULL: the whole window)
+  snap_part_range <- function() {
+    parts <- edit_parts()
+    k <- suppressWarnings(as.integer(input$edit_snap_part))
+    if (nrow(parts) < 2 || length(k) != 1 || is.na(k) || k < 1 || k > nrow(parts)) return(NULL)
+    c(parts$t_start[k], parts$t_end[k])
+  }
+
+  # The active samples of a stretch (in time order) placed on a route (lon /
+  # lat matrix: OSRM, Google or a freehand drawing), with virtual samples along
+  # it; what was routed there before is replaced, the rest of the window kept
+  # (snap_ranges). project: each sample at its projection on the route (pins,
+  # exclusions); route_t (a time per route point, from map matching): each
+  # sample where the route is at its time; else by its time's share of the
+  # stretch. Returns list(n, n_virtual, km), or an error message.
+  edit_apply_route <- function(route_coords, active_samples, project = FALSE, route_t = NULL) {
+    samples <- edit_samples()
+    n <- length(active_samples)
+    lats <- vapply(active_samples, sample_lat, numeric(1))
+    lngs <- vapply(active_samples, sample_lon, numeric(1))
+    shiny::showNotification(tr("6/7 Interpolating samples..."), id = "snap_progress", duration = NULL, type = "message")
+
+    osrm_coords <- route_coords
+
+    # Defensively convert to numeric matrix
+    if (is.data.frame(osrm_coords)) {
+      osrm_coords <- as.matrix(osrm_coords)
+    }
+    if (is.list(osrm_coords) && !is.matrix(osrm_coords)) {
+      # If still a list, convert manually
+      osrm_coords <- do.call(rbind, lapply(osrm_coords, function(x) as.numeric(unlist(x))))
+    }
+    # Ensure it is a numeric matrix
+    storage.mode(osrm_coords) <- "double"
+
+    # Calculate accumulated distance on the OSRM route
+    n_osrm <- nrow(osrm_coords)
+    if (is.null(n_osrm) || n_osrm < 2) return(tr("OSRM route too short or invalid."))
+
+    # Store the OSRM route geometry for display
+    osrm_route(osrm_coords)
+
+    # Points with a direction change (>2 degrees) or > 50 m from the last kept one
+    relevant_points <- path_key_points(osrm_coords, angle_deg = 2, max_gap_m = 50)
+
+    # Filtered coordinates for virtual samples
+    filtered_coords <- osrm_coords[relevant_points, , drop = FALSE]
+    n_filtered <- nrow(filtered_coords)
+
+    cumulative_dist <- path_cumulative_m(osrm_coords)
+    total_dist <- cumulative_dist[n_osrm]
+
+    # For each active sample, interpolate position on the OSRM route
+    # using time proportion - extract timestamps with for loop
+    ts_vec <- numeric(n)
+    for (j in seq_len(n)) {
+      date_val <- active_samples[[j]]$date
+      if (is.list(date_val)) date_val <- unlist(date_val)[1]
+      ts_vec[j] <- as.numeric(as.POSIXct(as.character(date_val), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
+    }
+
+    t_min <- min(ts_vec)
+    t_max <- max(ts_vec)
+    t_range <- t_max - t_min
+    if (t_range <= 0) t_range <- 1
+
+    # Position on the OSRM route at the sample's time proportion (0 to 1)
+    new_xy <- if (project) {
+      # Through pins (or with excluded samples): each sample at its projection on the route (outliers by time)
+      o <- order(ts_vec)
+      xy <- matrix(NA_real_, n, 2)
+      xy[o, ] <- snap_positions_to_route(osrm_coords, data.frame(lon = lngs[o], lat = lats[o], t = ts_vec[o]))
+      xy
+    } else if (!is.null(route_t) && length(route_t) == n_osrm) {
+      cbind(stats::approx(route_t, osrm_coords[, 1], ts_vec, rule = 2, ties = "ordered")$y,
+            stats::approx(route_t, osrm_coords[, 2], ts_vec, rule = 2, ties = "ordered")$y)
+    } else {
+      path_points_at(osrm_coords, cumulative_dist, (ts_vec - t_min) / t_range * total_dist)
+    }
+    for (i in seq_len(n)) {
+      active_samples[[i]]$longitude <- unname(new_xy[i, 1])
+      active_samples[[i]]$latitude <- unname(new_xy[i, 2])
+    }
+
+    shiny::showNotification(tr("7/7 Finishing..."), id = "snap_progress", duration = NULL, type = "message")
+
+    # Recalculate bearings of active samples - uses for loop
+    coords_new <- matrix(0, nrow = length(active_samples), ncol = 2)
+    for (j in seq_along(active_samples)) {
+      coords_new[j, 1] <- as.numeric(active_samples[[j]]$longitude)
+      coords_new[j, 2] <- as.numeric(active_samples[[j]]$latitude)
+    }
+    bearings <- calculate_bearings(coords_new)
+
+    for (i in seq_along(active_samples)) {
+      active_samples[[i]]$course <- bearings[i]
+    }
+
+    # Update active samples back into the full list
+    active_ids <- character(length(active_samples))
+    for (j in seq_along(active_samples)) {
+      val <- active_samples[[j]]$id
+      if (is.null(val)) val <- paste0("sample_", j)
+      if (is.list(val)) val <- unlist(val)[1]
+      active_ids[j] <- as.character(val)
+    }
+
+    for (i in seq_along(samples)) {
+      sid <- samples[[i]]$id
+      if (is.null(sid)) next
+      if (is.list(sid)) sid <- unlist(sid)[1]
+      sid <- as.character(sid)
+      active_idx <- which(active_ids == sid)
+      if (length(active_idx) == 1) {
+        samples[[i]] <- active_samples[[active_idx]]
+      }
+    }
+
+    # ---- CREATE VIRTUAL SAMPLES from OSRM route ----
+    # Calculate accumulated distance for filtered points
+    cumulative_dist_filtered <- numeric(n_filtered)
+    cumulative_dist_filtered[1] <- 0
+    for (i in 2:n_filtered) {
+      # Use original point indices to calculate distance
+      idx_orig <- relevant_points[i]
+      cumulative_dist_filtered[i] <- cumulative_dist[idx_orig]
+    }
+
+    # Get timelineItemId from the first sample (for virtual samples)
+    ti_id_virtual <- NULL
+    if (length(active_samples) > 0 && !is.null(active_samples[[1]]$timelineItemId)) {
+      ti_id_virtual <- active_samples[[1]]$timelineItemId
+    }
+
+    # Create virtual samples interpolating timestamps
+    new_virtual_samples <- list()
+    for (i in seq_len(n_filtered)) {
+      # Distance-based proportion
+      prop <- if (total_dist > 0) cumulative_dist_filtered[i] / total_dist else 0
+
+      # Interpolate timestamp (a timed route: its own time there)
+      ts_virtual <- if (!is.null(route_t) && length(route_t) == n_osrm) route_t[relevant_points[i]] else t_min + prop * t_range
+      ts_utc <- as.POSIXct(ts_virtual, origin = "1970-01-01", tz = "UTC")
+      date_str <- format(ts_utc, "%Y-%m-%dT%H:%M:%SZ")
+
+      # Coordinates
+      lon_v <- filtered_coords[i, 1]
+      lat_v <- filtered_coords[i, 2]
+
+      # Calculate bearing to the next point
+      course_v <- 0
+      if (i < n_filtered) {
+        course_v <- geosphere::bearing(
+          c(filtered_coords[i, 1], filtered_coords[i, 2]),
+          c(filtered_coords[i + 1, 1], filtered_coords[i + 1, 2])
+        )
+        if (is.na(course_v)) course_v <- 0
+        if (course_v < 0) course_v <- course_v + 360
+      } else if (i > 1) {
+        # Last point: use bearing from previous
+        course_v <- geosphere::bearing(
+          c(filtered_coords[i - 1, 1], filtered_coords[i - 1, 2]),
+          c(filtered_coords[i, 1], filtered_coords[i, 2])
+        )
+        if (is.na(course_v)) course_v <- 0
+        if (course_v < 0) course_v <- course_v + 360
+      }
+
+      # Timezone lookup
+      tz_v <- tz_from_coords(lat_v, lon_v)
+      if (is.na(tz_v)) tz_v <- "UTC"
+      sec_gmt_v <- seconds_from_gmt(ts_utc, tz_v)
+
+      # Create virtual sample (LocoKit2 format)
+      sample_v <- list(
+        id = toupper(uuid::UUIDgenerate(use.time = TRUE)),
+        source = "LocoKit2",
+        sourceVersion = "9.0.0",
+        date = date_str,
+        secondsFromGMT = sec_gmt_v,
+        lastSaved = date_str,
+        latitude = lat_v,
+        longitude = lon_v,
+        altitude = 0,
+        horizontalAccuracy = 10,
+        verticalAccuracy = 10,
+        speed = 0,
+        course = course_v,
+        movingState = 1L,
+        recordingState = 2L,
+        classifiedActivityType = activity_type_code("car"),
+        confirmedActivityType = activity_type_code("car"),
+        stepHz = 0,
+        disabled = FALSE,
+        .virtual = TRUE
+      )
+
+      if (!is.null(ti_id_virtual)) {
+        sample_v$timelineItemId <- ti_id_virtual
+      }
+
+      new_virtual_samples[[length(new_virtual_samples) + 1L]] <- sample_v
+    }
+
+    # Store virtual samples: this stretch's replace what was routed there before
+    t_v <- function(vs) as.numeric(parse_timestamp_utc(vapply(vs, function(x) as.character(unlist(x$date))[1], character(1))))
+    old <- virtual_samples()
+    if (length(old)) old <- old[!(t_v(old) >= t_min & t_v(old) <= t_max)]
+    merged <- c(old, new_virtual_samples)
+    if (length(merged)) merged <- merged[order(t_v(merged))]
+    virtual_samples(merged)
+    snap_ranges(edit_ranges_add(snap_ranges(), t_min, t_max))
+
+    edit_samples(samples)
+    render_edit_samples()
+    bslib::accordion_panel_open("edit_samples_steps", "export")  # next step
+
+    list(n = n, n_virtual = length(new_virtual_samples), km = total_dist / 1000)
+  }
 
   # Snap-to-road OSRM route
   shiny::observeEvent(input$snap_to_road, {
@@ -2234,6 +2533,12 @@ server <- function(input, output, session) {
         ids[j] <- as.character(val)
       }
       active_samples <- samples[!ids %in% ignored]
+      # One part only (the Part select): its samples, its pins
+      rng <- snap_part_range()
+      if (!is.null(rng)) {
+        t_act <- edit_sample_times(active_samples)
+        active_samples <- active_samples[!is.na(t_act) & t_act >= rng[1] & t_act <= rng[2]]
+      }
 
       if (length(active_samples) < 2) {
         shiny::removeNotification("snap_progress")
@@ -2254,7 +2559,7 @@ server <- function(input, output, session) {
           return()
         }
       } else {
-        base_url <- OSRM_SERVERS[[profile]]
+        base_url <- OSRM_SERVERS[[osrm_profile_of(profile)]]
 
         if (is.null(base_url)) {
           shiny::removeNotification("snap_progress")
@@ -2299,28 +2604,34 @@ server <- function(input, output, session) {
       # Control pins (OSRM only): route start -> pins -> end, samples placed by projection.
       # Samples excluded by lasso aren't route waypoints; they are placed by projection too.
       pins_now <- edit_pins()
-      use_pins <- !uses_google && !is.null(pins_now) && nrow(pins_now) > 0
-      if (n > 100 && !uses_google && !use_pins) {
-        shiny::showNotification(
-          sprintf(tr("Too many samples (%d). Using only the first 100."), n),
-          type = "warning"
-        )
-        lats <- lats[1:100]
-        lngs <- lngs[1:100]
-        active_samples <- active_samples[1:100]
-        n <- 100
+      s_pin <- NULL
+      if (!uses_google && !is.null(pins_now) && nrow(pins_now) > 0) {
+        s_pin <- edit_samples_df()
+        if (!is.null(rng)) {
+          # the pins along this part of the recording only
+          d_all <- path_cumulative_m(cbind(s_pin$lon, s_pin$lat))
+          inr <- which(s_pin$t >= rng[1] & s_pin$t <= rng[2])
+          op_all <- order_pins(s_pin, pins_now)
+          pins_now <- pins_now[pins_now$id %in% op_all$id[op_all$d >= d_all[min(inr)] & op_all$d <= d_all[max(inr)]], , drop = FALSE]
+          s_pin <- s_pin[inr, , drop = FALSE]
+        }
       }
+      use_pins <- !uses_google && !is.null(pins_now) && nrow(pins_now) > 0
+      # OSRM takes up to 100 waypoints: then 100 samples spread over the stretch
+      # (every sample is still placed on the route)
+      route_pick <- rep(TRUE, n)
+      if (n > 100 && !uses_google && !use_pins) route_pick <- seq_len(n) %in% unique(round(seq(1, n, length.out = 100)))
 
       shiny::showNotification(sprintf(tr("5/7 Calculating route with %d points..."), n), id = "snap_progress", duration = NULL, type = "message")
 
       excl_now <- !uses_google & vapply(active_samples, function(x) as.character(unlist(x$id))[1] %in% edit_excluded(), logical(1))
-      if (all(excl_now[c(1, length(excl_now))] == FALSE) && sum(!excl_now) >= 2) {
-        lats_route <- lats[!excl_now]
-        lngs_route <- lngs[!excl_now]
+      if (all(excl_now[c(1, length(excl_now))] == FALSE) && sum(!excl_now & route_pick) >= 2) {
+        lats_route <- lats[!excl_now & route_pick]
+        lngs_route <- lngs[!excl_now & route_pick]
       } else {
         excl_now[] <- FALSE
-        lats_route <- lats
-        lngs_route <- lngs
+        lats_route <- lats[route_pick]
+        lngs_route <- lngs[route_pick]
       }
       pts <- data.frame(lat = lats_route, lng = lngs_route)
 
@@ -2335,14 +2646,27 @@ server <- function(input, output, session) {
           route$coords <- smooth_osrm_route(route$coords, tolerance_m = 5, angle_min = 2)
         }
       } else if (use_pins) {
-        s_pin <- edit_samples_df()
         op <- order_pins(s_pin, pins_now)
         ends <- s_pin[c(1, nrow(s_pin)), ]
         r <- osrm_route_via(rbind(c(ends$lon[1], ends$lat[1]), cbind(op$lon, op$lat), c(ends$lon[2], ends$lat[2])), profile,
                             bearings = c(NA, op$bearing, NA), radiuses = c(NA, rep(REVIEW_THRESHOLDS$pins$radius_m, nrow(op)), NA))
         route <- if (is.null(r)) NULL else list(coords = r$coords, distance_m = r$distance_m)
       } else {
-        route <- calculate_osrm_route(pts, profile = profile)
+        # Map matching first (it follows the recording, as Batch review does;
+        # each route point timed); a route through the samples when it fails
+        d_m <- data.frame(lon = lngs, lat = lats, t = edit_sample_times(active_samples),
+                          acc = vapply(active_samples, function(x) as.numeric(unlist(x$horizontalAccuracy) %||% 10)[1], 0))[!excl_now, , drop = FALSE]
+        mm <- tryCatch(osrm_match(cbind(d_m$lon, d_m$lat), d_m$t, match_radiuses(d_m$acc), profile = profile), error = function(e) NULL)
+        fx <- if (isTRUE(mm$ok)) tryCatch(road_timed_path(d_m, mm, profile), error = function(e) NULL)
+        route <- if (!is.null(fx) && nrow(fx$path) >= 2 && !anyNA(fx$path$t)) {
+          list(coords = cbind(fx$path$lon, fx$path$lat), t = fx$path$t)
+        } else {
+          if (!all(route_pick)) {
+            shiny::showNotification(sprintf(tr("%d samples: the route goes through 100 of them, spread along the stretch."), n),
+                                    type = "message")
+          }
+          calculate_osrm_route(pts, profile = profile)
+        }
       }
 
       if (is.null(route)) {
@@ -2360,202 +2684,14 @@ server <- function(input, output, session) {
         return()
       }
 
-      shiny::showNotification(tr("6/7 Interpolating samples..."), id = "snap_progress", duration = NULL, type = "message")
-
-      osrm_coords <- route$coords
-
-      # Defensively convert to numeric matrix
-      if (is.data.frame(osrm_coords)) {
-        osrm_coords <- as.matrix(osrm_coords)
-      }
-      if (is.list(osrm_coords) && !is.matrix(osrm_coords)) {
-        # If still a list, convert manually
-        osrm_coords <- do.call(rbind, lapply(osrm_coords, function(x) as.numeric(unlist(x))))
-      }
-      # Ensure it is a numeric matrix
-      storage.mode(osrm_coords) <- "double"
-
-      # Calculate accumulated distance on the OSRM route
-      n_osrm <- nrow(osrm_coords)
-      if (is.null(n_osrm) || n_osrm < 2) {
-        shiny::removeNotification("snap_progress")
-        shiny::showNotification(tr("OSRM route too short or invalid."), type = "error")
+      res <- edit_apply_route(route$coords, active_samples, project = use_pins || (any(excl_now) && is.null(route$t)), route_t = route$t)
+      shiny::removeNotification("snap_progress")
+      if (is.character(res)) {
+        shiny::showNotification(res, type = "error")
         return()
       }
-
-      # Store the OSRM route geometry for display
-      osrm_route(osrm_coords)
-
-      # Points with a direction change (>2 degrees) or > 50 m from the last kept one
-      relevant_points <- path_key_points(osrm_coords, angle_deg = 2, max_gap_m = 50)
-
-      # Filtered coordinates for virtual samples
-      filtered_coords <- osrm_coords[relevant_points, , drop = FALSE]
-      n_filtered <- nrow(filtered_coords)
-
-      cumulative_dist <- path_cumulative_m(osrm_coords)
-      total_dist <- cumulative_dist[n_osrm]
-
-      # For each active sample, interpolate position on the OSRM route
-      # using time proportion - extract timestamps with for loop
-      ts_vec <- numeric(n)
-      for (j in seq_len(n)) {
-        date_val <- active_samples[[j]]$date
-        if (is.list(date_val)) date_val <- unlist(date_val)[1]
-        ts_vec[j] <- as.numeric(as.POSIXct(as.character(date_val), format = "%Y-%m-%dT%H:%M:%SZ", tz = "UTC"))
-      }
-
-      t_min <- min(ts_vec)
-      t_max <- max(ts_vec)
-      t_range <- t_max - t_min
-      if (t_range <= 0) t_range <- 1
-
-      # Position on the OSRM route at the sample's time proportion (0 to 1)
-      new_xy <- if (use_pins || any(excl_now)) {
-        # Through pins (or with excluded samples): each sample at its projection on the route (outliers by time)
-        o <- order(ts_vec)
-        xy <- matrix(NA_real_, n, 2)
-        xy[o, ] <- snap_positions_to_route(osrm_coords, data.frame(lon = lngs[o], lat = lats[o], t = ts_vec[o]))
-        xy
-      } else {
-        path_points_at(osrm_coords, cumulative_dist, (ts_vec - t_min) / t_range * total_dist)
-      }
-      for (i in seq_len(n)) {
-        active_samples[[i]]$longitude <- unname(new_xy[i, 1])
-        active_samples[[i]]$latitude <- unname(new_xy[i, 2])
-      }
-
-      shiny::showNotification(tr("7/7 Finishing..."), id = "snap_progress", duration = NULL, type = "message")
-
-      # Recalculate bearings of active samples - uses for loop
-      coords_new <- matrix(0, nrow = length(active_samples), ncol = 2)
-      for (j in seq_along(active_samples)) {
-        coords_new[j, 1] <- as.numeric(active_samples[[j]]$longitude)
-        coords_new[j, 2] <- as.numeric(active_samples[[j]]$latitude)
-      }
-      bearings <- calculate_bearings(coords_new)
-
-      for (i in seq_along(active_samples)) {
-        active_samples[[i]]$course <- bearings[i]
-      }
-
-      # Update active samples back into the full list
-      active_ids <- character(length(active_samples))
-      for (j in seq_along(active_samples)) {
-        val <- active_samples[[j]]$id
-        if (is.null(val)) val <- paste0("sample_", j)
-        if (is.list(val)) val <- unlist(val)[1]
-        active_ids[j] <- as.character(val)
-      }
-
-      for (i in seq_along(samples)) {
-        sid <- samples[[i]]$id
-        if (is.null(sid)) next
-        if (is.list(sid)) sid <- unlist(sid)[1]
-        sid <- as.character(sid)
-        active_idx <- which(active_ids == sid)
-        if (length(active_idx) == 1) {
-          samples[[i]] <- active_samples[[active_idx]]
-        }
-      }
-
-      # ---- CREATE VIRTUAL SAMPLES from OSRM route ----
-      # Calculate accumulated distance for filtered points
-      cumulative_dist_filtered <- numeric(n_filtered)
-      cumulative_dist_filtered[1] <- 0
-      for (i in 2:n_filtered) {
-        # Use original point indices to calculate distance
-        idx_orig <- relevant_points[i]
-        cumulative_dist_filtered[i] <- cumulative_dist[idx_orig]
-      }
-
-      # Get timelineItemId from the first sample (for virtual samples)
-      ti_id_virtual <- NULL
-      if (length(active_samples) > 0 && !is.null(active_samples[[1]]$timelineItemId)) {
-        ti_id_virtual <- active_samples[[1]]$timelineItemId
-      }
-
-      # Create virtual samples interpolating timestamps
-      new_virtual_samples <- list()
-      for (i in seq_len(n_filtered)) {
-        # Distance-based proportion
-        prop <- if (total_dist > 0) cumulative_dist_filtered[i] / total_dist else 0
-
-        # Interpolate timestamp
-        ts_virtual <- t_min + prop * t_range
-        ts_utc <- as.POSIXct(ts_virtual, origin = "1970-01-01", tz = "UTC")
-        date_str <- format(ts_utc, "%Y-%m-%dT%H:%M:%SZ")
-
-        # Coordinates
-        lon_v <- filtered_coords[i, 1]
-        lat_v <- filtered_coords[i, 2]
-
-        # Calculate bearing to the next point
-        course_v <- 0
-        if (i < n_filtered) {
-          course_v <- geosphere::bearing(
-            c(filtered_coords[i, 1], filtered_coords[i, 2]),
-            c(filtered_coords[i + 1, 1], filtered_coords[i + 1, 2])
-          )
-          if (is.na(course_v)) course_v <- 0
-          if (course_v < 0) course_v <- course_v + 360
-        } else if (i > 1) {
-          # Last point: use bearing from previous
-          course_v <- geosphere::bearing(
-            c(filtered_coords[i - 1, 1], filtered_coords[i - 1, 2]),
-            c(filtered_coords[i, 1], filtered_coords[i, 2])
-          )
-          if (is.na(course_v)) course_v <- 0
-          if (course_v < 0) course_v <- course_v + 360
-        }
-
-        # Timezone lookup
-        tz_v <- tz_from_coords(lat_v, lon_v)
-        if (is.na(tz_v)) tz_v <- "UTC"
-        sec_gmt_v <- seconds_from_gmt(ts_utc, tz_v)
-
-        # Create virtual sample (LocoKit2 format)
-        sample_v <- list(
-          id = toupper(uuid::UUIDgenerate(use.time = TRUE)),
-          source = "LocoKit2",
-          sourceVersion = "9.0.0",
-          date = date_str,
-          secondsFromGMT = sec_gmt_v,
-          lastSaved = date_str,
-          latitude = lat_v,
-          longitude = lon_v,
-          altitude = 0,
-          horizontalAccuracy = 10,
-          verticalAccuracy = 10,
-          speed = 0,
-          course = course_v,
-          movingState = 1L,
-          recordingState = 2L,
-          classifiedActivityType = activity_type_code("car"),
-          confirmedActivityType = activity_type_code("car"),
-          stepHz = 0,
-          disabled = FALSE,
-          .virtual = TRUE
-        )
-
-        if (!is.null(ti_id_virtual)) {
-          sample_v$timelineItemId <- ti_id_virtual
-        }
-
-        new_virtual_samples[[length(new_virtual_samples) + 1L]] <- sample_v
-      }
-
-      # Store virtual samples
-      virtual_samples(new_virtual_samples)
-
-      edit_samples(samples)
-      render_edit_samples()
-      bslib::accordion_panel_open("edit_samples_steps", "export")  # next step
-
-      shiny::removeNotification("snap_progress")
       shiny::showNotification(
-        sprintf(tr("Snap-to-road complete! %d Arc samples + %d virtual (%.1f km)."),
-                n, length(new_virtual_samples), total_dist / 1000),
+        sprintf(tr("Snap-to-road complete! %d Arc samples + %d virtual (%.1f km)."), res$n, res$n_virtual, res$km),
         type = "message"
       )
     }, error = function(e) {
@@ -2566,6 +2702,80 @@ server <- function(input, output, session) {
         duration = NULL
       )
     })
+  })
+
+  # Freehand drawing (✏️ Draw): the chosen part's samples (or the whole
+  # window's) placed along the line drawn on the map, by time; for stretches
+  # no router can follow (a walk across a square, a station's passages)
+  shiny::observeEvent(input$edit_draw, {
+    path <- input$edit_draw$path
+    xy <- tryCatch(do.call(rbind, lapply(path, function(p) c(as.numeric(p[[2]]), as.numeric(p[[1]])))), error = function(e) NULL)
+    if (is.null(xy) || nrow(xy) < 2) return()
+    samples <- edit_samples()
+    ids <- vapply(seq_along(samples), function(j) as.character(unlist(samples[[j]]$id %||% paste0("sample_", j)))[1], "")
+    active <- samples[!ids %in% ignored_samples()]
+    rng <- snap_part_range() %||% c(-Inf, Inf)
+    t_act <- edit_sample_times(active)
+    keep <- !is.na(t_act) & t_act >= rng[1] & t_act <= rng[2]
+    active <- active[keep]
+    active <- active[order(t_act[keep])]
+    if (length(active) < 2) {
+      shiny::showNotification(tr("Load at least 2 samples (not ignored) for snap-to-road."), type = "error")
+      return()
+    }
+    first <- c(sample_lon(active[[1]]), sample_lat(active[[1]]))
+    last <- c(sample_lon(active[[length(active)]]), sample_lat(active[[length(active)]]))
+    xy <- edit_orient_path(xy, first, last)
+    res <- edit_apply_route(xy, active, project = FALSE)
+    shiny::removeNotification("snap_progress")
+    if (is.character(res)) {
+      shiny::showNotification(res, type = "error")
+      return()
+    }
+    shiny::showNotification(sprintf(tr("Drawn: %d samples placed along %.2f km."), res$n, res$km), type = "message")
+  })
+
+  # The part select of Snap / Draw (with 2 parts or more); choosing a part sets
+  # the profile its mode suggests (walk: Foot, car / bus: Road, rail: its own)
+  output$edit_snap_part_ui <- shiny::renderUI({
+    parts <- edit_parts()
+    lang <- current_lang()
+    if (nrow(parts) < 2) return(NULL)
+    labels <- vapply(seq_len(nrow(parts)), function(k) {
+      m <- parts$mode[k]
+      key <- names(ACTIVITY_CHOICES)[match(m, ACTIVITY_CHOICES)]
+      ml <- if (!nzchar(m)) tr("no mode") else if (m == "stationary") tr("Stationary") else if (is.na(key)) m else tr_lang(key, lang)
+      paste0(k, " \u00b7 ", part_time(parts$t_start[k]), "\u2013", part_time(parts$t_end[k]), " \u00b7 ", ml)
+    }, "")
+    choices <- c(stats::setNames("all", tr("Whole window")), stats::setNames(as.character(seq_len(nrow(parts))), labels))
+    sel <- shiny::isolate(input$edit_snap_part)
+    if (is.null(sel) || !sel %in% choices) sel <- "all"
+    shiny::div(class = "edit-snap-part", title = tr("What Snap and Draw route: one part (each with its own profile) or the whole window"),
+               shiny::selectInput("edit_snap_part", NULL, choices = choices, selected = sel, width = "100%"))
+  })
+  shiny::observeEvent(input$edit_snap_part, {
+    k <- suppressWarnings(as.integer(input$edit_snap_part))
+    parts <- edit_parts()
+    if (length(k) != 1 || is.na(k) || k < 1 || k > nrow(parts)) return()
+    prof <- edit_profile_for_mode(parts$mode[k])
+    if (!is.na(prof) && prof %in% profile_choices(SNAP_PROFILE_CHOICES)) shiny::updateSelectInput(session, "edit_osrm_profile", selected = prof)
+  }, ignoreInit = TRUE)
+
+  # A boundary moved to a sample (sample menu): the next part starts here / the previous one ends here
+  shiny::observeEvent(input$ctx_boundary, {
+    ev <- input$ctx_boundary
+    t <- sample_time_of(ev$id)
+    parts <- edit_parts()
+    side <- if (identical(ev$side, "prev")) "prev" else "next"
+    moved <- edit_move_boundary(parts, t, side)
+    if (is.na(t) || identical(moved, parts)) {
+      shiny::showNotification(tr("No part on that side of this sample."), type = "warning")
+      return()
+    }
+    edit_parts(moved)
+    k <- which(moved$t_start == t)
+    shiny::showNotification(sprintf(tr("Part %d now starts at %s. Route each part in step 2 (Part)."), k, part_time(t, "%H:%M:%S")),
+                            type = "message", duration = 8)
   })
 
   # ---- Context menu handlers ----
@@ -2697,6 +2907,116 @@ server <- function(input, output, session) {
     shiny::showNotification(tr("New sample inserted."), type = "message")
   })
 
+  # ---- Edit Samples: parts (each part's mode, split / join) ----
+  # Each part goes out as its own GPX track with its mode (Arc makes one item
+  # per track): by default one per timeline item of the window; "Split here"
+  # (sample menu) cuts one at a sample, × joins a part to the one before it.
+  sample_time_of <- function(sample_id) {
+    smp <- edit_samples()
+    hit <- Filter(function(s) identical(as.character(unlist(s$id))[1], sample_id), smp)
+    if (length(hit) == 0) return(NA_real_)
+    as.numeric(parse_timestamp_utc(as.character(unlist(hit[[1]]$date))[1]))
+  }
+  part_time <- function(t, fmt = "%H:%M") format(as.POSIXct(t, origin = "1970-01-01", tz = "UTC"), fmt, tz = Sys.timezone())
+
+  shiny::observeEvent(input$ctx_split, {
+    req(input$ctx_split)
+    t <- sample_time_of(input$ctx_split$id)
+    parts <- edit_parts()
+    split <- edit_split_parts(parts, t)
+    if (is.na(t) || nrow(split) == nrow(parts)) {
+      shiny::showNotification(tr("Can't split here: choose a sample inside a part (not its first or last)."), type = "warning")
+      return()
+    }
+    edit_parts(split)
+    shiny::showNotification(sprintf(tr("Split at %s: %d parts. Choose each part's mode in step 3 (Export)."),
+                                    part_time(t, "%H:%M:%S"), nrow(split)), type = "message", duration = 8)
+  })
+
+  shiny::observeEvent(input$edit_part_mode, {
+    ev <- input$edit_part_mode
+    parts <- edit_parts()
+    k <- suppressWarnings(as.integer(ev$k))
+    mode <- as.character(ev$mode %||% "")
+    if (length(k) != 1 || is.na(k) || k < 1 || k > nrow(parts) || !(mode == "" || mode %in% names(ACTIVITY_TYPES))) return()
+    parts$mode[k] <- mode
+    parts$visit[k] <- parts$visit[k] && mode == "stationary"  # a visit given another mode is a trip now
+    edit_parts(parts)
+  })
+
+  shiny::observeEvent(input$edit_part_join, {
+    k <- input$edit_part_join$k
+    edit_parts(if (identical(k, "all")) edit_join_all(edit_parts()) else edit_join_parts(edit_parts(), k))
+  })
+
+  output$edit_parts <- shiny::renderUI({
+    lang <- current_lang()
+    parts <- edit_parts()
+    if (nrow(parts) == 0) return(NULL)
+    choices <- c(stats::setNames("", tr("— choose the mode —")), stats::setNames("stationary", tr("Stationary")),
+                 tr_choices(ACTIVITY_CHOICES, lang))
+    mode_select <- function(k) {
+      opts <- lapply(seq_along(choices), function(j) {
+        shiny::tags$option(value = unname(choices[j]), selected = if (identical(unname(choices[j]), parts$mode[k])) NA,
+                           names(choices)[j])
+      })
+      shiny::tags$select(class = paste("form-select form-select-sm", if (!nzchar(parts$mode[k])) "is-invalid"),
+                         `data-edit-part` = k, title = tr("Activity type of this part in the GPX"), opts)
+    }
+    if (nrow(parts) == 1) {
+      return(shiny::div(class = "edit-parts", shiny::div(class = "edit-part-row edit-part-one", shiny::span(class = "dt-label", tr("Mode")),
+                                                         mode_select(1))))
+    }
+    rows <- lapply(seq_len(nrow(parts)), function(k) {
+      shiny::div(
+        class = "edit-part-row",
+        shiny::span(class = "edit-part-n", k),
+        shiny::span(class = "edit-part-time", title = paste0(part_time(parts$t_start[k], "%H:%M:%S"), "–", part_time(parts$t_end[k], "%H:%M:%S")),
+                    paste0(part_time(parts$t_start[k]), "–", part_time(parts$t_end[k])),
+                    if (parts$visit[k]) shiny::span(class = "edit-part-visit", tr("visit"))),
+        mode_select(k),
+        if (k > 1) {
+          shiny::tags$button(type = "button", class = "btn btn-sm btn-outline-secondary", `data-edit-part-join` = k,
+                             title = tr("Join with the part before"), "×")
+        } else shiny::span()
+      )
+    })
+    shiny::div(
+      class = "edit-parts",
+      shiny::div(class = "edit-parts-head",
+                 shiny::span(title = tr("Right-click a sample → Split here cuts a part; × joins a part to the one before it."),
+                             sprintf(tr("%d parts, one GPX track each"), nrow(parts))),
+                 shiny::tags$button(type = "button", class = "btn btn-sm btn-link", `data-edit-part-join` = "all", tr("Join all"))),
+      rows
+    )
+  })
+
+  # The parts' boundaries on the map, numbered (on the snapped route once snapped)
+  shiny::observe({
+    parts <- edit_parts()
+    mode <- input$mode
+    virtual <- virtual_samples()
+    smp <- edit_samples()
+    proxy <- leaflet::clearGroup(leaflet::leafletProxy("map"), "edit_parts")
+    if (!identical(mode, "EditSamples") || nrow(parts) < 2) return()
+    pts <- if (length(virtual)) virtual else smp
+    d <- data.frame(lon = vapply(pts, sample_lon, numeric(1)), lat = vapply(pts, sample_lat, numeric(1)),
+                    t = as.numeric(parse_timestamp_utc(vapply(pts, function(s) as.character(unlist(s$date) %||% NA)[1], character(1)))))
+    d <- d[stats::complete.cases(d), , drop = FALSE]
+    d <- d[order(d$t), , drop = FALSE]
+    d <- d[!duplicated(d$t), , drop = FALSE]
+    if (nrow(d) < 2) return()
+    cut <- parts$t_start[-1]
+    lon <- stats::approx(d$t, d$lon, cut, rule = 2)$y
+    lat <- stats::approx(d$t, d$lat, cut, rule = 2)$y
+    leaflet::addCircleMarkers(
+      proxy, lng = lon, lat = lat, radius = 7, color = "white", weight = 2, fillColor = "#6A1B9A", fillOpacity = 1,
+      group = "edit_parts", label = paste0(seq_along(cut) + 1L, " \u00b7 ", part_time(cut, "%H:%M:%S")),
+      labelOptions = leaflet::labelOptions(noHide = TRUE, direction = "right", offset = c(8, 0), className = "pin-label"),
+      options = leaflet::pathOptions(bubblingMouseEvents = FALSE)
+    )
+  })
+
   # ---- Bulk actions (selection) ----
 
   # Ignore selected
@@ -2745,11 +3065,29 @@ server <- function(input, output, session) {
   })
 
   # Edit export package (item + samples) from the current Edit Samples state.
-  # Same sample selection for the zip and GPX exports. NULL if nothing to export.
+  # Same sample selection for the zip and GPX exports, the item with the first
+  # part's mode. NULL if nothing to export.
   edit_export_package <- function(mode, now_utc) {
-    samples <- select_edit_export_samples(edit_samples(), ignored_samples(), virtual_samples())
+    samples <- select_edit_export_samples(edit_samples(), ignored_samples(), virtual_samples(), snap_ranges())
     if (length(samples) == 0) return(NULL)
-    build_edit_package(samples, original_samples(), original_timeline_item_id(), mode, now_utc)
+    first_mode <- edit_parts()$mode[1]
+    code <- if (isTRUE(nzchar(first_mode))) ACTIVITY_TYPES[[first_mode]]
+    build_edit_package(samples, original_samples(), original_timeline_item_id(), mode, now_utc, activity_code = code)
+  }
+
+  # Every part has its mode (else a notice): checked before any export. The
+  # Arc JSON package holds one item: with several parts, GPX only.
+  edit_parts_ready <- function(single = FALSE) {
+    parts <- edit_parts()
+    if (single && nrow(parts) > 1) {
+      shiny::showNotification(tr("The Arc JSON package holds one trip: with several parts, export as GPX."), type = "error")
+      return(FALSE)
+    }
+    if (any(!nzchar(parts$mode))) {
+      shiny::showNotification(tr("Choose the mode of each part (step 3) before exporting."), type = "error", duration = 8)
+      return(FALSE)
+    }
+    TRUE
   }
 
   # ---- Download corrected samples as LocoKit2 zip ----
@@ -2777,6 +3115,7 @@ server <- function(input, output, session) {
         return()
       }
 
+      if (!edit_parts_ready(single = TRUE)) return()
       mode <- input$edit_export_mode %||% "additive"
       current_timestamp <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
       pkg <- edit_export_package(mode, current_timestamp)
@@ -2833,8 +3172,9 @@ server <- function(input, output, session) {
         shiny::showNotification(tr("No samples to export."), type = "error")
         return()
       }
+      if (!edit_parts_ready()) return()
 
-      writeLines(build_edit_gpx(pkg, now_utc, original_samples()), file)
+      writeLines(build_edit_gpx(pkg, now_utc, original_samples(), edit_parts()), file)
       n_points <- sum(vapply(pkg$samples, sample_has_coords, logical(1)))
       shiny::showNotification(sprintf(tr("Exported GPX with %d points"), n_points), type = "message")
     }
@@ -2860,6 +3200,7 @@ server <- function(input, output, session) {
       shiny::showNotification(tr("No samples to export."), type = "error")
       return()
     }
+    if (!edit_parts_ready(single = TRUE)) return()
 
     now_utc <- format(Sys.time(), "%Y-%m-%dT%H:%M:%SZ", tz = "UTC")
     pkg <- edit_export_package(input$edit_export_mode %||% "additive", now_utc)
@@ -2899,11 +3240,12 @@ server <- function(input, output, session) {
       shiny::showNotification(tr("No samples to export."), type = "error")
       return()
     }
+    if (!edit_parts_ready()) return()
 
     gpx_name <- edit_gpx_filename(pkg)
     gpx_path <- file.path(tempfile("arc_gpx_"), gpx_name)
     dir.create(dirname(gpx_path))
-    writeLines(build_edit_gpx(pkg, now_utc, original_samples()), gpx_path)
+    writeLines(build_edit_gpx(pkg, now_utc, original_samples(), edit_parts()), gpx_path)
 
     res <- shiny::withProgress(message = tr("Sending GPX to iCloud..."), value = 0.3, {
       icloud_push_file(gpx_path, subdir = "GPX", lang = current_lang())
@@ -2929,9 +3271,11 @@ server <- function(input, output, session) {
     edit_samples(list())
     original_samples(list())
     original_timeline_item_id(NULL)
+    edit_parts(edit_parts_empty())
     ignored_samples(character(0))
     osrm_route(NULL)
     virtual_samples(list())
+    snap_ranges(edit_ranges_empty())
     temp_points(data.frame(lat = numeric(0), lng = numeric(0)))
     leaflet::leafletProxy("map") %>%
       leaflet::clearGroup("waypoints") %>%
@@ -2939,7 +3283,8 @@ server <- function(input, output, session) {
       leaflet::clearGroup("imported") %>%
       leaflet::clearGroup("edit_samples") %>%
       leaflet::clearGroup("edit_virtual") %>%
-      leaflet::clearGroup("edit_path")
+      leaflet::clearGroup("edit_path") %>%
+      leaflet::clearGroup("edit_parts")
     shiny::showNotification(tr("Timeline, samples and map cleared."), type = "message")
   })
 
@@ -3098,6 +3443,13 @@ server <- function(input, output, session) {
 
   # ---- Route Editing ----
 
+  # A trip of the day timeline opened in the route editor (its Path button)
+  pending_route_id <- shiny::reactiveVal(NULL)
+  shiny::observeEvent(input$timeline_route_edit, {
+    pending_route_id(input$timeline_route_edit$id)
+    session$sendCustomMessage("route_edit_open", list(id = input$timeline_route_edit$id))
+  })
+
   # Update route selector when entering "EditRoute" mode
   shiny::observe({
     if (input$mode != "EditRoute") return()
@@ -3139,9 +3491,11 @@ server <- function(input, output, session) {
     # Invert to have ID as value
     choices <- stats::setNames(names(options_list), options_list)
 
+    want <- shiny::isolate(pending_route_id())
     shiny::updateSelectInput(session, "selected_route",
                              choices = choices,
-                             selected = choices[1])
+                             selected = if (!is.null(want) && want %in% choices) want else choices[1])
+    pending_route_id(NULL)
   })
 
   # Helper function to render editable route
@@ -3582,6 +3936,7 @@ server <- function(input, output, session) {
 
   # ---- Batch review (R/server_review.R) ----
   review_server(input, output, session, tr, current_lang)
+  period_server(input, output, session, tr, current_lang)
 
   # Download links can sit in collapsed panels, other tabs or the ⚙ menu:
   # keep their URLs set even while hidden

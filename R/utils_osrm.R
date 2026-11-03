@@ -78,25 +78,41 @@ smooth_osrm_route <- function(coords, tolerance_m = 5, angle_min = 1) {
   final
 }
 
-# Local OSRM servers (adjust ports if needed)
-OSRM_SERVERS <- list(
-  car  = "http://127.0.0.1:5000",
-  foot = "http://127.0.0.1:5001",
-  bike = "http://127.0.0.1:5002",
-  bus  = "http://127.0.0.1:5003",
-  official = "http://127.0.0.1:5005",  # car + bus/psv roads + wrong-way (official.lua)
-  `official-noturn` = "http://127.0.0.1:5006"  # official ignoring turn restrictions (a pin's "Ignore" rule)
+# Local OSRM servers (adjust ports if needed). One road profile, official
+# (official.lua: the car profile plus bus/psv roads, plain access=no ways and
+# wrong-way driving), routes every car, taxi and bus trip: the car (5000) and
+# bus (5003) servers were retired on 03/11.
+# OSRM_HOST (config_local.R): the machine running the OSRM containers, e.g.
+# its Tailscale address when the app runs elsewhere (they listen on every
+# interface); OSRM_SERVERS can also be set whole.
+OSRM_HOST <- if (exists("OSRM_HOST")) OSRM_HOST else "127.0.0.1"
+OSRM_SERVERS <- if (exists("OSRM_SERVERS")) OSRM_SERVERS else list(
+  official = paste0("http://", OSRM_HOST, ":5005"),  # the road profile (official.lua)
+  foot = paste0("http://", OSRM_HOST, ":5001"),
+  bike = paste0("http://", OSRM_HOST, ":5002"),
+  `official-noturn` = paste0("http://", OSRM_HOST, ":5006")  # official ignoring turn restrictions (a pin's "Ignore" rule)
 )
 
 # Mapping of app profiles to OSRM profiles
 OSRM_PROFILES <- list(
-  car  = "driving",
+  official = "driving",
   foot = "foot",
   bike = "bicycle",
-  bus  = "driving",  # custom profile based on driving
-  official = "driving",
   `official-noturn` = "driving"
 )
+
+# The road profile (config_local.R can override)
+ROAD_PROFILE <- if (exists("ROAD_PROFILE")) ROAD_PROFILE else "official"
+# Names that route on ROAD_PROFILE: the Route Builder's Car and Bus modes, and
+# the former car / bus profiles in states saved before 03/11
+OSRM_ROAD_ALIASES <- c("car", "bus")
+
+# The OSRM profile a name routes on (an alias: ROAD_PROFILE)
+osrm_profile_of <- function(profile) {
+  p <- as.character(profile)
+  p[p %in% OSRM_ROAD_ALIASES] <- ROAD_PROFILE
+  p
+}
 
 # Classes excluded by default per profile (OSRM exclude=): official.lua marks
 # the wrong-way direction of oneways as wwminor (minor streets) or wwmajor
@@ -110,7 +126,7 @@ OSRM_DEFAULT_EXCLUDE <- list(official = "wwmajor", `official-noturn` = "wwmajor"
 # official-noturn is not a profile to pick: only pins with "Restricted turns:
 # Ignore" use it.
 OSRM_ENABLED_PROFILES <- if (exists("OSRM_ENABLED_PROFILES")) OSRM_ENABLED_PROFILES else
-  c("car", "foot", "bus", "official", "official-noturn")
+  c("official", "foot", "official-noturn")
 
 # Configured OSRM profiles that are enabled, in OSRM_SERVERS order
 osrm_enabled_profiles <- function() intersect(names(OSRM_SERVERS), OSRM_ENABLED_PROFILES)
@@ -211,7 +227,7 @@ osrm_maintenance_notice <- function(m, lang = APP_LANGUAGE) {
   sprintf(tr_lang("%s. Try again when it ends; the status dot turns green again.", lang), osrm_maintenance_text(m, lang))
 }
 
-check_osrm_server <- function(base_url, profile = "car") {
+check_osrm_server <- function(base_url, profile = ROAD_PROFILE) {
   # try a minimal request just to check if the server responds
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
   test_url <- paste0(base_url, "/route/v1/", osrm_profile, "/0,0;0,0")
@@ -225,7 +241,7 @@ check_osrm_server <- function(base_url, profile = "car") {
 # exclude: OSRM classes to avoid (NULL: the profile's default, osrm_exclude_for)
 calculate_osrm_route <- function(points, profile = c("car", "official", "foot", "bike", "bus", "official-noturn"),
                                  exclude = NULL) {
-  profile <- match.arg(profile)
+  profile <- osrm_profile_of(match.arg(profile))
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
   if (is.null(base_url)) return(NULL)
@@ -458,7 +474,7 @@ extract_coords_from_samples <- function(samples) {
 #   n_dropped   = points sent but not matched)
 osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "official", "bus", "foot", "bike", "official-noturn"),
                        chunk_size = 100, tidy = TRUE, overlap = 20, exclude = NULL) {
-  profile <- match.arg(profile)
+  profile <- osrm_profile_of(match.arg(profile))
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
   n <- nrow(coords)
@@ -611,7 +627,7 @@ osrm_match <- function(coords, timestamps, radiuses, profile = c("car", "officia
 # or NULL.
 osrm_route_via <- function(coords, profile = c("car", "official", "bus", "foot", "bike", "official-noturn"),
                            bearings = NULL, radiuses = NULL, bearing_range = 60, chunk_size = 80, exclude = NULL) {
-  profile <- match.arg(profile)
+  profile <- osrm_profile_of(match.arg(profile))
   base_url <- OSRM_SERVERS[[profile]]
   osrm_profile <- OSRM_PROFILES[[profile]] %||% "driving"
   n <- nrow(coords)

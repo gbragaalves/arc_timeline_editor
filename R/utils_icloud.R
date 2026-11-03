@@ -12,6 +12,8 @@ ICLOUD_ARC_DIR   <- if (exists("ICLOUD_ARC_DIR"))   ICLOUD_ARC_DIR   else "Arc T
 ICLOUD_BACKUP_ID <- if (exists("ICLOUD_BACKUP_ID")) ICLOUD_BACKUP_ID else NULL  # NULL = auto-detect
 # Monthly timeline items (items/YYYY-MM.json), next to the weekly samples
 ITEMS_BACKUP_DIR <- if (exists("ITEMS_BACKUP_DIR")) ITEMS_BACKUP_DIR else file.path(dirname(WEEKLY_BACKUP_DIR), "items")
+# Arc's places (places/N.json: the names of the visits' places), next to them
+PLACES_BACKUP_DIR <- if (exists("PLACES_BACKUP_DIR")) PLACES_BACKUP_DIR else file.path(dirname(WEEKLY_BACKUP_DIR), "places")
 
 # Session cache (availability, active backup ID, last error output)
 .icloud_state <- new.env(parent = emptyenv())
@@ -139,12 +141,12 @@ icloud_fetch_weeks <- function(weeks, dest = WEEKLY_BACKUP_DIR, lang = "en") {
   list(ok = TRUE, message = msg, weeks = got)
 }
 
-# Copy the whole active backup's samples/ into samples_dest and items/ into
-# items_dest (rclone copy: only changed files are downloaded, nothing is
-# deleted locally). on_step(fraction, label) reports progress (e.g. setProgress
+# Copy the whole active backup's samples/ into samples_dest, items/ into
+# items_dest and places/ into places_dest (rclone copy: only changed files are
+# downloaded, nothing is deleted locally). on_step(fraction, label) reports progress (e.g. setProgress
 # inside withProgress). Returns list(ok, message).
 icloud_fetch_all <- function(samples_dest = WEEKLY_BACKUP_DIR, items_dest = ITEMS_BACKUP_DIR,
-                             lang = "en", on_step = NULL) {
+                             lang = "en", on_step = NULL, places_dest = PLACES_BACKUP_DIR) {
   step <- function(fraction, label) if (is.function(on_step)) on_step(fraction, label)
 
   step(0.05, icloud_msg("Finding the active backup...", lang))
@@ -155,7 +157,8 @@ icloud_fetch_all <- function(samples_dest = WEEKLY_BACKUP_DIR, items_dest = ITEM
 
   parts <- list(
     list(sub = "samples", dest = samples_dest, label = icloud_msg("Fetching samples...", lang), at = 0.15),
-    list(sub = "items",   dest = items_dest,   label = icloud_msg("Fetching items...", lang),   at = 0.85)
+    list(sub = "items",   dest = items_dest,   label = icloud_msg("Fetching items...", lang),   at = 0.85),
+    list(sub = "places",  dest = places_dest,  label = icloud_msg("Fetching places...", lang),  at = 0.95)
   )
   for (p in parts) {
     step(p$at, p$label)
